@@ -50,6 +50,7 @@ const labels: Record<string, string> = {
   departmentId: "Avdeling",
   departmentName: "Ny avdeling",
   domainIds: "Domener",
+  newDomainName: "Nytt domene",
   personTagIds: "Persontagger",
 };
 function display(
@@ -167,7 +168,7 @@ export function ContactAiPanel({
               size="sm"
               disabled={
                 busy ||
-                !state.data?.hasConversations ||
+                (feature !== "hierarchy" && !state.data?.hasConversations) ||
                 settings.data?.modes[feature] !== "manual" ||
                 !settings.data?.hasToken
               }
@@ -194,7 +195,8 @@ export function ContactAiPanel({
       )}
       {!state.data?.hasConversations && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Legg til en tillatt samtale for å bruke disse funksjonene.
+          Hierarki kan foreslås fra kontaktfeltene. Legg til en tillatt samtale for stikkord og
+          feltforslag.
         </p>
       )}
       {pending.length > 0 && (

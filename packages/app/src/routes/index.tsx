@@ -30,6 +30,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Star,
   Tag as TagIcon,
   Tags,
@@ -1637,7 +1638,13 @@ function Home() {
           </button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 md:p-6">
+      <main
+        className={
+          page === "organizations" && !selectedId
+            ? "flex min-w-0 flex-1 flex-col p-4 md:p-6 lg:h-screen lg:overflow-hidden"
+            : "min-w-0 flex-1 p-4 md:p-6"
+        }
+      >
         {error && (
           <div role="alert" className="mb-4 rounded-xl bg-risk-soft px-4 py-3 text-sm text-risk">
             {error}
@@ -5503,17 +5510,19 @@ function OrganizationGraph({
   companies,
   selection,
   onSelect,
-  onOpenContact,
-  expandedContactId,
-  onExpandedContactChange,
+  onOpenNode,
+  onCloseNode,
+  activeNode,
+  viewportHeight,
 }: {
   data: Data;
   companies: Company[];
   selection: OrganizationSelection;
   onSelect: (selection: OrganizationSelection) => void;
-  onOpenContact: (id: string) => void;
-  expandedContactId: string | null;
-  onExpandedContactChange: (id: string | null) => void;
+  onOpenNode: (kind: "company" | "contact", id: string, anchor: Element) => void;
+  onCloseNode: () => void;
+  activeNode: { kind: "company" | "contact"; id: string } | null;
+  viewportHeight: number;
 }) {
   const reducedMotion = useReducedMotion();
   const transition = reducedMotion ? { duration: 0 } : graphSpring;
@@ -5558,6 +5567,8 @@ function OrganizationGraph({
   const totalWidth =
     columns.reduce((sum, column) => sum + column.width, 0) + Math.max(0, columns.length - 1) * 50;
   const graphWidth = Math.max(900, totalWidth + 100, domains.length * 190 + 100);
+  const graphHeight = Math.max(560, viewportHeight);
+  const yOffset = Math.max(0, (graphHeight - 500) / 2);
   const [canvasWidth, setCanvasWidth] = useState(graphWidth);
   useEffect(() => {
     if (graphWidth === canvasWidth) return;
@@ -5606,7 +5617,7 @@ function OrganizationGraph({
     kind: "domain",
     label: domain.name,
     x: domainX(index),
-    y: 35,
+    y: 35 + yOffset,
     color: domain.color,
   }));
   const edges: GraphEdge[] = [];
@@ -5620,9 +5631,9 @@ function OrganizationGraph({
         edges.push({
           id: `domain:${domain.id}:company:${company.id}`,
           x1: domainX(index),
-          y1: 85,
+          y1: 85 + yOffset,
           x2: center,
-          y2: 180,
+          y2: 180 + yOffset,
           color: colors[domain.color],
         });
       }
@@ -5635,7 +5646,7 @@ function OrganizationGraph({
       kind: "company",
       label: company.name,
       x: center,
-      y: 180,
+      y: 180 + yOffset,
     });
     groups.forEach((group) => {
       const directContact =
@@ -5652,14 +5663,14 @@ function OrganizationGraph({
               directContact?.position?.trim() ||
               "Ingen kort beskrivelse",
         x: group.x,
-        y: 318,
+        y: 318 + yOffset,
       });
       edges.push({
         id: `company:${company.id}:${group.type}:${group.id}`,
         x1: center,
-        y1: 230,
+        y1: 230 + yOffset,
         x2: group.x,
-        y2: 318,
+        y2: 318 + yOffset,
         color: "var(--border)",
       });
       group.people.forEach((person, index) => {
@@ -5671,50 +5682,26 @@ function OrganizationGraph({
           label: person.name,
           subtitle: person.description?.trim() || person.position?.trim() || group.name,
           x,
-          y: 420,
+          y: 420 + yOffset,
         });
         edges.push({
           id: `department:${group.id}:contact:${person.id}`,
           x1: group.x,
-          y1: 374,
+          y1: 374 + yOffset,
           x2: x,
-          y2: 420,
+          y2: 420 + yOffset,
           color: "var(--border)",
         });
       });
     });
   });
-  const expandedNode = nodes.find(
-    (node) => node.kind === "contact" && node.entityId === expandedContactId,
-  );
-  const expandedContact = expandedNode
-    ? data.contacts.find((contact) => contact.id === expandedNode.entityId)
-    : null;
-  const expandedCompany = expandedContact
-    ? data.companies.find((candidate) => candidate.id === expandedContact.companyId)
-    : null;
-  const expandedDepartment = expandedContact?.departmentId
-    ? data.departments.find((candidate) => candidate.id === expandedContact.departmentId)
-    : null;
-  const expandedLeft = expandedNode
-    ? Math.max(16, Math.min(graphWidth - 376, expandedNode.x - 180))
-    : 0;
-  const expandedTop = expandedNode ? (expandedNode.y > 350 ? 295 : 305) : 0;
-  useEffect(() => {
-    if (!expandedContactId) return;
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onExpandedContactChange(null);
-    };
-    window.addEventListener("keydown", onEscape);
-    return () => window.removeEventListener("keydown", onEscape);
-  }, [expandedContactId, onExpandedContactChange]);
   return (
     <motion.svg
-      className="mt-4 block"
+      className="block"
       initial={false}
       animate={{ width: Math.max(canvasWidth, graphWidth) }}
       transition={transition}
-      height="560"
+      height={graphHeight}
       role="group"
       aria-label={
         selection.kind === "domain"
@@ -5729,12 +5716,7 @@ function OrganizationGraph({
           <circle cx="12" cy="12" r="1" fill="var(--border)" />
         </pattern>
       </defs>
-      <rect
-        width="100%"
-        height="100%"
-        fill="url(#organization-graph-dots)"
-        onClick={() => onExpandedContactChange(null)}
-      />
+      <rect width="100%" height="100%" fill="url(#organization-graph-dots)" onClick={onCloseNode} />
       <AnimatePresence initial={false}>
         {edges.map((edge) => (
           <motion.line
@@ -5767,11 +5749,9 @@ function OrganizationGraph({
                   ? 210
                   : 220;
           const height = node.kind === "contact" ? 72 : node.kind === "department" ? 56 : 50;
-          const activate = () => {
+          const activate = (anchor: Element) => {
             if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
-            else if (node.kind === "company") onSelect({ kind: "company", id: node.entityId });
-            else if (node.kind === "contact")
-              onExpandedContactChange(expandedContactId === node.entityId ? null : node.entityId);
+            else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
           };
           return (
             <motion.g
@@ -5797,13 +5777,13 @@ function OrganizationGraph({
                     : `Vis ${node.label}`
                   : undefined
               }
-              onClick={interactive ? activate : undefined}
+              onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
               onKeyDown={
                 interactive
                   ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        activate();
+                        activate(event.currentTarget);
                       }
                     }
                   : undefined
@@ -5827,7 +5807,9 @@ function OrganizationGraph({
                   node.kind === "domain"
                     ? colors[node.color ?? "blue"]
                     : node.kind === "company" ||
-                        (node.kind === "contact" && expandedContactId === node.entityId)
+                        (node.kind === "contact" &&
+                          activeNode?.kind === "contact" &&
+                          activeNode.id === node.entityId)
                       ? "var(--primary)"
                       : "var(--border)"
                 }
@@ -5863,83 +5845,16 @@ function OrganizationGraph({
         })}
       </AnimatePresence>
       <AnimatePresence>
-        {expandedNode && expandedContact && (
-          <motion.g
-            key={expandedContact.id}
-            initial={{
-              opacity: 0,
-              x: expandedNode.x - 180,
-              y: expandedNode.y - 15,
-              scale: 0.58,
-            }}
-            animate={{ opacity: 1, x: expandedLeft, y: expandedTop, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.74, y: expandedNode.y - 15 }}
-            transition={transition}
-            style={{ transformBox: "fill-box", transformOrigin: "top center" }}
-          >
-            <foreignObject x="0" y="0" width="360" height="236">
-              <div
-                role="region"
-                aria-label={`Kontaktkort for ${expandedContact.name}`}
-                className="flex h-[236px] w-[360px] flex-col overflow-hidden rounded-2xl border border-primary/30 bg-card p-4 text-foreground shadow-xl"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-base font-semibold">{expandedContact.name}</h3>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {expandedCompany?.name ?? "Uten organisasjon"}
-                      {expandedDepartment ? ` · ${expandedDepartment.name}` : ""}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 shrink-0"
-                    aria-label="Lukk kontaktkort"
-                    onClick={() => onExpandedContactChange(null)}
-                  >
-                    <X size={15} />
-                  </Button>
-                </div>
-                {expandedContact.position && (
-                  <p className="mt-2 truncate text-xs text-muted-foreground">
-                    {expandedContact.position}
-                  </p>
-                )}
-                <p className="mt-3 line-clamp-3 text-sm leading-5">
-                  {expandedContact.description?.trim() || "Ingen kort beskrivelse er lagt til."}
-                </p>
-                <div className="mt-3">
-                  <ContactStatusBadge status={expandedContact.status} />
-                </div>
-                <div className="mt-auto flex items-end justify-between gap-3 pt-3">
-                  <span className="min-w-0 truncate text-xs text-muted-foreground">
-                    {expandedContact.email || expandedContact.phone || ""}
-                  </span>
-                  <Button
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => onOpenContact(expandedContact.id)}
-                  >
-                    Gå til kontakt
-                  </Button>
-                </div>
-              </div>
-            </foreignObject>
-          </motion.g>
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
         {companies.length === 0 && (
           <motion.text
             key="empty"
             x={graphWidth / 2}
-            y="235"
+            y={235 + yOffset}
             textAnchor="middle"
             fill="var(--muted-foreground)"
-            initial={{ opacity: 0, y: 220 }}
-            animate={{ opacity: 1, y: 235 }}
-            exit={{ opacity: 0, y: 220 }}
+            initial={{ opacity: 0, y: 220 + yOffset }}
+            animate={{ opacity: 1, y: 235 + yOffset }}
+            exit={{ opacity: 0, y: 220 + yOffset }}
             transition={transition}
           >
             Ingen organisasjoner i dette utvalget.
@@ -5966,26 +5881,47 @@ function OrganizationMap({
   const [selection, setSelection] = useState<OrganizationSelection>(
     initialCompanyId ? { kind: "company", id: initialCompanyId } : { kind: "all" },
   );
-  const [expandedContactId, setExpandedContactId] = useState<string | null>(null);
-  function chooseSelection(next: OrganizationSelection) {
-    setExpandedContactId(null);
-    setSelection(next);
-  }
-  const [newDept, setNewDept] = useState("");
+  const [activeNode, setActiveNode] = useState<{
+    kind: "company" | "contact";
+    id: string;
+    anchor: Element;
+  } | null>(null);
+  const [domainOpen, setDomainOpen] = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [domainSearch, setDomainSearch] = useState("");
+  const [companySearch, setCompanySearch] = useState("");
+  const [domainActiveIndex, setDomainActiveIndex] = useState(0);
+  const [companyActiveIndex, setCompanyActiveIndex] = useState(0);
+  const [domainDialogOpen, setDomainDialogOpen] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [domainColor, setDomainColor] = useState<Color>("blue");
-  const domainCompanies = data.companies.filter(
-    (candidate) =>
-      selection.kind !== "domain" ||
-      data.companyDomains.some(
-        (link) => link.companyId === candidate.id && link.domainId === selection.id,
-      ),
-  );
-  const graphCompanies =
-    selection.kind === "company"
-      ? data.companies.filter((candidate) => candidate.id === selection.id)
-      : domainCompanies;
-  const company =
+  const [newDept, setNewDept] = useState("");
+  const [loiCompanyId, setLoiCompanyId] = useState<string | null>(null);
+  const [summaryScope, setSummaryScope] = useState<{
+    kind: "company" | "domain";
+    id: string;
+    name: string;
+  } | null>(null);
+  const graphRef = useRef<HTMLElement>(null);
+  const [viewportHeight, setViewportHeight] = useState(560);
+
+  useEffect(() => {
+    const element = graphRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() =>
+      setViewportHeight(Math.max(560, element.clientHeight)),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  function chooseSelection(next: OrganizationSelection) {
+    setActiveNode(null);
+    setSelection(next);
+    setDomainOpen(false);
+    setCompanyOpen(false);
+  }
+  const selectedCompany =
     selection.kind === "company"
       ? (data.companies.find((candidate) => candidate.id === selection.id) ?? null)
       : null;
@@ -5993,205 +5929,530 @@ function OrganizationMap({
     selection.kind === "domain"
       ? (data.domains.find((candidate) => candidate.id === selection.id) ?? null)
       : null;
-  const domains = company
-    ? data.domains.filter((d) =>
-        data.companyDomains.some((x) => x.companyId === company.id && x.domainId === d.id),
+  const graphCompanies = data.companies.filter((candidate) =>
+    selection.kind === "company"
+      ? candidate.id === selection.id
+      : selection.kind === "domain"
+        ? data.companyDomains.some(
+            (link) => link.companyId === candidate.id && link.domainId === selection.id,
+          )
+        : true,
+  );
+  const popupCompany =
+    activeNode?.kind === "company"
+      ? (data.companies.find((candidate) => candidate.id === activeNode.id) ?? null)
+      : null;
+  const popupContact =
+    activeNode?.kind === "contact"
+      ? (data.contacts.find((candidate) => candidate.id === activeNode.id) ?? null)
+      : null;
+  const popupCompanyDomains = popupCompany
+    ? data.domains.filter((domain) =>
+        data.companyDomains.some(
+          (link) => link.companyId === popupCompany.id && link.domainId === domain.id,
+        ),
       )
     : [];
-  const people = company
-    ? data.contacts.filter((c) => c.companyId === company.id && c.status !== "duplicate")
+  const popupPeople = popupCompany
+    ? data.contacts.filter(
+        (contact) => contact.companyId === popupCompany.id && contact.status !== "duplicate",
+      )
     : [];
-  async function createDept(e: FormEvent) {
-    e.preventDefault();
-    if (!company) return;
-    await mutate("/departments", { companyId: company.id, name: newDept });
+  const loiCompany = loiCompanyId
+    ? (data.companies.find((candidate) => candidate.id === loiCompanyId) ?? null)
+    : null;
+  const filteredDomains = data.domains.filter((domain) =>
+    domain.name.toLocaleLowerCase("nb-NO").includes(domainSearch.trim().toLocaleLowerCase("nb-NO")),
+  );
+  const filteredCompanies = data.companies.filter((candidate) =>
+    candidate.name
+      .toLocaleLowerCase("nb-NO")
+      .includes(companySearch.trim().toLocaleLowerCase("nb-NO")),
+  );
+  const showCreateDomain =
+    !domainSearch.trim() ||
+    !data.domains.some(
+      (domain) =>
+        domain.name.trim().normalize("NFKC").toLocaleLowerCase("nb-NO") ===
+        domainSearch.trim().normalize("NFKC").toLocaleLowerCase("nb-NO"),
+    );
+  function openCreateDomain() {
+    setNewDomain(domainSearch.trim());
+    setDomainOpen(false);
+    setDomainDialogOpen(true);
+  }
+
+  async function createDept(event: FormEvent) {
+    event.preventDefault();
+    if (!popupCompany || !newDept.trim()) return;
+    await mutate("/departments", { companyId: popupCompany.id, name: newDept.trim() });
     setNewDept("");
   }
-  async function createDomain(e: FormEvent) {
-    e.preventDefault();
-    const tag = await mutate<Domain>("/domains", { name: newDomain, color: domainColor });
+  async function createDomain(event: FormEvent) {
+    event.preventDefault();
+    if (!newDomain.trim()) return;
+    const tag = await mutate<Domain>("/domains", { name: newDomain.trim(), color: domainColor });
     setNewDomain("");
-    if (company)
-      await mutate(`/companies/${company.id}/domains`, {
-        domainIds: [...domains.map((d) => d.id), tag.id],
-      });
+    setDomainDialogOpen(false);
+    chooseSelection({ kind: "domain", id: tag.id });
   }
   async function toggleDomain(id: string) {
-    if (!company) return;
-    await mutate(`/companies/${company.id}/domains`, {
-      domainIds: domains.some((d) => d.id === id)
-        ? domains.filter((d) => d.id !== id).map((d) => d.id)
-        : [...domains.map((d) => d.id), id],
+    if (!popupCompany) return;
+    const currentIds = popupCompanyDomains.map((domain) => domain.id);
+    await mutate(`/companies/${popupCompany.id}/domains`, {
+      domainIds: currentIds.includes(id)
+        ? currentIds.filter((domainId) => domainId !== id)
+        : [...currentIds, id],
+      expected: { domainIds: currentIds },
     });
   }
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold">Organisasjoner</h1>
-      <p className="text-sm text-muted-foreground">Domene → organisasjon → avdeling → kontakt</p>
-      <div className="mt-5 grid gap-4 xl:grid-cols-[230px_minmax(0,1fr)_280px]">
-        <aside className="glass rounded-2xl p-3">
-          <h2 className="px-2 font-semibold">Domener</h2>
-          <button
-            className={`mt-2 w-full rounded-lg px-3 py-2 text-left text-sm ${selection.kind === "all" ? "bg-primary-soft text-primary" : "hover:bg-muted"}`}
-            onClick={() => chooseSelection({ kind: "all" })}
+    <div className="flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Organisasjoner</h1>
+          <p className="text-sm text-muted-foreground">
+            Domene → organisasjon → avdeling → kontakt
+          </p>
+        </div>
+        <nav aria-label="Filtrer organisasjonsgrafen" className="flex flex-wrap items-center gap-2">
+          <Popover
+            open={domainOpen}
+            onOpenChange={(open) => {
+              setDomainOpen(open);
+              if (open) {
+                setCompanyOpen(false);
+                setDomainSearch("");
+                setDomainActiveIndex(0);
+              }
+            }}
           >
-            Alle
-          </button>
-          {data.domains.map((d) => (
-            <button
-              key={d.id}
-              className={`mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${selection.kind === "domain" && selection.id === d.id ? "bg-primary-soft text-primary" : "hover:bg-muted"}`}
-              onClick={() => chooseSelection({ kind: "domain", id: d.id })}
+            <PopoverTrigger
+              type="button"
+              className="inline-flex h-9 min-w-36 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-sm shadow-sm hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
-              <span className="size-2 rounded-full" style={{ backgroundColor: colors[d.color] }} />
-              {d.name}
-            </button>
-          ))}
-          <h2 className="mt-6 px-2 font-semibold">Organisasjoner</h2>
-          <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">
-            {data.companies.map((c) => (
-              <button
-                key={c.id}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm ${selection.kind === "company" && selection.id === c.id ? "bg-primary-soft text-primary" : "hover:bg-muted"}`}
-                onClick={() => chooseSelection({ kind: "company", id: c.id })}
+              <TagIcon size={15} className="text-muted-foreground" />
+              <span className="max-w-36 truncate">{selectedDomain?.name ?? "Domener"}</span>
+              <ChevronDown size={14} className="text-muted-foreground" />
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-2">
+              <Input
+                autoFocus
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={domainOpen}
+                aria-controls="organization-domain-options"
+                aria-activedescendant={
+                  domainActiveIndex < filteredDomains.length
+                    ? `organization-domain-${filteredDomains[domainActiveIndex]?.id}`
+                    : showCreateDomain
+                      ? "organization-domain-create"
+                      : undefined
+                }
+                aria-label="Søk i domener"
+                placeholder="Søk eller opprett domene …"
+                value={domainSearch}
+                onChange={(event) => {
+                  setDomainSearch(event.target.value);
+                  setDomainActiveIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  const count = filteredDomains.length + (showCreateDomain ? 1 : 0);
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    if (count)
+                      setDomainActiveIndex(
+                        (current) =>
+                          (current + (event.key === "ArrowDown" ? 1 : -1) + count) % count,
+                      );
+                  } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    const picked = filteredDomains[domainActiveIndex];
+                    if (picked) chooseSelection({ kind: "domain", id: picked.id });
+                    else if (showCreateDomain) openCreateDomain();
+                  }
+                }}
+              />
+              <div
+                id="organization-domain-options"
+                role="listbox"
+                className="mt-2 max-h-64 overflow-y-auto"
               >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </aside>
-        <section className="overflow-x-auto rounded-2xl border border-border bg-card p-4 shadow-card">
-          <h2 className="font-semibold">Relasjoner</h2>
-          <OrganizationGraph
-            data={data}
-            companies={graphCompanies}
-            selection={selection}
-            onSelect={chooseSelection}
-            onOpenContact={onOpenContact}
-            expandedContactId={expandedContactId}
-            onExpandedContactChange={setExpandedContactId}
-          />
-        </section>
-        <aside className="space-y-4">
-          {selection.kind === "company" && company && (
-            <GroupAiSummary kind="company" id={company.id} name={company.name} />
-          )}
-          {selection.kind === "domain" && selectedDomain && (
-            <GroupAiSummary kind="domain" id={selectedDomain.id} name={selectedDomain.name} />
-          )}
-          {!company && (
-            <Card className="p-4">
-              <h2 className="font-semibold">{selectedDomain?.name ?? "Alle organisasjoner"}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {graphCompanies.length} organisasjoner i grafen
-              </p>
-              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto">
-                {graphCompanies.map((candidate) => (
+                {filteredDomains.map((domain, index) => (
+                  <button
+                    key={domain.id}
+                    id={`organization-domain-${domain.id}`}
+                    role="option"
+                    aria-selected={domainActiveIndex === index}
+                    type="button"
+                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-muted ${domainActiveIndex === index ? "bg-muted" : ""}`}
+                    onMouseEnter={() => setDomainActiveIndex(index)}
+                    onClick={() => chooseSelection({ kind: "domain", id: domain.id })}
+                  >
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: colors[domain.color] }}
+                    />
+                    <span className="truncate">{domain.name}</span>
+                  </button>
+                ))}
+                {!filteredDomains.length && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">Ingen treff.</p>
+                )}
+              </div>
+              {showCreateDomain && (
+                <button
+                  id="organization-domain-create"
+                  type="button"
+                  className={`mt-1 flex w-full items-center gap-2 rounded-lg border-t border-border px-2 py-2 text-left text-sm text-primary hover:bg-primary-soft ${domainActiveIndex === filteredDomains.length ? "bg-primary-soft" : ""}`}
+                  onMouseEnter={() => setDomainActiveIndex(filteredDomains.length)}
+                  onClick={openCreateDomain}
+                >
+                  <Plus size={15} />{" "}
+                  {domainSearch.trim() ? `Opprett «${domainSearch.trim()}»` : "Nytt domene"}
+                </button>
+              )}
+            </PopoverContent>
+          </Popover>
+          <Button size="sm" variant="outline" onClick={() => chooseSelection({ kind: "all" })}>
+            Vis alt
+          </Button>
+          <Popover
+            open={companyOpen}
+            onOpenChange={(open) => {
+              setCompanyOpen(open);
+              if (open) {
+                setDomainOpen(false);
+                setCompanySearch("");
+                setCompanyActiveIndex(0);
+              }
+            }}
+          >
+            <PopoverTrigger
+              type="button"
+              className="inline-flex h-9 min-w-40 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-sm shadow-sm hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              <Building2 size={15} className="text-muted-foreground" />
+              <span className="max-w-40 truncate">{selectedCompany?.name ?? "Organisasjoner"}</span>
+              <ChevronDown size={14} className="text-muted-foreground" />
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-2">
+              <Input
+                autoFocus
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={companyOpen}
+                aria-controls="organization-company-options"
+                aria-activedescendant={
+                  filteredCompanies[companyActiveIndex]
+                    ? `organization-company-${filteredCompanies[companyActiveIndex].id}`
+                    : undefined
+                }
+                aria-label="Søk i organisasjoner"
+                placeholder="Søk i organisasjoner …"
+                value={companySearch}
+                onChange={(event) => {
+                  setCompanySearch(event.target.value);
+                  setCompanyActiveIndex(0);
+                }}
+                onKeyDown={(event) => {
+                  const count = filteredCompanies.length;
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    if (count)
+                      setCompanyActiveIndex(
+                        (current) =>
+                          (current + (event.key === "ArrowDown" ? 1 : -1) + count) % count,
+                      );
+                  } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    const picked = filteredCompanies[companyActiveIndex];
+                    if (picked) chooseSelection({ kind: "company", id: picked.id });
+                  }
+                }}
+              />
+              <div
+                id="organization-company-options"
+                role="listbox"
+                className="mt-2 max-h-72 overflow-y-auto"
+              >
+                {filteredCompanies.map((candidate, index) => (
                   <button
                     key={candidate.id}
+                    id={`organization-company-${candidate.id}`}
+                    role="option"
+                    aria-selected={companyActiveIndex === index}
                     type="button"
-                    className="block w-full rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                    className={`block w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-muted ${companyActiveIndex === index ? "bg-muted" : ""}`}
+                    onMouseEnter={() => setCompanyActiveIndex(index)}
                     onClick={() => chooseSelection({ kind: "company", id: candidate.id })}
                   >
                     {candidate.name}
                   </button>
                 ))}
+                {!filteredCompanies.length && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">Ingen treff.</p>
+                )}
               </div>
-            </Card>
+            </PopoverContent>
+          </Popover>
+          {(selectedCompany || selectedDomain) && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setSummaryScope(
+                  selectedCompany
+                    ? { kind: "company", id: selectedCompany.id, name: selectedCompany.name }
+                    : { kind: "domain", id: selectedDomain!.id, name: selectedDomain!.name },
+                )
+              }
+            >
+              <Sparkles size={15} /> Viktigste funn
+            </Button>
           )}
-          {company && (
-            <Card className="p-4">
-              <h2 className="font-semibold">{company.name}</h2>
+        </nav>
+      </header>
+      <section
+        ref={graphRef}
+        className="relative min-h-[560px] min-w-0 flex-1 overflow-auto rounded-2xl border border-border bg-card shadow-card"
+        aria-label="Relasjoner"
+      >
+        <OrganizationGraph
+          data={data}
+          companies={graphCompanies}
+          selection={selection}
+          onSelect={chooseSelection}
+          onOpenNode={(kind, id, anchor) =>
+            setActiveNode((current) =>
+              current?.kind === kind && current.id === id ? null : { kind, id, anchor },
+            )
+          }
+          onCloseNode={() => setActiveNode(null)}
+          activeNode={activeNode}
+          viewportHeight={viewportHeight}
+        />
+      </section>
+      <Popover
+        open={!!activeNode}
+        onOpenChange={(open) => {
+          if (!open) setActiveNode(null);
+        }}
+      >
+        <PopoverContent
+          anchor={activeNode?.anchor}
+          side="right"
+          align="start"
+          className="max-h-[min(620px,calc(100vh-24px))] w-[min(360px,calc(100vw-24px))] overflow-y-auto p-4"
+        >
+          {popupCompany && (
+            <div>
+              <h2 className="pr-6 text-lg font-semibold">{popupCompany.name}</h2>
               <label className="mt-4 block text-xs text-muted-foreground">
                 Status
                 <Select
-                  value={company.status}
-                  onValueChange={(status) => void mutate(`/companies/${company.id}`, { status })}
+                  value={popupCompany.status}
+                  onValueChange={(status) =>
+                    void mutate(`/companies/${popupCompany.id}`, {
+                      status,
+                      expected: { status: popupCompany.status },
+                    })
+                  }
                   items={companyStatuses.map(([value, label]) => ({ value, label }))}
                 />
               </label>
-              <p className="mt-4 text-xs text-muted-foreground">Domener</p>
+              <p className="mt-4 text-xs font-medium text-muted-foreground">Domener</p>
               <div className="mt-2 flex flex-wrap gap-2">
-                {data.domains.map((d) => (
-                  <button
-                    key={d.id}
-                    className={`rounded-lg border px-2 py-1 text-xs ${domains.some((x) => x.id === d.id) ? "bg-card" : "bg-muted opacity-60"}`}
-                    style={{ borderColor: colors[d.color] }}
-                    onClick={() => void toggleDomain(d.id)}
-                  >
-                    {d.name}
-                  </button>
-                ))}
+                {data.domains.map((domain) => {
+                  const linked = popupCompanyDomains.some((item) => item.id === domain.id);
+                  return (
+                    <button
+                      key={domain.id}
+                      type="button"
+                      aria-pressed={linked}
+                      disabled={busy}
+                      className={`rounded-lg border px-2 py-1 text-xs transition-colors ${linked ? "bg-card" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+                      style={{ borderColor: colors[domain.color] }}
+                      onClick={() => void toggleDomain(domain.id)}
+                    >
+                      <span
+                        className="mr-1.5 inline-block size-2 rounded-full"
+                        style={{ backgroundColor: colors[domain.color] }}
+                      />
+                      {domain.name}
+                    </button>
+                  );
+                })}
+                {!data.domains.length && (
+                  <span className="text-xs text-muted-foreground">Ingen domener ennå.</span>
+                )}
               </div>
-              <p className="mt-4 text-xs text-muted-foreground">Kontakter ({people.length})</p>
+              <p className="mt-4 text-xs font-medium text-muted-foreground">
+                Kontakter ({popupPeople.length})
+              </p>
               <div className="mt-2 space-y-1">
-                {people.map((p) => (
+                {popupPeople.map((person) => (
                   <button
-                    key={p.id}
-                    className="block w-full rounded-lg px-2 py-1 text-left text-sm hover:bg-muted"
-                    onClick={() => onOpenContact(p.id)}
+                    key={person.id}
+                    type="button"
+                    className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => onOpenContact(person.id)}
                   >
-                    {p.name}
+                    {person.name}
                   </button>
                 ))}
+                {!popupPeople.length && (
+                  <p className="text-xs text-muted-foreground">Ingen kontakter ennå.</p>
+                )}
               </div>
-              <form className="mt-4 flex gap-2" onSubmit={(e) => void createDept(e)}>
+              <form className="mt-4 flex gap-2" onSubmit={(event) => void createDept(event)}>
                 <Input
                   placeholder="Ny avdeling"
+                  aria-label="Ny avdeling"
                   value={newDept}
-                  onChange={(e) => setNewDept(e.target.value)}
+                  onChange={(event) => setNewDept(event.target.value)}
                   required
                 />
                 <Button type="submit" size="sm" variant="outline" disabled={busy}>
                   Legg til
                 </Button>
               </form>
-            </Card>
-          )}
-          <Card className="p-4">
-            <h2 className="font-semibold">Nytt domene</h2>
-            <form className="mt-3 space-y-2" onSubmit={(e) => void createDomain(e)}>
-              <Input
-                placeholder="Navn"
-                required
-                value={newDomain}
-                onChange={(e) => setNewDomain(e.target.value)}
-              />
-              <div
-                className="grid w-full max-w-xs grid-cols-5 gap-2 py-1"
-                role="group"
-                aria-label="Farge"
-              >
-                {(Object.keys(colors) as Color[]).map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    title={colorLabels[color]}
-                    aria-label={`Velg ${colorLabels[color]} farge`}
-                    aria-pressed={domainColor === color}
-                    onClick={() => setDomainColor(color)}
-                    className={`aspect-square w-full rounded-lg transition-[transform,box-shadow] hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${domainColor === color ? "ring-2 ring-foreground ring-offset-2" : ""}`}
-                    style={{ backgroundColor: colors[color] }}
-                  />
-                ))}
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setSummaryScope({
+                      kind: "company",
+                      id: popupCompany.id,
+                      name: popupCompany.name,
+                    })
+                  }
+                >
+                  <Sparkles size={14} /> Viktigste funn
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setLoiCompanyId(popupCompany.id)}
+                >
+                  <FileText size={14} /> Intensjonsavtale
+                </Button>
               </div>
-              <Button type="submit" size="sm" disabled={busy}>
-                Opprett domene
-              </Button>
-            </form>
-          </Card>
-        </aside>
-      </div>
-      {company && (
-        <div className="mt-5">
-          <LoiPanel
-            key={company.id}
-            company={company}
-            members={data.members}
-            contacts={people.map((person) => ({ id: person.id, name: person.name }))}
-          />
-        </div>
-      )}
+            </div>
+          )}
+          {popupContact && (
+            <div>
+              <h2 className="pr-6 text-lg font-semibold">{popupContact.name}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {data.companies.find((candidate) => candidate.id === popupContact.companyId)?.name}
+                {popupContact.departmentId
+                  ? ` · ${data.departments.find((department) => department.id === popupContact.departmentId)?.name ?? ""}`
+                  : ""}
+              </p>
+              {popupContact.position && (
+                <p className="mt-3 text-xs text-muted-foreground">{popupContact.position}</p>
+              )}
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-5">
+                {popupContact.description?.trim() || "Ingen kort beskrivelse er lagt til."}
+              </p>
+              <div className="mt-3">
+                <ContactStatusBadge status={popupContact.status} />
+              </div>
+              <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-3">
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  {popupContact.email || popupContact.phone || ""}
+                </span>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => onOpenContact(popupContact.id)}
+                >
+                  Gå til kontakt
+                </Button>
+              </div>
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+      <Dialog open={domainDialogOpen} onOpenChange={setDomainDialogOpen}>
+        <DialogContent>
+          <DialogTitle>Nytt domene</DialogTitle>
+          <DialogDescription>Velg navn og farge for domenet.</DialogDescription>
+          <form className="mt-5 space-y-4" onSubmit={(event) => void createDomain(event)}>
+            <Input
+              autoFocus
+              placeholder="Navn"
+              aria-label="Domenenavn"
+              required
+              value={newDomain}
+              onChange={(event) => setNewDomain(event.target.value)}
+            />
+            <div className="grid grid-cols-5 gap-3" role="group" aria-label="Farge">
+              {(Object.keys(colors) as Color[]).map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  title={colorLabels[color]}
+                  aria-label={`Velg ${colorLabels[color]} farge`}
+                  aria-pressed={domainColor === color}
+                  onClick={() => setDomainColor(color)}
+                  className={`aspect-square w-full rounded-lg transition-[transform,box-shadow] hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${domainColor === color ? "ring-2 ring-foreground ring-offset-2" : ""}`}
+                  style={{ backgroundColor: colors[color] }}
+                />
+              ))}
+            </div>
+            <Button type="submit" disabled={busy}>
+              Opprett domene
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!summaryScope}
+        onOpenChange={(open) => {
+          if (!open) setSummaryScope(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          {summaryScope && (
+            <>
+              <DialogTitle>Viktigste funn</DialogTitle>
+              <div className="mt-4">
+                <GroupAiSummary key={`${summaryScope.kind}:${summaryScope.id}`} {...summaryScope} />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!loiCompanyId}
+        onOpenChange={(open) => {
+          if (!open) setLoiCompanyId(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-[min(92vw,1200px)] overflow-y-auto">
+          {loiCompany && (
+            <>
+              <DialogTitle>Intensjonsavtale · {loiCompany.name}</DialogTitle>
+              <div className="mt-4">
+                <LoiPanel
+                  key={loiCompany.id}
+                  company={loiCompany}
+                  members={data.members}
+                  contacts={data.contacts
+                    .filter(
+                      (person) =>
+                        person.companyId === loiCompany.id && person.status !== "duplicate",
+                    )
+                    .map((person) => ({ id: person.id, name: person.name }))}
+                />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

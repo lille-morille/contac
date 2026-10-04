@@ -617,6 +617,10 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       }
       return row;
     });
+    if (result && result.allowExternalAi)
+      queueMicrotask(() => {
+        void runContactAutomations(deps, orgId, [result.id], ["hierarchy"]);
+      });
     return result
       ? c.json(result, 201)
       : c.json({ error: "Organization, department, or tag not found" }, 404);
@@ -719,6 +723,14 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (row && changes.allowExternalAi === true && !current.allowExternalAi)
       queueMicrotask(() => {
         void runContactAutomations(deps, orgId, [row.id]);
+      });
+    else if (
+      row &&
+      row.allowExternalAi &&
+      ["name", "companyId", "departmentId", "position", "description"].some((key) => key in changes)
+    )
+      queueMicrotask(() => {
+        void runContactAutomations(deps, orgId, [row.id], ["hierarchy"]);
       });
     if (row) return c.json(row);
     const [latest] = await deps.db
