@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["import", "react", "typescript", "unicorn"],
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "dev-scraper/**",
+    "**/dist/**",
+    "**/.output/**",
+    "**/.tanstack/**",
+    "**/routeTree.gen.ts",
+    "supabase/**"
+  ],
+  "rules": {
+    "no-console": "off",
+    "typescript/no-explicit-any": "error"
+  }
+}

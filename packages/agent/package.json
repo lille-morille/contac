@@ -1,0 +1,5 @@
+{
+  "name": "@contac/agent", "version": "0.0.0", "private": true, "type": "module",
+  "scripts": {"build": "tsc --noEmit", "typecheck": "tsc --noEmit", "dev": "bun --watch --env-file=../../.env src/worker.ts", "start": "bun --env-file=../../.env src/worker.ts"},
+  "dependencies": {"@ai-sdk/anthropic": "^3.0.81", "@contac/core": "workspace:*", "ai": "^6.0.195", "drizzle-orm": "^0.45.2", "zod": "^4.4.3"}
+}

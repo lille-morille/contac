@@ -1,0 +1,260 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Shared theme — "Glass & pastel" .
+ * Light, airy, playful-professional: violet primary, pastel gradient canvas,
+ * solid white cards, glass reserved for sidebar/dialogs/popovers/AI cards.
+ * Light mode only. Never hardcode hex in components — use these tokens.
+ */
+:root {
+  --radius: 1rem;
+
+  /* Surfaces & text */
+  --background: #f4f4fc; /* canvas base under the pastel gradient */
+  --foreground: #1c1b2e; /* ink (violet-tinted near-black) */
+  --card: #ffffff;
+  --card-foreground: #1c1b2e;
+  --popover: #ffffff;
+  --popover-foreground: #1c1b2e;
+
+  /* Brand */
+  --primary: #6d4cf0;
+  --primary-foreground: #ffffff;
+  --primary-hover: #5b3bdd;
+  --primary-soft: #eeeafd;
+  --secondary: #eeeafd;
+  --secondary-foreground: #5b3bdd;
+  --muted: #f1f0f9;
+  --muted-foreground: #6c6b85;
+  --accent: #eeeafd;
+  --accent-foreground: #5b3bdd;
+  --destructive: #e5484d;
+  --destructive-foreground: #ffffff;
+
+  --border: #e8e8f4;
+  --input: #e8e8f4;
+  --ring: #6d4cf0;
+
+  /* Semantic status (soft = tint backgrounds) */
+  --ok: #169d6c;
+  --ok-foreground: #ffffff;
+  --ok-soft: #e2f6ec;
+  --warn: #d9780a;
+  --warn-foreground: #ffffff;
+  --warn-soft: #fdf1e0;
+  --risk: #e5484d;
+  --risk-foreground: #ffffff;
+  --risk-soft: #fdebec;
+  --info: #3b82f6;
+  --info-foreground: #ffffff;
+  --info-soft: #e3edfd;
+
+  /* Accent tiles — icon tiles, chart fills, playful accents */
+  --mint: #14b8a6;
+  --mint-soft: #dcf6f2;
+  --blue: #3b82f6;
+  --blue-soft: #e3edfd;
+  --orange: #f59e0b;
+  --orange-soft: #fdf0dc;
+  --pink: #ec4899;
+  --pink-soft: #fce7f3;
+  --coral: #ef6461;
+  --yellow: #ca8a04;
+  --lime: #65a30d;
+  --cyan: #0891b2;
+  --slate: #64748b;
+
+  /* Charts (recharts / inline SVG) */
+  --chart-1: #6d4cf0;
+  --chart-2: #14b8a6;
+  --chart-3: #3b82f6;
+  --chart-4: #f59e0b;
+  --chart-5: #ec4899;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-ok: var(--ok);
+  --color-ok-foreground: var(--ok-foreground);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-foreground: var(--warn-foreground);
+  --color-warn-soft: var(--warn-soft);
+  --color-risk: var(--risk);
+  --color-risk-foreground: var(--risk-foreground);
+  --color-risk-soft: var(--risk-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+
+  --color-mint: var(--mint);
+  --color-mint-soft: var(--mint-soft);
+  --color-blue: var(--blue);
+  --color-blue-soft: var(--blue-soft);
+  --color-orange: var(--orange);
+  --color-orange-soft: var(--orange-soft);
+  --color-pink: var(--pink);
+  --color-pink-soft: var(--pink-soft);
+  --color-coral: var(--coral);
+  --color-yellow: var(--yellow);
+  --color-lime: var(--lime);
+  --color-cyan: var(--cyan);
+  --color-slate: var(--slate);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Radius ramp anchored on --radius (1rem). Cards rounded-2xl (1rem),
+   * buttons/inputs rounded-xl (0.75rem) — Tailwind defaults for xl/2xl apply. */
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.375rem);
+  --radius-lg: calc(var(--radius) - 0.25rem);
+
+  /* Card shadows (contract recipe) — usable as shadow-card / shadow-card-hover */
+  --shadow-card: 0 1px 2px rgb(28 27 46 / 0.04), 0 12px 32px -16px rgb(60 50 120 / 0.1);
+  --shadow-card-hover: 0 2px 4px rgb(28 27 46 / 0.05), 0 18px 44px -16px rgb(60 50 120 / 0.18);
+
+  --font-sans: "Geist Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    color: var(--foreground);
+    background-color: #f4f4fc;
+    background-image:
+      radial-gradient(60rem 40rem at 85% -10%, rgb(124 92 250 / 0.1), transparent 60%),
+      radial-gradient(50rem 36rem at -10% 30%, rgb(45 212 191 / 0.1), transparent 60%),
+      radial-gradient(46rem 40rem at 60% 110%, rgb(96 165 250 / 0.1), transparent 60%);
+    background-attachment: fixed;
+  }
+  /* Every clickable element shows a pointer (contract: Interaction). */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * Hide a scroll container's scrollbar on every engine while keeping it
+ * scrollable (wheel/trackpad/keyboard). Removes the scrollbar's layout width
+ * too, so adjacent content stays aligned across platforms.
+ */
+@utility no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* legacy Edge/IE */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, WebKit */
+  }
+}
+
+/*
+ * The glass recipe — used ONLY for: the sidebar, dialogs, popovers/menus and
+ * special AI cards. Ordinary content cards stay solid white (bg-card).
+ */
+.glass {
+  background: rgb(255 255 255 / 0.82);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  border: 1px solid rgb(255 255 255 / 0.78);
+  box-shadow: 0 8px 32px rgb(60 50 120 / 0.08);
+}
+
+/*
+ * Stronger glass for floating popups that open WITHOUT a dimming backdrop
+ * (dropdowns/selects, menus, popovers, tooltips). Dialogs/sheets sit on a
+ * darkened backdrop so plain .glass reads as solid there; these float over
+ * live page content, so they need higher opacity to stay legible.
+ */
+.glass-strong {
+  background: rgb(255 255 255 / 0.94);
+  backdrop-filter: blur(32px) saturate(1.7);
+  -webkit-backdrop-filter: blur(32px) saturate(1.7);
+  border: 1px solid rgb(255 255 255 / 0.9);
+  box-shadow: 0 12px 40px rgb(60 50 120 / 0.14);
+}
+
+@keyframes new-contact-card-blink {
+  0%,
+  25%,
+  50%,
+  75%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  12%,
+  37%,
+  62% {
+    box-shadow: 0 0 0 3px var(--primary);
+  }
+}
+
+@keyframes new-contact-row-blink {
+  0%,
+  25%,
+  50%,
+  75%,
+  100% {
+    background-color: transparent;
+  }
+  12%,
+  37%,
+  62% {
+    background-color: var(--primary-soft);
+  }
+}
+
+.new-contact-flash:not(tr),
+.activity-focus-flash {
+  border-radius: 0.75rem;
+  animation: new-contact-card-blink 4.2s ease-in-out 0.55s both;
+}
+
+tr.new-contact-flash {
+  animation: new-contact-row-blink 4.2s ease-in-out 0.55s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-contact-flash:not(tr),
+  .activity-focus-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--primary);
+  }
+
+  tr.new-contact-flash {
+    animation: none;
+    background-color: var(--primary-soft);
+  }
+}

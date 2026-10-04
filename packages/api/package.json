@@ -1,0 +1,33 @@
+{
+  "name": "@contac/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/client.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "dev": "bun --watch --env-file=../../.env src/server.ts",
+    "start": "bun --env-file=../../.env src/server.ts"
+  },
+  "dependencies": {
+    "@contac/core": "workspace:*",
+    "@hono/zod-validator": "^0.8.0",
+    "@huggingface/transformers": "^3.8.1",
+    "@supabase/supabase-js": "^2.107.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.23",
+    "jose": "^6.2.3",
+    "mailparser": "^3.9.14",
+    "smtp-server": "^3.19.2",
+    "yaml": "^2.9.1",
+    "yjs": "^13.6.33",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/smtp-server": "^3.5.13"
+  }
+}
