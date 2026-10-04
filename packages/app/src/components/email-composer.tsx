@@ -90,7 +90,7 @@ export function EmailComposer({
             id: value.id,
             sent: !!value.markedSentAt,
             readOnly: value.createdBy !== user?.id,
-            fromEmail: value.markedSentAt ? value.fromEmail : profileEmail,
+            fromEmail: value.fromEmail,
             to: value.toEmails.join(", "),
             cc: value.ccEmails.join(", "),
             bcc: value.bccEmails
@@ -105,8 +105,9 @@ export function EmailComposer({
   }
   async function save(): Promise<Draft> {
     if (!org) throw new Error("Velg et team");
-    const fromEmail = normalizeEmail(profileEmail);
-    if (!fromEmail) throw new Error("Legg inn e-postadresse i profilen din");
+    const fromEmail = normalizeEmail(draft.fromEmail);
+    if (!fromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail))
+      throw new Error("Skriv inn en gyldig avsenderadresse");
     const toEmails = emailList(draft.to);
     if (!toEmails.length) throw new Error("Skriv inn minst én mottaker");
     const row = await request<Draft>("/org/email-drafts", org.id, {
@@ -231,7 +232,7 @@ export function EmailComposer({
                 <span>{label}</span>
                 <Input
                   type={key === "fromEmail" ? "email" : "text"}
-                  disabled={draft.sent || draft.readOnly || key === "fromEmail"}
+                  disabled={draft.sent || draft.readOnly}
                   value={draft[key]}
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, [key]: event.target.value }))
@@ -322,8 +323,9 @@ export function EmailComposer({
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              Fra-adressen kommer fra profilen din. Bruk samme adresse i e-postklienten slik at
-              Bcc-kopien knyttes til deg. «Åpne i e-post» er ikke bevis på at meldingen er sendt.
+              Fra-adressen foreslås fra profilen din, men kan endres. Velg riktig avsenderkonto i
+              e-postklienten. Bcc-kopier knyttes til den verifiserte avsenderkontoen som faktisk
+              sender e-posten. «Åpne i e-post» er ikke bevis på at meldingen er sendt.
             </p>
           </div>
           {error && (

@@ -390,6 +390,40 @@ async function generateContact(
   const { person, conversations, version } = await contactContext(deps, orgId, contactId);
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
   if (!conversations.length) throw new Error("Ingen tillatte samtaler å bruke");
+  const missingFields = (["email", "phone", "position", "description"] as const).filter(
+    (key) => !person.contact[key]?.trim(),
+  );
+  if (
+    trigger === "automatic" &&
+    mode === "safe_auto" &&
+    feature === "contact_fields" &&
+    !missingFields.length
+  )
+    return null;
+  let missingHierarchyFields: string[] | null = null;
+  if (trigger === "automatic" && mode === "safe_auto" && feature === "hierarchy") {
+    const [existingTags, existingDomains] = await Promise.all([
+      deps.db
+        .select({ id: contactPersonTags.tagId })
+        .from(contactPersonTags)
+        .where(and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId))),
+      deps.db
+        .select({ id: companyDomains.domainId })
+        .from(companyDomains)
+        .where(
+          and(
+            eq(companyDomains.orgId, orgId),
+            eq(companyDomains.companyId, person.contact.companyId),
+          ),
+        ),
+    ]);
+    missingHierarchyFields = [
+      ...(!person.contact.departmentId ? ["departmentId", "departmentName"] : []),
+      ...(!existingTags.length ? ["personTagIds"] : []),
+      ...(!existingDomains.length ? ["domainIds"] : []),
+    ];
+    if (!missingHierarchyFields.length) return null;
+  }
   const base = {
     contact: {
       name: person.contact.name,
@@ -413,8 +447,7 @@ async function generateContact(
     system =
       "Lag korte norske stikkord om viktigste funn for kontakten. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields")
-    system =
-      "Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys email, phone, position, description, evidence. Ukjente felter utelates. Description skal være én kort setning på norsk.";
+    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, position, description"}, evidence. Ukjente felter utelates. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} Description skal være én kort setning på norsk.`;
   if (feature === "hierarchy") {
     const [companyRows, departmentRows, domainRows, tagRows] = await Promise.all([
       deps.db
@@ -443,8 +476,7 @@ async function generateContact(
         personTags: tagRows,
       },
     };
-    system =
-      "Foreslå organisasjon, avdeling, domener og persontagger fra oppgitte eksisterende alternativer. Returner KUN JSON med companyId, departmentId, domainIds (array), personTagIds (array), evidence. Bruk bare ID-er i options. Ukjent verdi utelates.";
+    system = `Foreslå organisasjon, avdeling, domener og persontagger fra oppgitte eksisterende alternativer. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, personTagIds"}, evidence. Bruk bare ID-er i options. Hvis samtalen tydelig navngir en avdeling som ikke finnes i options, bruk departmentName. Ukjent verdi utelates. Ikke returner andre felter.`;
   }
   const generated = await callModel(
     deps,
@@ -469,6 +501,16 @@ async function generateContact(
         .filter(([, value]) => !!value),
     );
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;
+    for (const key of Object.keys(fields)) {
+      if (mode === "safe_auto" && !missingFields.includes(key as (typeof missingFields)[number]))
+        delete fields[key];
+      else if (
+        String(person.contact[key as "email" | "phone" | "position" | "description"] ?? "")
+          .trim()
+          .toLocaleLowerCase("nb-NO") === String(fields[key]).trim().toLocaleLowerCase("nb-NO")
+      )
+        delete fields[key];
+    }
     suggestion.fields = fields;
   }
   if (feature === "hierarchy") {
@@ -491,8 +533,10 @@ async function generateContact(
       ? (raw.departmentId as string)
       : null;
     suggestion.hierarchy = {
-      companyId: proposedCompany,
-      departmentId,
+      companyId: proposedCompany === person.contact.companyId ? null : proposedCompany,
+      departmentId: departmentId === person.contact.departmentId ? null : departmentId,
+      departmentName:
+        departmentId || person.contact.departmentId ? null : clean(raw.departmentName, 200),
       domainIds: Array.isArray(raw.domainIds)
         ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item))
         : [],
@@ -500,10 +544,68 @@ async function generateContact(
         ? raw.personTagIds.filter((item) => validTags.some((row) => row.id === item))
         : [],
     };
+    if (missingHierarchyFields) {
+      const hierarchy = suggestion.hierarchy as Record<string, unknown>;
+      for (const key of Object.keys(hierarchy))
+        if (!missingHierarchyFields.includes(key)) hierarchy[key] = key.endsWith("Ids") ? [] : null;
+    }
+  }
+  if (feature === "contact_fields" && !Object.keys(suggestion.fields as object).length) return null;
+  if (feature === "stikkord" && generated.output.trim() === person.contact.stikkord?.trim())
+    return null;
+  if (feature === "hierarchy") {
+    const hierarchy = suggestion.hierarchy as Record<string, unknown>;
+    const [existingTags, existingDomains] = await Promise.all([
+      deps.db
+        .select({ id: contactPersonTags.tagId })
+        .from(contactPersonTags)
+        .where(and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId))),
+      deps.db
+        .select({ id: companyDomains.domainId })
+        .from(companyDomains)
+        .where(
+          and(
+            eq(companyDomains.orgId, orgId),
+            eq(companyDomains.companyId, person.contact.companyId),
+          ),
+        ),
+    ]);
+    const sameSet = (proposed: unknown, existing: string[]) =>
+      Array.isArray(proposed) &&
+      [...proposed].sort().join("\u0000") === [...existing].sort().join("\u0000");
+    if (
+      sameSet(
+        hierarchy.personTagIds,
+        existingTags.map((row) => row.id),
+      )
+    )
+      hierarchy.personTagIds = [];
+    if (
+      sameSet(
+        hierarchy.domainIds,
+        existingDomains.map((row) => row.id),
+      )
+    )
+      hierarchy.domainIds = [];
+    if (
+      !hierarchy.companyId &&
+      !hierarchy.departmentId &&
+      !hierarchy.departmentName &&
+      !(hierarchy.personTagIds as string[]).length &&
+      !(hierarchy.domainIds as string[]).length
+    )
+      return null;
   }
   const [row] = await deps.db
     .insert(aiSuggestions)
-    .values({ orgId, contactId, feature, sourceVersion: version, payload: suggestion })
+    .values({
+      orgId,
+      contactId,
+      feature,
+      sourceVersion: version,
+      payload: suggestion,
+      status: ["safe_auto", "dangerous"].includes(mode) ? "applied" : "pending",
+    })
     .returning();
   if (["safe_auto", "dangerous"].includes(mode)) {
     const [fresh] = await deps.db
@@ -529,6 +631,7 @@ async function generateContact(
       const hierarchy = suggestion.hierarchy as {
         companyId: string | null;
         departmentId: string | null;
+        departmentName: string | null;
         domainIds: string[];
         personTagIds: string[];
       };
@@ -536,6 +639,36 @@ async function generateContact(
         patch.companyId = hierarchy.companyId;
       if (hierarchy.departmentId && (mode === "dangerous" || !fresh.departmentId))
         patch.departmentId = hierarchy.departmentId;
+      if (
+        !patch.departmentId &&
+        hierarchy.departmentName &&
+        (mode === "dangerous" || !fresh.departmentId)
+      ) {
+        const companyId = patch.companyId ?? fresh.companyId;
+        const name = hierarchy.departmentName;
+        const normalizedName = name
+          .trim()
+          .normalize("NFKC")
+          .toLocaleLowerCase("nb-NO")
+          .replace(/\s+/g, " ");
+        const [created] = await deps.db
+          .insert(departments)
+          .values({ orgId, companyId, name, normalizedName })
+          .onConflictDoNothing({ target: [departments.companyId, departments.normalizedName] })
+          .returning({ id: departments.id });
+        const [existing] = created
+          ? [created]
+          : await deps.db
+              .select({ id: departments.id })
+              .from(departments)
+              .where(
+                and(
+                  eq(departments.companyId, companyId),
+                  eq(departments.normalizedName, normalizedName),
+                ),
+              );
+        if (existing) patch.departmentId = existing.id;
+      }
       const [existingTags, existingDomains] = await Promise.all([
         deps.db
           .select({ id: contactPersonTags.tagId })
@@ -594,14 +727,7 @@ async function generateContact(
             mode === "safe_auto",
           )
         : null;
-      if (
-        (mode === "dangerous" && (applied || changedTags)) ||
-        (feature === "stikkord" && !fresh.stikkord && applied)
-      )
-        await deps.db
-          .update(aiSuggestions)
-          .set({ status: "applied" })
-          .where(eq(aiSuggestions.id, row.id));
+      void applied;
     }
   }
   return row;
@@ -787,6 +913,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
               "description",
               "companyId",
               "departmentId",
+              "departmentName",
               "domainIds",
               "personTagIds",
             ]),
@@ -815,6 +942,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         | {
             companyId?: string;
             departmentId?: string;
+            departmentName?: string;
             domainIds?: string[];
             personTagIds?: string[];
           }
@@ -822,6 +950,33 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       if (hierarchy?.companyId && selected.has("companyId")) patch.companyId = hierarchy.companyId;
       if (hierarchy?.departmentId && selected.has("departmentId"))
         patch.departmentId = hierarchy.departmentId;
+      if (hierarchy?.departmentName && selected.has("departmentName") && !patch.departmentId) {
+        const companyId = patch.companyId ?? current.companyId;
+        const name = clean(hierarchy.departmentName, 200);
+        const normalizedName = name
+          .normalize("NFKC")
+          .toLocaleLowerCase("nb-NO")
+          .replace(/\s+/g, " ");
+        if (normalizedName) {
+          const [created] = await deps.db
+            .insert(departments)
+            .values({ orgId, companyId, name, normalizedName })
+            .onConflictDoNothing({ target: [departments.companyId, departments.normalizedName] })
+            .returning({ id: departments.id });
+          const [existing] = created
+            ? [created]
+            : await deps.db
+                .select({ id: departments.id })
+                .from(departments)
+                .where(
+                  and(
+                    eq(departments.companyId, companyId),
+                    eq(departments.normalizedName, normalizedName),
+                  ),
+                );
+          if (existing) patch.departmentId = existing.id;
+        }
+      }
       if (patch.departmentId) {
         const [matching] = await deps.db
           .select({ id: departments.id })

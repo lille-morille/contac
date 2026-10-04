@@ -24,7 +24,7 @@ External AI is **off by default for every feature**. A team admin provides the t
 | Off | None | No external AI call |
 | Manual suggestion | Member presses a button | Suggestion only; member applies it |
 | Automatic suggestion | Relevant source changes | Suggestion only; member applies it |
-| Safe auto | Relevant source changes | Fill blank fields automatically; suggest replacement of filled fields |
+| Safe auto | Relevant source changes | Fill remaining blank fields automatically; stop extracting them once filled and do not create suggestions for applied values |
 | Dangerous | Relevant source changes | May replace existing values, including human edits |
 
 Modes are per feature, not one blanket permission for all AI. Email drafting, check-in summaries, and group findings have **Off/Manual** only. Group findings regenerate only on a member's click, even when contacts change. AI never sends email or externally shares a log. Display OpenRouter-reported model, tokens, and cost in a team usage view; label cost unavailable if the provider does not return it. A team setting chooses whether **new contacts** allow third-party AI by default; the initial default is allowed. Each contact has a clear allow/block control. Team members can edit contacts, but changing this control is audited.
@@ -38,7 +38,7 @@ Every automatically **applied** AI change appears in a visible edit log with the
 ## Features
 
 1. **Stikkordgenerering:** A concise, optional contact finding summary drawn from all eligible conversations. Completed calls, meetings, and accepted/marked-sent emails are assumed conversations. Missed calls and shared research notes are excluded. If there are no eligible conversations, generation is unavailable. Show when the saved result was generated and when newer conversations make it stale.
-2. **Contact-field suggestions:** From a new eligible conversation, suggest missing email, phone, position, department, organization, and a one-line person description when evidence supports it. Mode controls govern whether fields can be filled or overwritten. Preserve human visibility into source evidence and changes.
+2. **Contact-field suggestions:** From a new eligible conversation, suggest missing email, phone, position, department, organization, and a one-line person description when evidence supports it. In Safe auto, extraction targets only blank fields and stops when they are filled. A suggested value equal to the current value is discarded. Mode controls govern whether fields can be filled or overwritten. Preserve human visibility into source evidence and changes.
 3. **Hierarchy suggestions:** Suggest the organization/department placement and relevant domain or person tags based on eligible information. Automatic replacement follows the selected mode.
 4. **Group findings:** Generate a saved summary of key findings for contacts in one organization or one top-level domain. An organization can sit in several domains; each contact is counted once in a specific summary. Exclude blocked contacts/activities and show what was omitted.
 5. **Email drafting:** Generate a draft from a custom prompt, contact fields, and the latest eligible communication. Follow-up prompts revise the draft. The member reviews and opens it in their email app; AI never sends it.

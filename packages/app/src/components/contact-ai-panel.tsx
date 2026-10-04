@@ -48,6 +48,7 @@ const labels: Record<string, string> = {
   description: "Kort beskrivelse",
   companyId: "Organisasjon",
   departmentId: "Avdeling",
+  departmentName: "Ny avdeling",
   domainIds: "Domener",
   personTagIds: "Persontagger",
 };
@@ -206,12 +207,21 @@ export function ContactAiPanel({
                 : item.feature === "contact_fields"
                   ? ((payload.fields as Record<string, unknown>) ?? {})
                   : (hierarchy ?? {});
-            const keys = Object.keys(proposed).filter(
-              (key) =>
-                proposed[key] !== null &&
-                proposed[key] !== undefined &&
-                (!Array.isArray(proposed[key]) || (proposed[key] as unknown[]).length),
-            );
+            const keys = Object.keys(proposed).filter((key) => {
+              const next = proposed[key];
+              if (next === null || next === undefined || next === "") return false;
+              if (Array.isArray(next) && !next.length) return false;
+              const current = currentValue(key);
+              if (Array.isArray(next) && Array.isArray(current))
+                return [...next].sort().join("\u0000") !== [...current].sort().join("\u0000");
+              return (
+                String(next).trim().toLocaleLowerCase("nb-NO") !==
+                String(current ?? "")
+                  .trim()
+                  .toLocaleLowerCase("nb-NO")
+              );
+            });
+            if (!keys.length) return null;
             const selected = selection[item.id] ?? keys;
             return (
               <div key={item.id} className="rounded-xl border border-border p-3 text-sm">
