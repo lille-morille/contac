@@ -536,7 +536,12 @@ async function generateContact(
       companyId: proposedCompany === person.contact.companyId ? null : proposedCompany,
       departmentId: departmentId === person.contact.departmentId ? null : departmentId,
       departmentName:
-        departmentId || person.contact.departmentId ? null : clean(raw.departmentName, 200),
+        departmentId ||
+        (mode === "safe_auto" && person.contact.departmentId) ||
+        clean(raw.departmentName, 200).toLocaleLowerCase("nb-NO") ===
+          (person.departmentName ?? "").trim().toLocaleLowerCase("nb-NO")
+          ? null
+          : clean(raw.departmentName, 200),
       domainIds: Array.isArray(raw.domainIds)
         ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item))
         : [],
