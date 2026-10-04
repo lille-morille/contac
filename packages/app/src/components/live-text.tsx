@@ -41,6 +41,7 @@ export function LiveText({
   id,
   initialText,
   disabled,
+  readOnly = false,
   className,
   onSelect,
 }: {
@@ -48,6 +49,7 @@ export function LiveText({
   id: string;
   initialText: string;
   disabled?: boolean;
+  readOnly?: boolean;
   className?: string;
   onSelect?: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
 }) {
@@ -258,18 +260,24 @@ export function LiveText({
 
   return (
     <div>
-      <Textarea
-        className={className}
-        value={value}
-        disabled={disabled || !ready || remoteText !== null || !!error}
-        onFocus={() => setEditing(documentKey)}
-        onBlur={() => setEditing(null)}
-        onSelect={onSelect}
-        onChange={(event) => {
-          const text = docRef.current?.getText("content");
-          if (text) replaceText(text, event.target.value);
-        }}
-      />
+      {readOnly ? (
+        value ? (
+          <div className={className}>{value}</div>
+        ) : null
+      ) : (
+        <Textarea
+          className={className}
+          value={value}
+          disabled={disabled || !ready || remoteText !== null || !!error}
+          onFocus={() => setEditing(documentKey)}
+          onBlur={() => setEditing(null)}
+          onSelect={onSelect}
+          onChange={(event) => {
+            const text = docRef.current?.getText("content");
+            if (text) replaceText(text, event.target.value);
+          }}
+        />
+      )}
       {error && (
         <p role="alert" className="mt-2 text-xs text-risk">
           {error}

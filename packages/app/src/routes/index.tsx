@@ -24,6 +24,8 @@ import {
   Network,
   Phone,
   PhoneCall,
+  Pencil,
+  Check,
   Plus,
   Search,
   Settings2,
@@ -242,6 +244,47 @@ const missedOutcomeLabels: Record<MissedOutcome, string> = {
   no_answer: "Ingen svar",
   no_signal: "Ingen dekning",
 };
+function activityPresentation(activity: Activity): {
+  label: string;
+  icon: LucideIcon;
+  badgeClass: string;
+  titleClass: string;
+  borderClass: string;
+} {
+  if (activity.kind === "missed_phone")
+    return {
+      label: activity.missedOutcome
+        ? missedOutcomeLabels[activity.missedOutcome]
+        : "Ubesvart anrop",
+      icon: Phone,
+      badgeClass: "bg-warn-soft text-warn",
+      titleClass: "text-warn",
+      borderClass: "border-l-warn",
+    };
+  if (activity.kind === "meeting")
+    return {
+      label: "Møte",
+      icon: Users,
+      badgeClass: "bg-blue-soft text-blue",
+      titleClass: "text-blue",
+      borderClass: "border-l-blue",
+    };
+  if (activity.kind === "email")
+    return {
+      label: "E-post",
+      icon: Mail,
+      badgeClass: "bg-ok-soft text-ok",
+      titleClass: "text-ok",
+      borderClass: "border-l-ok",
+    };
+  return {
+    label: "Telefonsamtale",
+    icon: PhoneCall,
+    badgeClass: "bg-primary-soft text-primary",
+    titleClass: "text-primary",
+    borderClass: "border-l-primary",
+  };
+}
 type Reminder = { id: string; contactId: string; dueAt: string; message: string };
 type SavedView = {
   id: string;
@@ -4250,6 +4293,7 @@ function ContactDetail({
   const contactQueryClient = useQueryClient();
   const [compare, setCompare] = useState<string | null>(null);
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [showFullLog, setShowFullLog] = useState(false);
   const [exportError, setExportError] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<{ activityId: string; quote: string } | null>(
@@ -4334,6 +4378,19 @@ function ContactDetail({
         .map((link) => data.contacts.find((contact) => contact.id === link.contactId)?.name)
         .filter((name): name is string => !!name)
     : [];
+  const captureActivityQuote = (element: HTMLElement, activityId: string) => {
+    const selection = window.getSelection();
+    const quote = selection?.toString().trim() ?? "";
+    if (
+      !quote ||
+      !element.contains(selection?.anchorNode ?? null) ||
+      !element.contains(selection?.focusNode ?? null)
+    ) {
+      setSelectedQuote(null);
+      return;
+    }
+    setSelectedQuote({ activityId, quote });
+  };
   return (
     <>
       <Button variant="ghost" size="sm" onClick={onBack}>
@@ -4363,9 +4420,7 @@ function ContactDetail({
                   disabled={busy}
                   aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
                   aria-pressed={favorite}
-                  onClick={() =>
-                    void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })
-                  }
+                  onClick={() => void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })}
                 >
                   <Star size={16} className={favorite ? "fill-current text-primary" : ""} />
                   {favorite ? "Favoritt" : "Legg til favoritter"}
@@ -4622,108 +4677,106 @@ function ContactDetail({
               />
             )}
             <div className="mt-4 space-y-3">
-              {timeline.map((a) => (
-                <div
-                  key={a.id}
-                  data-activity-id={a.id}
-                  className={`rounded-xl border border-border p-3 ${focusedActivityId === a.id ? "activity-focus-flash" : ""}`}
-                >
-                  {focusedActivityId === a.id && focusedPassage && (
-                    <p className="mb-3 rounded-lg bg-primary/10 p-2 text-sm">
-                      <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
-                    </p>
-                  )}
-                  <div className="flex justify-between gap-2 text-xs text-muted-foreground">
-                    <span>
-                      {a.kind === "phone"
-                        ? "Telefonsamtale"
-                        : a.kind === "meeting"
-                          ? "Møte"
-                          : a.kind === "email"
-                            ? "E-post"
-                            : a.missedOutcome
-                              ? missedOutcomeLabels[a.missedOutcome]
-                              : "Ubesvart anrop"}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <DateTimePicker
-                        key={`${a.id}:${a.occurredAt}`}
-                        value={a.occurredAt}
-                        disabled={c.status === "duplicate"}
-                        onChange={(occurredAt) => mutate(`/activities/${a.id}`, { occurredAt })}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-muted-foreground hover:text-risk"
-                        aria-label="Slett aktivitet"
-                        title="Slett aktivitet"
-                        disabled={busy || c.status === "duplicate"}
-                        onClick={() => setDeletingActivity(a)}
+              {timeline.map((a) => {
+                const editing = editingActivityId === a.id;
+                const presentation = activityPresentation(a);
+                const ActivityIcon = presentation.icon;
+                return (
+                  <div
+                    key={a.id}
+                    data-activity-id={a.id}
+                    className={`rounded-xl border border-l-[3px] border-border bg-card p-4 shadow-sm ${presentation.borderClass} ${focusedActivityId === a.id ? "activity-focus-flash" : ""}`}
+                  >
+                    {focusedActivityId === a.id && focusedPassage && (
+                      <p className="mb-3 rounded-lg bg-primary/10 p-2 text-sm">
+                        <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h3
+                        className={`flex items-center gap-2.5 text-lg font-semibold tracking-tight sm:text-xl ${presentation.titleClass}`}
                       >
-                        <Trash2 size={15} />
-                      </Button>
+                        <span
+                          className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${presentation.badgeClass}`}
+                        >
+                          <ActivityIcon size={19} strokeWidth={2.2} aria-hidden />
+                        </span>
+                        {presentation.label}
+                      </h3>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        {editing ? (
+                          <DateTimePicker
+                            key={`${a.id}:${a.occurredAt}`}
+                            value={a.occurredAt}
+                            disabled={c.status === "duplicate"}
+                            onChange={(occurredAt) => mutate(`/activities/${a.id}`, { occurredAt })}
+                          />
+                        ) : (
+                          <span className="mr-1 inline-flex items-center gap-1.5 whitespace-nowrap">
+                            <CalendarDays size={14} aria-hidden /> {dateTimeLabel(a.occurredAt)}
+                          </span>
+                        )}
+                        {c.status !== "duplicate" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-primary"
+                            aria-label={
+                              editing ? "Lukk redigering av aktivitet" : "Rediger aktivitet"
+                            }
+                            title={editing ? "Ferdig" : "Rediger aktivitet"}
+                            aria-pressed={editing}
+                            onClick={() => setEditingActivityId(editing ? null : a.id)}
+                          >
+                            {editing ? <Check size={17} /> : <Pencil size={17} />}
+                          </Button>
+                        )}
+                        {editing && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-risk"
+                            aria-label="Slett aktivitet"
+                            title="Slett aktivitet"
+                            disabled={busy}
+                            onClick={() => setDeletingActivity(a)}
+                          >
+                            <Trash2 size={16} />
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  {a.kind === "email" &&
-                    (() => {
-                      const email = data.emailActivities.find((row) => row.activityId === a.id);
-                      return email ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Fra: {email.fromEmail} · Til: {email.toEmails.join(", ")}
-                          {email.ccEmails.length ? ` · Kopi: ${email.ccEmails.join(", ")}` : ""}
-                          <br />
-                          Emne: {email.subject || "Uten emne"}
-                        </p>
-                      ) : null;
-                    })()}
-                  <LiveText
-                    kind="summary"
-                    id={a.id}
-                    initialText={a.summary}
-                    disabled={c.status === "duplicate"}
-                    className="mt-2 min-h-20"
-                    onSelect={(event) => {
-                      const field = event.currentTarget;
-                      const quote = field.value
-                        .slice(field.selectionStart, field.selectionEnd)
-                        .trim();
-                      setSelectedQuote(quote ? { activityId: a.id, quote } : null);
-                    }}
-                  />
-                  {selectedQuote?.activityId === a.id && (
-                    <Button
-                      className="mt-2"
-                      size="sm"
-                      variant="secondary"
-                      onClick={async () => {
-                        try {
-                          await mutate("/library", {
-                            sourceKind: "activity",
-                            contactId: c.id,
-                            activityId: a.id,
-                            quote: selectedQuote.quote,
-                          });
-                          setSelectedQuote(null);
-                        } catch {
-                          // The page-level mutation displays the error.
-                        }
-                      }}
+                    {a.kind === "email" &&
+                      (() => {
+                        const email = data.emailActivities.find((row) => row.activityId === a.id);
+                        return email ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Fra: {email.fromEmail} · Til: {email.toEmails.join(", ")}
+                            {email.ccEmails.length ? ` · Kopi: ${email.ccEmails.join(", ")}` : ""}
+                            <br />
+                            Emne: {email.subject || "Uten emne"}
+                          </p>
+                        ) : null;
+                      })()}
+                    <div
+                      onMouseUp={(event) =>
+                        !editing && captureActivityQuote(event.currentTarget, a.id)
+                      }
+                      onTouchEnd={(event) =>
+                        !editing && captureActivityQuote(event.currentTarget, a.id)
+                      }
                     >
-                      <BookOpen size={14} /> Legg til i biblioteket
-                    </Button>
-                  )}
-                  {a.kind !== "missed_phone" && (
-                    <details className="mt-3">
-                      <summary className="cursor-pointer text-sm font-medium">
-                        Vis transkripsjon
-                      </summary>
                       <LiveText
-                        kind="transcript"
+                        kind="summary"
                         id={a.id}
-                        initialText={a.transcript}
+                        initialText={a.summary}
                         disabled={c.status === "duplicate"}
-                        className="mt-2 min-h-40"
+                        readOnly={!editing}
+                        className={
+                          editing
+                            ? "mt-3 min-h-20"
+                            : "mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+                        }
                         onSelect={(event) => {
                           const field = event.currentTarget;
                           const quote = field.value
@@ -4732,65 +4785,127 @@ function ContactDetail({
                           setSelectedQuote(quote ? { activityId: a.id, quote } : null);
                         }}
                       />
-                    </details>
-                  )}
-                  <ActivityAttachments
-                    activity={a}
-                    files={data.activityFiles.filter((file) => file.activityId === a.id)}
-                    mutate={mutate}
-                    disabled={c.status === "duplicate"}
-                  />
-                  {data.activityContacts.filter((link) => link.activityId === a.id).length > 1 && (
-                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                      <FileText size={14} /> Eksporteres under
-                      <Select
-                        className="w-48"
-                        value={a.exportOwnerContactId ?? c.id}
-                        onValueChange={(contactId) =>
-                          void mutate(`/activities/${a.id}/export-owner`, { contactId })
-                        }
-                        items={data.activityContacts
-                          .filter((link) => link.activityId === a.id)
-                          .map((link) =>
-                            data.contacts.find((person) => person.id === link.contactId),
-                          )
-                          .filter(
-                            (person): person is Contact =>
-                              !!person && person.status !== "duplicate",
-                          )
-                          .map((person) => ({ value: person.id, label: person.name }))}
-                        aria-label="Eksporteier for delt aktivitet"
-                        disabled={busy || c.status === "duplicate"}
-                      />
                     </div>
-                  )}
-                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                    <ShieldCheck size={14} /> Ekstern AI
-                    <Select
-                      className="w-44"
-                      value={
-                        a.allowExternalAiOverride === null
-                          ? "inherit"
-                          : a.allowExternalAiOverride
-                            ? "allow"
-                            : "block"
-                      }
-                      onValueChange={(value) =>
-                        void mutate(`/activities/${a.id}`, {
-                          allowExternalAiOverride: value === "inherit" ? null : value === "allow",
-                        })
-                      }
-                      items={[
-                        { value: "inherit", label: "Arv fra kontakter" },
-                        { value: "allow", label: "Tillat for aktivitet" },
-                        { value: "block", label: "Blokker for aktivitet" },
-                      ]}
-                      aria-label="Ekstern AI for aktivitet"
-                      disabled={c.status === "duplicate"}
+                    {selectedQuote?.activityId === a.id && (
+                      <Button
+                        className="mt-2"
+                        size="sm"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            await mutate("/library", {
+                              sourceKind: "activity",
+                              contactId: c.id,
+                              activityId: a.id,
+                              quote: selectedQuote.quote,
+                            });
+                            setSelectedQuote(null);
+                          } catch {
+                            // The page-level mutation displays the error.
+                          }
+                        }}
+                      >
+                        <BookOpen size={14} /> Legg til i biblioteket
+                      </Button>
+                    )}
+                    {a.kind !== "missed_phone" && (
+                      <details className={editing || a.transcript ? "mt-3" : "hidden"}>
+                        <summary className="cursor-pointer text-sm font-medium">
+                          Vis transkripsjon
+                        </summary>
+                        <div
+                          onMouseUp={(event) =>
+                            !editing && captureActivityQuote(event.currentTarget, a.id)
+                          }
+                          onTouchEnd={(event) =>
+                            !editing && captureActivityQuote(event.currentTarget, a.id)
+                          }
+                        >
+                          <LiveText
+                            kind="transcript"
+                            id={a.id}
+                            initialText={a.transcript}
+                            disabled={c.status === "duplicate"}
+                            readOnly={!editing}
+                            className={
+                              editing
+                                ? "mt-2 min-h-40"
+                                : "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+                            }
+                            onSelect={(event) => {
+                              const field = event.currentTarget;
+                              const quote = field.value
+                                .slice(field.selectionStart, field.selectionEnd)
+                                .trim();
+                              setSelectedQuote(quote ? { activityId: a.id, quote } : null);
+                            }}
+                          />
+                        </div>
+                      </details>
+                    )}
+                    <ActivityAttachments
+                      activity={a}
+                      files={data.activityFiles.filter((file) => file.activityId === a.id)}
+                      mutate={mutate}
+                      disabled={c.status === "duplicate" || !editing}
                     />
+                    {editing &&
+                      data.activityContacts.filter((link) => link.activityId === a.id).length >
+                        1 && (
+                        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                          <FileText size={14} /> Eksporteres under
+                          <Select
+                            className="w-48"
+                            value={a.exportOwnerContactId ?? c.id}
+                            onValueChange={(contactId) =>
+                              void mutate(`/activities/${a.id}/export-owner`, { contactId })
+                            }
+                            items={data.activityContacts
+                              .filter((link) => link.activityId === a.id)
+                              .map((link) =>
+                                data.contacts.find((person) => person.id === link.contactId),
+                              )
+                              .filter(
+                                (person): person is Contact =>
+                                  !!person && person.status !== "duplicate",
+                              )
+                              .map((person) => ({ value: person.id, label: person.name }))}
+                            aria-label="Eksporteier for delt aktivitet"
+                            disabled={busy || c.status === "duplicate"}
+                          />
+                        </div>
+                      )}
+                    {editing && (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                        <ShieldCheck size={14} /> Ekstern AI
+                        <Select
+                          className="w-44"
+                          value={
+                            a.allowExternalAiOverride === null
+                              ? "inherit"
+                              : a.allowExternalAiOverride
+                                ? "allow"
+                                : "block"
+                          }
+                          onValueChange={(value) =>
+                            void mutate(`/activities/${a.id}`, {
+                              allowExternalAiOverride:
+                                value === "inherit" ? null : value === "allow",
+                            })
+                          }
+                          items={[
+                            { value: "inherit", label: "Arv fra kontakter" },
+                            { value: "allow", label: "Tillat for aktivitet" },
+                            { value: "block", label: "Blokker for aktivitet" },
+                          ]}
+                          aria-label="Ekstern AI for aktivitet"
+                          disabled={c.status === "duplicate"}
+                        />
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {!timeline.length && (
                 <p className="text-sm text-muted-foreground">Ingen aktivitet registrert.</p>
               )}
@@ -5183,6 +5298,7 @@ function ActivityAttachments({
       setError(cause instanceof Error ? cause.message : "Kunne ikke åpne dokumentet.");
     }
   }
+  if (disabled && !files.length && !error) return null;
   return (
     <div className="mt-3 border-t border-border pt-3">
       <div className="flex flex-wrap items-center gap-2">
