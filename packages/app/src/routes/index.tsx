@@ -4313,6 +4313,9 @@ function ContactDetail({
   const { peers } = useTeamRealtime();
   const contactQueryClient = useQueryClient();
   const [compare, setCompare] = useState<string | null>(null);
+  const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
+  const [departmentDraft, setDepartmentDraft] = useState("");
+  const [departmentError, setDepartmentError] = useState("");
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [showFullLog, setShowFullLog] = useState(false);
@@ -4351,6 +4354,25 @@ function ContactDetail({
         Tilbake
       </Button>
     );
+  async function createDepartment(event: FormEvent) {
+    event.preventDefault();
+    if (!c || !departmentDraft.trim()) return;
+    setDepartmentError("");
+    try {
+      const department = await mutate<Department>("/departments", {
+        companyId: c.companyId,
+        name: departmentDraft.trim(),
+      });
+      await mutate(`/contacts/${c.id}`, {
+        departmentId: department.id,
+        expected: { departmentId: c.departmentId },
+      });
+      setDepartmentDraft("");
+      setDepartmentDialogOpen(false);
+    } catch (cause) {
+      setDepartmentError(cause instanceof Error ? cause.message : "Kunne ikke velge avdeling");
+    }
+  }
   const company = data.companies.find((x) => x.id === c.companyId);
   const timeline = data.activities
     .filter((a) => data.activityContacts.some((x) => x.activityId === a.id && x.contactId === c.id))
@@ -4505,21 +4527,38 @@ function ContactDetail({
                 />
               </ContactDetailField>
               <ContactDetailField icon={Network} label="Avdeling">
-                <Select
-                  value={c.departmentId ?? ""}
-                  className={detailFieldClass}
-                  aria-label="Avdeling"
-                  onValueChange={(departmentId) =>
-                    void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
-                  }
-                  items={[
-                    { value: "", label: "Ingen avdeling" },
-                    ...data.departments
-                      .filter((d) => d.companyId === c.companyId)
-                      .map((d) => ({ value: d.id, label: d.name })),
-                  ]}
-                  disabled={c.status === "duplicate"}
-                />
+                <div className="flex min-w-0 items-center gap-2">
+                  <Select
+                    value={c.departmentId ?? ""}
+                    className={`${detailFieldClass} min-w-0 flex-1`}
+                    aria-label="Avdeling"
+                    onValueChange={(departmentId) =>
+                      void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
+                    }
+                    items={[
+                      { value: "", label: "Ingen avdeling" },
+                      ...data.departments
+                        .filter((d) => d.companyId === c.companyId)
+                        .map((d) => ({ value: d.id, label: d.name })),
+                    ]}
+                    disabled={c.status === "duplicate"}
+                  />
+                  {c.status !== "duplicate" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => {
+                        setDepartmentDraft("");
+                        setDepartmentError("");
+                        setDepartmentDialogOpen(true);
+                      }}
+                    >
+                      <Plus size={14} /> Ny avdeling
+                    </Button>
+                  )}
+                </div>
               </ContactDetailField>
               <ContactDetailField icon={BriefcaseBusiness} label="Stilling">
                 <InlineText
@@ -5031,6 +5070,38 @@ function ContactDetail({
         </aside>
       </div>
       <div className="h-[65vh] min-h-[28rem]" aria-hidden="true" />
+      <Dialog open={departmentDialogOpen} onOpenChange={setDepartmentDialogOpen}>
+        <DialogContent>
+          <DialogTitle>Ny avdeling</DialogTitle>
+          <DialogDescription>
+            Opprett en avdeling i {company?.name ?? "organisasjonen"} og knytt {c.name} til den.
+          </DialogDescription>
+          <form className="mt-4 space-y-3" onSubmit={(event) => void createDepartment(event)}>
+            <Input
+              autoFocus
+              required
+              maxLength={200}
+              aria-label="Navn på avdeling"
+              placeholder="Avdelingsnavn"
+              value={departmentDraft}
+              onChange={(event) => setDepartmentDraft(event.target.value)}
+            />
+            {departmentError && <p className="text-sm text-destructive">{departmentError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDepartmentDialogOpen(false)}
+              >
+                Avbryt
+              </Button>
+              <Button type="submit" disabled={busy || !departmentDraft.trim()}>
+                Opprett og velg
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!compare} onOpenChange={(open) => !open && setCompare(null)}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogTitle>Sammenlign kontakter</DialogTitle>
