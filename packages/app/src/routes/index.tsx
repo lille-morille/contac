@@ -138,7 +138,7 @@ type Company = {
 };
 type Department = { id: string; companyId: string; name: string };
 type Domain = { id: string; name: string; color: Color };
-type Tag = { id: string; name: string };
+type Tag = { id: string; name: string; description: string | null };
 type Contact = {
   id: string;
   companyId: string;
@@ -904,7 +904,12 @@ function Home() {
       setNow(Date.now());
       return result;
     } catch (cause) {
-      if (
+      if (path.startsWith("/person-tags/") && cause instanceof ApiError && cause.status === 409) {
+        setError(
+          "Taggen ble endret av noen andre. Sammenlign den nye beskrivelsen med utkastet ditt.",
+        );
+        void qc.invalidateQueries({ queryKey: ["contact-data", org.id, "core"] });
+      } else if (
         !path.startsWith("/saved-views") &&
         cause instanceof ApiError &&
         cause.status === 409 &&
@@ -3399,6 +3404,7 @@ function CreateContact({
             {data.personTags.map((tag) => (
               <label
                 key={tag.id}
+                title={tag.description ?? "Ingen beskrivelse"}
                 className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs"
               >
                 <Checkbox
@@ -3660,7 +3666,11 @@ function ContactList({
                     </summary>
                     <div className="mt-2 space-y-1">
                       {data.personTags.map((tag) => (
-                        <label key={tag.id} className="flex gap-1 text-xs">
+                        <label
+                          key={tag.id}
+                          title={tag.description ?? "Ingen beskrivelse"}
+                          className="flex gap-1 text-xs"
+                        >
                           <Checkbox
                             disabled={c.status === "duplicate"}
                             checked={data.contactPersonTags.some(
@@ -4570,7 +4580,11 @@ function ContactDetail({
                         disabled={c.status === "duplicate"}
                         aria-pressed={selected}
                         aria-label={`${selected ? "Fjern" : "Legg til"} ${tag.name}`}
-                        title={`${selected ? "Fjern" : "Legg til"} ${tag.name}`}
+                        title={
+                          tag.description
+                            ? `${tag.name}: ${tag.description}`
+                            : `${tag.name}: ingen beskrivelse`
+                        }
                         className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 ${selected ? "border-primary bg-primary text-primary-foreground hover:bg-primary-hover" : "border-border bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"}`}
                         onClick={() =>
                           void mutate(`/contacts/${c.id}/tags`, {
@@ -6456,6 +6470,171 @@ function OrganizationMap({
     </div>
   );
 }
+function PersonTagSettings({
+  tags,
+  mutate,
+  busy,
+}: {
+  tags: Tag[];
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  busy: boolean;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await mutate("/person-tags", { name: name.trim(), description: description.trim() });
+      setName("");
+      setDescription("");
+    } catch {
+      // The workspace error banner explains the failed save.
+    }
+  }
+  return (
+    <Card className="p-5">
+      <h2 className="font-semibold">Persontagger</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Beskriv når hver tagg skal brukes. AI foreslår bare tagger med beskrivelse.
+      </p>
+      <div className="mt-4 space-y-3">
+        {tags.map((tag) => (
+          <PersonTagDescription key={tag.id} tag={tag} mutate={mutate} busy={busy} />
+        ))}
+      </div>
+      <form
+        className="mt-5 space-y-3 border-t border-border pt-4"
+        onSubmit={(event) => void create(event)}
+      >
+        <p className="text-sm font-medium">Ny persontagg</p>
+        <Input
+          required
+          maxLength={100}
+          placeholder="Navn, f.eks. Beslutningstaker"
+          aria-label="Navn på ny persontagg"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <Textarea
+          required
+          maxLength={500}
+          placeholder="Når skal denne taggen brukes? Beskriv konkrete kjennetegn."
+          aria-label="Beskrivelse av ny persontagg"
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={busy || !name.trim() || !description.trim()}
+        >
+          Legg til tagg
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+function PersonTagDescription({
+  tag,
+  mutate,
+  busy,
+}: {
+  tag: Tag;
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  busy: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [expected, setExpected] = useState<string | null>(null);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await mutate(`/person-tags/${tag.id}`, {
+        description: draft.trim(),
+        expected: { description: expected },
+      });
+      setEditing(false);
+    } catch {
+      // Keep the draft for comparison when another member has changed this tag.
+    }
+  }
+  return (
+    <div className="rounded-xl border border-border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Badge variant="neutral">{tag.name}</Badge>
+          {!editing && (
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+              {tag.description || "Mangler beskrivelse · AI bruker ikke denne taggen."}
+            </p>
+          )}
+        </div>
+        {!editing && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setDraft(tag.description ?? "");
+              setExpected(tag.description);
+              setEditing(true);
+            }}
+          >
+            <Pencil size={14} /> Rediger
+          </Button>
+        )}
+      </div>
+      {editing && (
+        <form className="mt-3 space-y-2" onSubmit={(event) => void save(event)}>
+          {tag.description !== expected && (
+            <div className="rounded-lg bg-warn-soft p-2 text-xs">
+              <p>Nyere beskrivelse fra teamet: {tag.description || "Ingen beskrivelse"}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setExpected(tag.description)}
+                >
+                  Behold mitt utkast og prøv igjen
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setDraft(tag.description ?? "");
+                    setExpected(tag.description);
+                  }}
+                >
+                  Bruk nyeste beskrivelse
+                </Button>
+              </div>
+            </div>
+          )}
+          <Textarea
+            autoFocus
+            required
+            maxLength={500}
+            aria-label={`Beskrivelse for ${tag.name}`}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+              Lagre beskrivelse
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
+              Avbryt
+            </Button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function Settings({
   section,
   state,
@@ -6474,7 +6653,6 @@ function Settings({
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
-  const [tagName, setTagName] = useState("");
   async function createTeam(e: FormEvent) {
     e.preventDefault();
     try {
@@ -6494,11 +6672,6 @@ function Settings({
   async function recovery() {
     const result = await request<{ recoveryCode: string }>("/profile/recovery-code", undefined, {});
     setCode(result.recoveryCode);
-  }
-  async function createTag(e: FormEvent) {
-    e.preventDefault();
-    await mutate("/person-tags", { name: tagName });
-    setTagName("");
   }
   return (
     <div className="max-w-3xl space-y-5">
@@ -6540,27 +6713,7 @@ function Settings({
       {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}
       {section === "team_settings" && state.org?.role !== "member" && (
-        <Card className="p-5">
-          <h2 className="font-semibold">Persontagger</h2>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {data.personTags.map((tag) => (
-              <Badge key={tag.id} variant="neutral">
-                {tag.name}
-              </Badge>
-            ))}
-          </div>
-          <form className="mt-4 flex gap-2" onSubmit={(e) => void createTag(e)}>
-            <Input
-              required
-              placeholder="Ny persontagg"
-              value={tagName}
-              onChange={(e) => setTagName(e.target.value)}
-            />
-            <Button type="submit" variant="outline" disabled={busy}>
-              Legg til
-            </Button>
-          </form>
-        </Card>
+        <PersonTagSettings tags={data.personTags} mutate={mutate} busy={busy} />
       )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">

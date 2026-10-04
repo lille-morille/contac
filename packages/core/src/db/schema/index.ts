@@ -358,6 +358,7 @@ export const personTags = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    description: text("description"),
     normalizedName: text("normalized_name").notNull(),
     createdAt: createdAt(),
   },

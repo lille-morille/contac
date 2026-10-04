@@ -531,18 +531,60 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({ ok: true });
   });
   app.post("/v1/org/person-tags", async (c) => {
-    const data = await parse(c, z.object({ name: z.string().trim().min(1).max(100) }));
+    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
+    const data = await parse(
+      c,
+      z.object({
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().min(1).max(500).optional(),
+      }),
+    );
     if (!data) return c.json({ error: "Invalid tag" }, 400);
     const orgId = c.get("org").id;
     const [row] = await deps.db
       .insert(personTags)
-      .values({ orgId, name: data.name, normalizedName: norm(data.name) })
-      .onConflictDoUpdate({
-        target: [personTags.orgId, personTags.normalizedName],
-        set: { name: data.name },
+      .values({
+        orgId,
+        name: data.name,
+        description: data.description ?? null,
+        normalizedName: norm(data.name),
       })
+      .onConflictDoNothing({ target: [personTags.orgId, personTags.normalizedName] })
       .returning();
+    if (!row)
+      return c.json({ error: "Taggen finnes allerede. Rediger beskrivelsen i listen." }, 409);
     return c.json(row, 201);
+  });
+  app.post("/v1/org/person-tags/:id", async (c) => {
+    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
+    const tagId = id.safeParse(c.req.param("id"));
+    const data = await parse(
+      c,
+      z.object({
+        description: z.string().trim().min(1).max(500),
+        expected: z.object({ description: z.string().nullable() }),
+      }),
+    );
+    if (!tagId.success || !data) return c.json({ error: "Invalid tag description" }, 400);
+    const orgId = c.get("org").id;
+    const [updated] = await deps.db
+      .update(personTags)
+      .set({ description: data.description })
+      .where(
+        and(
+          eq(personTags.orgId, orgId),
+          eq(personTags.id, tagId.data),
+          sql`${personTags.description} IS NOT DISTINCT FROM ${data.expected.description}`,
+        ),
+      )
+      .returning();
+    if (updated) return c.json(updated);
+    const [current] = await deps.db
+      .select({ description: personTags.description })
+      .from(personTags)
+      .where(and(eq(personTags.orgId, orgId), eq(personTags.id, tagId.data)));
+    if (!current) return c.json({ error: "Tag not found" }, 404);
+    return c.json({ error: "Tag changed while you were editing", current }, 409);
   });
 
   app.post("/v1/org/contacts", async (c) => {

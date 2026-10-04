@@ -17,7 +17,7 @@ import {
   organizations,
   personTags,
 } from "@contac/core/db";
-import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { decrypt } from "./ai-token.ts";
@@ -529,9 +529,14 @@ async function generateContact(
         .from(domainTags)
         .where(eq(domainTags.orgId, orgId)),
       deps.db
-        .select({ id: personTags.id, name: personTags.name })
+        .select({ id: personTags.id, name: personTags.name, description: personTags.description })
         .from(personTags)
-        .where(eq(personTags.orgId, orgId)),
+        .where(
+          and(
+            eq(personTags.orgId, orgId),
+            sql`NULLIF(BTRIM(${personTags.description}), '') IS NOT NULL`,
+          ),
+        ),
     ]);
     payload = {
       ...base,
@@ -542,7 +547,7 @@ async function generateContact(
         personTags: tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå avdeling, domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, newDomainName, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Velg passende eksisterende domener først. Bruk newDomainName for ett kort, konkret nytt fagdomene bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Hvis en avdeling er tydelig navngitt men ikke finnes, bruk departmentName. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå avdeling, domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, newDomainName, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Persontaggenes beskrivelser er kriteriene for når de skal brukes: velg bare en tagg når konkrete opplysninger om personen støtter beskrivelsen. Et navn, en organisasjon eller en stilling alene er ikke nok med mindre beskrivelsen sier det. Ikke velg alle tagger; returner tom personTagIds-liste hvis ingen er godt dokumentert. Velg passende eksisterende domener først. Bruk newDomainName for ett kort, konkret nytt fagdomene bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Hvis en avdeling er tydelig navngitt men ikke finnes, bruk departmentName. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -596,7 +601,15 @@ async function generateContact(
         .select({ id: domainTags.id, normalizedName: domainTags.normalizedName })
         .from(domainTags)
         .where(eq(domainTags.orgId, orgId)),
-      deps.db.select({ id: personTags.id }).from(personTags).where(eq(personTags.orgId, orgId)),
+      deps.db
+        .select({ id: personTags.id })
+        .from(personTags)
+        .where(
+          and(
+            eq(personTags.orgId, orgId),
+            sql`NULLIF(BTRIM(${personTags.description}), '') IS NOT NULL`,
+          ),
+        ),
     ]);
     const proposedCompany = validCompanies.some((item) => item.id === raw.companyId)
       ? (raw.companyId as string)
