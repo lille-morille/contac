@@ -23,6 +23,9 @@ The contact app creates name-only Supabase accounts through the API and presents
 
 ## Production
 
+See [the production deployment guide](docs/deploy-production.md) for the
+current Dokploy, Supabase, DNS, and release configuration.
+
 Use one production Supabase project and deploy the app and API images in `docker/`. Set `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `APP_ORIGIN`, `CLASS_SETUP_CODE`, and `AI_ENCRYPTION_KEY` on the API. Build the app with `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_API_URL` as build args. Run `DATABASE_URL=... bun run db:migrate` before releasing a schema change. The generic agent worker remains in the scaffold; the contact AI features run through the API.
 
 The database has read-only RLS policies for authenticated clients. All writes go through the API. Team invitations are one-use, seven-day secret links returned to an admin for sharing. The class admin can access every team. External AI features are individually configurable and off by default. Cross-team log access requires approval unless the owning team enables automatic sharing. The API image includes the Typst CLI and Liberation Sans font for LOI PDFs. Each team may edit its LOI Typst source, while new LOIs start from the supplied business-neutral template and can fork the team's latest sent LOI. See [the export and LOI specification](docs/spec/05-export-and-loi.md).
