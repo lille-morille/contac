@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import { ApiError, request } from "../lib/api.ts";
 import { useOrg } from "../lib/org.tsx";
 import { ensureRealtimeAuth, getSupabase } from "../lib/supabase.ts";
+import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
 import { Button } from "./ui/button.tsx";
 import { Textarea } from "./ui/textarea.tsx";
@@ -44,6 +45,8 @@ export function LiveText({
   readOnly = false,
   className,
   onSelect,
+  highlightPassage,
+  highlightQuery,
 }: {
   kind: Kind;
   id: string;
@@ -52,6 +55,8 @@ export function LiveText({
   readOnly?: boolean;
   className?: string;
   onSelect?: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
+  highlightPassage?: string | null;
+  highlightQuery?: string | null;
 }) {
   const { org } = useOrg();
   const { setEditing } = useTeamRealtime();
@@ -262,7 +267,9 @@ export function LiveText({
     <div>
       {readOnly ? (
         value ? (
-          <div className={className}>{value}</div>
+          <div className={className}>
+            <HighlightedText text={value} passage={highlightPassage} query={highlightQuery} />
+          </div>
         ) : null
       ) : (
         <Textarea

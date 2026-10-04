@@ -28,6 +28,7 @@ import { registerAiRoutes } from "./ai.ts";
 import { registerContactExportRoutes } from "./contact-export.ts";
 import { registerLoiRoutes } from "./loi.ts";
 import { registerCollabRoutes } from "./collab.ts";
+import { registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const uuid = z.uuid();
@@ -413,6 +414,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
   );
 
   app.use("/v1/org/*", requireOrg(deps));
+  registerMcpRoutes(app, deps, appOrigin);
   registerCollabRoutes(app, deps);
   registerEmailCrossTeamRoutes(app, deps);
   app.get("/v1/org/members", async (c) => {

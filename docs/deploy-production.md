@@ -51,6 +51,12 @@ After DNS propagation, check `https://api.contac.plingapp.no/health` and
 Save the issued recovery code. Verify a test email to `contac@plingapp.no`
 appears in the team inbox before relying on inbound mail.
 
+The MCP endpoint is served by the existing API container at
+`https://api.contac.plingapp.no/mcp`; it needs no separate port or DNS record.
+After deployment, a team admin can create a token in Teaminnstillinger and
+connect an agent as described in [mcp.md](mcp.md). Check that a revoked token
+returns HTTP 401 and a token from another team cannot read its contacts.
+
 The API's SMTP listener does not advertise STARTTLS under Bun. The deployment
 guide in [deploy-inbound-email.md](deploy-inbound-email.md) describes a TLS
 terminating proxy or authenticated webhook as alternatives when needed.

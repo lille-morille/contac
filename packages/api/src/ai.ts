@@ -538,7 +538,7 @@ async function generateContact(
   let payload: unknown = base;
   if (feature === "stikkord")
     system =
-      "Lag korte norske stikkord om viktigste funn for kontakten. Bare dokumenterte fakta. Returner ren tekst.";
+      "Lag svært korte norske stikkord om viktigste funn for kontakten, maks 300 tegn. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields") {
     payload = { ...base, options: { departments: companyDepartments } };
     system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, position, description, departmentId, departmentName"}, evidence. Ukjente felter utelates. options.departments inneholder alle eksisterende avdelinger i kontaktens organisasjon. Bruk departmentId hvis samtalen klart viser en av disse. Bruk departmentName bare hvis samtalen tydelig navngir en annen, konkret avdeling; ikke opprett en ny hvis navnet samsvarer med en eksisterende. Bruk aldri begge. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} Description skal være én kort setning på norsk.`;
@@ -588,7 +588,8 @@ async function generateContact(
     payload,
     feature !== "stikkord",
   );
-  const raw = feature === "stikkord" ? { text: generated.output } : parseJson(generated.output);
+  const raw =
+    feature === "stikkord" ? { text: clean(generated.output, 300) } : parseJson(generated.output);
   const suggestion: Record<string, unknown> = {
     ...raw,
     model: generated.model,
@@ -688,8 +689,7 @@ async function generateContact(
     }
   }
   if (feature === "contact_fields" && !Object.keys(suggestion.fields as object).length) return null;
-  if (feature === "stikkord" && generated.output.trim() === person.contact.stikkord?.trim())
-    return null;
+  if (feature === "stikkord" && raw.text === person.contact.stikkord?.trim()) return null;
   if (feature === "hierarchy") {
     const hierarchy = suggestion.hierarchy as Record<string, unknown>;
     const [existingTags, existingDomains] = await Promise.all([
@@ -760,7 +760,7 @@ async function generateContact(
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;
     if (feature === "stikkord") {
-      if (mode === "dangerous" || !fresh.stikkord) patch.stikkord = generated.output;
+      if (mode === "dangerous" || !fresh.stikkord) patch.stikkord = clean(generated.output, 300);
     }
     if (feature === "contact_fields")
       for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>)) {
@@ -1003,6 +1003,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       edits,
       stikkordStale:
         !!context?.person.contact.stikkord &&
+        !!context.person.contact.stikkordSourceVersion &&
         context.person.contact.stikkordSourceVersion !== context.version,
       hasConversations: !!context?.conversations.length,
     });
@@ -1075,7 +1076,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;
     if (suggestion.feature === "stikkord" && selected.has("stikkord"))
-      patch.stikkord = clean(suggestion.payload.text, 20000);
+      patch.stikkord = clean(suggestion.payload.text, 300);
     if (suggestion.feature === "contact_fields")
       for (const [key, value] of Object.entries(
         (suggestion.payload.fields as Record<string, string>) ?? {},

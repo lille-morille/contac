@@ -13,6 +13,9 @@ The product is split into five specifications. **Chunks 01–05 are implemented*
 The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.
+The team-scoped MCP endpoint provides read access to contact data and only two
+write operations: creating a contact and adding an activity. Team admins manage
+named API tokens; see [docs/mcp.md](docs/mcp.md).
 
 The `docs/wireframes/` images are layout references, and each specification links its relevant images. The supplied Linear screenshots are stored in `docs/references/` and linked from the relevant specs. Existing design tokens and generic UI components in `packages/app` provide styling; the wireframes do not define a new visual system. The organization map uses restrained, consistent domain colors at the user's request. Linear screenshots are interaction/layout inspiration, not a source of additional statuses or product data.
 

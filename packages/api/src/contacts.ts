@@ -80,11 +80,14 @@ const contactPatch = z.object({
   phone: blank,
   position: blank,
   description: z.string().max(5000).nullable().optional(),
+  stikkord: z.string().trim().max(300).nullable().optional(),
   status: status.optional(),
   assigneeId: id.nullable().optional(),
   allowExternalAi: z.boolean().optional(),
 });
-const guardedContactPatch = contactPatch.extend({ expected: contactPatch });
+const guardedContactPatch = contactPatch.extend({
+  expected: contactPatch.extend({ stikkord: z.string().max(20000).nullable().optional() }),
+});
 const contactScalarColumns = {
   name: contacts.name,
   companyId: contacts.companyId,
@@ -93,6 +96,7 @@ const contactScalarColumns = {
   phone: contacts.phone,
   position: contacts.position,
   description: contacts.description,
+  stikkord: contacts.stikkord,
   status: contacts.status,
   assigneeId: contacts.assigneeId,
   allowExternalAi: contacts.allowExternalAi,
@@ -770,6 +774,9 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         ...(changes.name ? { normalizedName: norm(changes.name) } : {}),
         ...(changes.email !== undefined ? { email: changes.email?.toLowerCase() || null } : {}),
         ...(changes.phone !== undefined ? { phoneNormalized: phoneKey(changes.phone) } : {}),
+        ...(changes.stikkord !== undefined
+          ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(

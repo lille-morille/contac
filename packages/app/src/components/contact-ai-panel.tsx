@@ -187,7 +187,11 @@ export function ContactAiPanel({
       {contact.stikkord && (
         <p className="mt-2 text-xs text-muted-foreground">
           Stikkord:{" "}
-          {state.data?.stikkordStale ? "nyere samtaler finnes · generer på nytt" : "oppdatert"}
+          {!contact.stikkordGeneratedAt
+            ? "manuelt redigert"
+            : state.data?.stikkordStale
+              ? "nyere samtaler finnes · generer på nytt"
+              : "oppdatert"}
           {contact.stikkordGeneratedAt
             ? ` · ${new Date(contact.stikkordGeneratedAt).toLocaleString("nb-NO")}`
             : ""}

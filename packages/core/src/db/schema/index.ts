@@ -118,6 +118,23 @@ export const invitations = pgTable(
   },
   (table) => [index("invitations_org_idx").on(table.orgId)],
 );
+export const teamMcpTokens = pgTable(
+  "team_mcp_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenPrefix: text("token_prefix").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [index("team_mcp_tokens_org_idx").on(table.orgId)],
+);
 export const conversations = pgTable(
   "conversations",
   {

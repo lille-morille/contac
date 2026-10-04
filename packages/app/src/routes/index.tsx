@@ -11,6 +11,7 @@ import {
   CalendarDays,
   ChevronDown,
   Clock3,
+  ClipboardPaste,
   Copy,
   GraduationCap,
   Inbox,
@@ -43,6 +44,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -73,6 +75,7 @@ import { LiveText } from "../components/live-text.tsx";
 import { CrossTeamOverlap } from "../components/cross-team-overlap.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../components/inbox-items.tsx";
 import { TeamEmailSettings } from "../components/email-settings.tsx";
+import { TeamMcpSettings } from "../components/team-mcp-settings.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card } from "../components/ui/card.tsx";
@@ -88,6 +91,7 @@ import { ApiError, downloadOrgFile, profileAvatarUrl, request, uploadFile } from
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { parseContactPaste, remainingSuggestion } from "../lib/contact-paste.ts";
+import { HighlightedText } from "../lib/search-highlight.tsx";
 import { formatFullContactLog } from "../lib/full-contact-log.ts";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
@@ -383,7 +387,7 @@ type Data = {
 };
 function assigneeOptions(members: Data["members"]) {
   return [
-    { value: "", label: "Ingen" },
+    { value: "", label: "Ingen", icon: <Avatar name="Uten ansvarlig" className="size-5" /> },
     ...members.map((member) => ({
       value: member.userId,
       label: member.name || "Medlem",
@@ -623,6 +627,7 @@ function Home() {
   const [paste, setPaste] = useState("");
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
   const [focusedPassage, setFocusedPassage] = useState<string | null>(null);
+  const [focusedQuery, setFocusedQuery] = useState<string | null>(null);
   const canOpenCommand = !!auth.session && !!state.user?.onboarded && !!org;
   useEffect(() => {
     if (!canOpenCommand) return;
@@ -641,6 +646,7 @@ function Home() {
         setSelectedId(params.get("contact"));
         setFocusedActivityId(params.get("activity"));
         setFocusedPassage(params.get("passage"));
+        setFocusedQuery(params.get("q"));
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -901,6 +907,8 @@ function Home() {
       else await qc.invalidateQueries({ queryKey: ["contact-data", org.id] });
       if (path.includes("email") || path.includes("reminders"))
         await qc.invalidateQueries({ queryKey: ["inbox", org.id] });
+      if (path.startsWith("/library"))
+        await qc.invalidateQueries({ queryKey: ["library", org.id] });
       setNow(Date.now());
       return result;
     } catch (cause) {
@@ -1031,6 +1039,7 @@ function Home() {
     setSelectedId(null);
     setFocusedActivityId(null);
     setFocusedPassage(null);
+    setFocusedQuery(null);
     if (typeof window !== "undefined" && window.location.search)
       window.history.replaceState(null, "", window.location.pathname);
     setSelectedView(null);
@@ -1051,10 +1060,12 @@ function Home() {
     setSelectedId(result.contactId);
     setFocusedActivityId(result.activityId ?? (result.kind === "note" ? "note" : null));
     setFocusedPassage(result.passage);
+    setFocusedQuery(query);
     const params = new URLSearchParams();
     params.set("contact", result.contactId);
     if (result.activityId) params.set("activity", result.activityId);
     params.set("passage", result.passage);
+    params.set("q", query);
     window.history.replaceState(null, "", `?${params.toString()}`);
   }
   function openOrganization(id: string) {
@@ -1169,9 +1180,18 @@ function Home() {
       // The page-level mutation displays the error; keep the confirmation open.
     }
   }
-  function openPaste() {
-    if (!paste.trim()) return;
-    setCreateOpen(true);
+  async function openClipboardContact() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        setError("Utklippstavlen er tom. Kopier kontaktinformasjon og prøv igjen.");
+        return;
+      }
+      setPaste(text);
+      setCreateOpen(true);
+    } catch {
+      setError("Kunne ikke lese utklippstavlen. Gi nettleseren tilgang og prøv igjen.");
+    }
   }
   if (auth.loading || state.loading)
     return (
@@ -1470,16 +1490,26 @@ function Home() {
           </button>
         </div>
         <div className="space-y-2 px-1">
-          <Button
-            className="w-full"
-            onClick={() => {
-              setPaste("");
-              setCreateOpen(true);
-            }}
-          >
-            <Plus />
-            Ny kontakt
-          </Button>
+          <div className="flex gap-1.5">
+            <Button
+              className="min-w-0 flex-1"
+              onClick={() => {
+                setPaste("");
+                setCreateOpen(true);
+              }}
+            >
+              <Plus /> Ny kontakt
+            </Button>
+            <Button
+              variant="outline"
+              className="size-9 shrink-0 px-0"
+              aria-label="Lim inn kontaktinformasjon som ny kontakt fra utklippstavle"
+              title="Lim inn kontaktinformasjon som ny kontakt fra utklippstavle (kan inkludere navn, selskap, mobilnummer og/eller epost)"
+              onClick={() => void openClipboardContact()}
+            >
+              <ClipboardPaste size={17} />
+            </Button>
+          </div>
           <Button variant="outline" size="sm" className="w-full" onClick={() => setInboxOpen(true)}>
             <Inbox size={16} />
             Innboks
@@ -1698,6 +1728,7 @@ function Home() {
               setSelectedId(null);
               setFocusedActivityId(null);
               setFocusedPassage(null);
+              setFocusedQuery(null);
               window.history.replaceState(null, "", window.location.pathname);
             }}
             onOpen={(id) => {
@@ -1707,6 +1738,7 @@ function Home() {
             busy={busy}
             focusedActivityId={focusedActivityId}
             focusedPassage={focusedPassage}
+            focusedQuery={focusedQuery}
             notificationPermission={notificationPermission}
             onEnableNotifications={() => void enableBrowserNotifications()}
           />
@@ -1722,14 +1754,16 @@ function Home() {
             key={searchNavigation.nonce}
             initialQuery={searchNavigation.query}
             initialShared={searchNavigation.shared}
-            onOpen={(contactId, activityId, passage) => {
+            onOpen={(contactId, activityId, passage, query) => {
               setSelectedId(contactId);
               setFocusedActivityId(activityId);
               setFocusedPassage(passage);
+              setFocusedQuery(query);
               const params = new URLSearchParams();
               params.set("contact", contactId);
               if (activityId) params.set("activity", activityId);
               params.set("passage", passage);
+              params.set("q", query);
               window.history.replaceState(null, "", `?${params.toString()}`);
             }}
           />
@@ -1901,26 +1935,10 @@ function Home() {
                 </div>
               </div>
             )}
-            <form
-              className="mt-5 flex flex-wrap items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                openPaste();
-              }}
-            >
-              <Input
-                className="max-w-xl"
-                placeholder="Lim inn navn, selskap, mobilnummer og/eller e-post · trykk Enter"
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-              />
-              <Button type="submit" variant="outline">
-                Bruk tekst
-              </Button>
-            </form>
             {page === "contacts" && layout === "board" ? (
               <ContactBoard
                 rows={visible}
+                visibleStatuses={filters.status}
                 data={data}
                 onOpen={(id) => {
                   setCreatedHighlightId(null);
@@ -2904,12 +2922,14 @@ const boardSpring = { type: "spring" as const, stiffness: 380, damping: 32 };
 
 function ContactBoard({
   rows,
+  visibleStatuses,
   data,
   onOpen,
   mutate,
   highlightId,
 }: {
   rows: Contact[];
+  visibleStatuses?: string[];
   data: Data;
   onOpen: (id: string) => void;
   mutate: (path: string, body: unknown) => Promise<unknown>;
@@ -3072,87 +3092,89 @@ function ContactBoard({
   return (
     <LayoutGroup id="contact-board">
       <div ref={boardRef} className="mt-6 flex gap-3 overflow-x-auto pb-4">
-        {statuses.map(([key, label]) => {
-          const cards = rows.filter(
-            (contact) => (optimistic[contact.id] ?? contact.status) === key,
-          );
-          const preview = drag?.target === key && drag.source !== key;
-          const statusColor = contactStatusColor(key);
-          return (
-            <section
-              key={key}
-              data-status-column={key}
-              className="min-h-[65vh] w-64 shrink-0 rounded-2xl border-t-2 bg-muted/50 p-2 transition-colors duration-200"
-              style={{
-                borderTopColor: statusColor,
-                backgroundColor: preview
-                  ? `color-mix(in srgb, ${statusColor} 16%, var(--muted))`
-                  : undefined,
-              }}
-            >
-              <h2 className="flex items-center justify-between px-2 py-2 text-sm font-semibold">
-                <span className="flex items-center gap-2">
-                  <ContactStatusIcon status={key} size={18} />
-                  {label}
-                </span>
-                <span className="text-muted-foreground">{cards.length}</span>
-              </h2>
-              <div className="space-y-2">
-                {cards.map((contact) => (
-                  <motion.div
-                    key={contact.id}
-                    data-board-card={contact.id}
-                    data-contact-item={contact.id}
-                    layout="position"
-                    transition={boardSpring}
-                    className={`${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
-                  >
-                    <ContactCard
-                      contact={
-                        optimistic[contact.id]
-                          ? { ...contact, status: optimistic[contact.id] }
-                          : contact
-                      }
-                      data={data}
-                      onOpen={() => onOpen(contact.id)}
-                      onPointerDown={(e) => onPointerDown(e, contact)}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={finishDrag}
-                      onPointerCancel={finishDrag}
-                      onClickCapture={(e) => {
-                        if (suppressClickRef.current) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          suppressClickRef.current = false;
-                        }
-                      }}
-                    />
-                  </motion.div>
-                ))}
-                <AnimatePresence>
-                  {preview && (
+        {statuses
+          .filter(([key]) => !visibleStatuses?.length || visibleStatuses.includes(key))
+          .map(([key, label]) => {
+            const cards = rows.filter(
+              (contact) => (optimistic[contact.id] ?? contact.status) === key,
+            );
+            const preview = drag?.target === key && drag.source !== key;
+            const statusColor = contactStatusColor(key);
+            return (
+              <section
+                key={key}
+                data-status-column={key}
+                className="min-h-[65vh] w-80 shrink-0 rounded-2xl border-t-2 bg-muted/50 p-2 transition-colors duration-200"
+                style={{
+                  borderTopColor: statusColor,
+                  backgroundColor: preview
+                    ? `color-mix(in srgb, ${statusColor} 16%, var(--muted))`
+                    : undefined,
+                }}
+              >
+                <h2 className="flex items-center justify-between px-2 py-2 text-sm font-semibold">
+                  <span className="flex items-center gap-2">
+                    <ContactStatusIcon status={key} size={18} />
+                    {label}
+                  </span>
+                  <span className="text-muted-foreground">{cards.length}</span>
+                </h2>
+                <div className="space-y-2">
+                  {cards.map((contact) => (
                     <motion.div
-                      key="drop-preview"
-                      data-drop-preview={key}
-                      layout
-                      initial={{ opacity: 0, scale: 0.96 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.96 }}
+                      key={contact.id}
+                      data-board-card={contact.id}
+                      data-contact-item={contact.id}
+                      layout="position"
                       transition={boardSpring}
-                      aria-hidden
-                      className="rounded-xl border border-border bg-muted p-3 shadow-sm"
-                      style={{ minHeight: drag.height }}
+                      className={`${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
                     >
-                      <div className="h-3 w-3/4 rounded bg-border" />
-                      <div className="mt-3 h-2 w-1/2 rounded bg-border/80" />
-                      <div className="mt-5 h-2 w-2/3 rounded bg-border/80" />
+                      <ContactCard
+                        contact={
+                          optimistic[contact.id]
+                            ? { ...contact, status: optimistic[contact.id] }
+                            : contact
+                        }
+                        data={data}
+                        onOpen={() => onOpen(contact.id)}
+                        onPointerDown={(e) => onPointerDown(e, contact)}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={finishDrag}
+                        onPointerCancel={finishDrag}
+                        onClickCapture={(e) => {
+                          if (suppressClickRef.current) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            suppressClickRef.current = false;
+                          }
+                        }}
+                      />
                     </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </section>
-          );
-        })}
+                  ))}
+                  <AnimatePresence>
+                    {preview && (
+                      <motion.div
+                        key="drop-preview"
+                        data-drop-preview={key}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={boardSpring}
+                        aria-hidden
+                        className="rounded-xl border border-border bg-muted p-3 shadow-sm"
+                        style={{ minHeight: drag.height }}
+                      >
+                        <div className="h-3 w-3/4 rounded bg-border" />
+                        <div className="mt-3 h-2 w-1/2 rounded bg-border/80" />
+                        <div className="mt-5 h-2 w-2/3 rounded bg-border/80" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </section>
+            );
+          })}
       </div>
       {typeof document !== "undefined" &&
         createPortal(
@@ -3239,6 +3261,12 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
         <span>{c.name}</span>
       </span>
       <span className="block truncate text-xs text-muted-foreground">{company?.name}</span>
+      {c.stikkord && (
+        <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">
+          {c.stikkord.slice(0, 300)}
+          {c.stikkord.length > 300 ? "…" : ""}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap gap-1">
         {data.contactPersonTags
           .filter((x) => x.contactId === c.id)
@@ -3527,7 +3555,7 @@ function ContactList({
   const [expanded, setExpanded] = useState<string | null>(null);
   return (
     <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-card shadow-card">
-      <table className="w-full min-w-[1550px] text-left text-sm">
+      <table className="w-full min-w-[1200px] text-left text-sm">
         <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
           <tr>
             {[
@@ -3539,7 +3567,6 @@ function ContactList({
               "Telefon",
               "Status",
               "Ansvarlig",
-              "Beskrivelse",
               "Stikkord / siste samtale",
               "Tagger",
               "",
@@ -3554,160 +3581,174 @@ function ContactList({
           {rows.map((c) => {
             const summary = c.stikkord || lastActivity(c.id)?.summary || "";
             return (
-              <tr
-                key={c.id}
-                data-contact-item={c.id}
-                className={`border-b border-border/70 align-top hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
-              >
-                <td className="w-44 px-2 py-2">
-                  <InlineText
-                    value={c.name}
-                    disabled={c.status === "duplicate"}
-                    onSave={(name, old) =>
-                      void mutate(`/contacts/${c.id}`, { name, expected: { name: old } })
-                    }
-                  />
-                </td>
-                <td className="w-40 px-2 py-2">
-                  <Select
-                    value={c.companyId}
-                    onValueChange={(companyId) => void mutate(`/contacts/${c.id}`, { companyId })}
-                    items={data.companies.map((x) => ({ value: x.id, label: x.name }))}
-                    disabled={c.status === "duplicate"}
-                  />
-                </td>
-                <td className="w-40 px-2 py-2">
-                  <Select
-                    value={c.departmentId ?? ""}
-                    onValueChange={(departmentId) =>
-                      void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
-                    }
-                    items={[
-                      { value: "", label: "Ingen" },
-                      ...data.departments
-                        .filter((d) => d.companyId === c.companyId)
-                        .map((d) => ({ value: d.id, label: d.name })),
-                    ]}
-                    disabled={c.status === "duplicate"}
-                  />
-                </td>
-                <td className="w-32 px-2 py-2">
-                  <InlineText
-                    value={c.position}
-                    disabled={c.status === "duplicate"}
-                    onSave={(position, old) =>
-                      void mutate(`/contacts/${c.id}`, { position, expected: { position: old } })
-                    }
-                  />
-                </td>
-                <td className="w-48 px-2 py-2">
-                  <InlineText
-                    value={c.email}
-                    disabled={c.status === "duplicate"}
-                    onSave={(email, old) =>
-                      void mutate(`/contacts/${c.id}`, { email, expected: { email: old } })
-                    }
-                  />
-                </td>
-                <td className="w-32 px-2 py-2">
-                  <InlineText
-                    value={c.phone}
-                    disabled={c.status === "duplicate"}
-                    onSave={(phone, old) =>
-                      void mutate(`/contacts/${c.id}`, { phone, expected: { phone: old } })
-                    }
-                  />
-                </td>
-                <td className="w-44 px-2 py-2">
-                  {c.status === "duplicate" ? (
-                    <ContactStatusBadge status="duplicate" />
-                  ) : (
-                    <Select
-                      value={c.status}
-                      onValueChange={(status) => void mutate(`/contacts/${c.id}`, { status })}
-                      items={statusOptions}
+              <Fragment key={c.id}>
+                <tr
+                  data-contact-item={c.id}
+                  className={`align-top hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
+                >
+                  <td className="w-36 px-2 pt-2">
+                    <InlineText
+                      value={c.name}
+                      disabled={c.status === "duplicate"}
+                      onSave={(name, old) =>
+                        void mutate(`/contacts/${c.id}`, { name, expected: { name: old } })
+                      }
                     />
-                  )}
-                </td>
-                <td className="w-40 px-2 py-2">
-                  <Select
-                    value={c.assigneeId ?? ""}
-                    onValueChange={(assigneeId) =>
-                      void mutate(`/contacts/${c.id}`, { assigneeId: assigneeId || null })
-                    }
-                    items={assigneeOptions(data.members)}
-                    disabled={c.status === "duplicate"}
-                  />
-                </td>
-                <td className="w-48 px-2 py-2">
-                  <InlineText
-                    value={c.description}
-                    disabled={c.status === "duplicate"}
-                    onSave={(description, old) =>
-                      void mutate(`/contacts/${c.id}`, {
-                        description,
-                        expected: { description: old },
-                      })
-                    }
-                  />
-                </td>
-                <td className="max-w-64 px-3 py-3">
-                  <button
-                    className={`text-left ${expanded === c.id ? "" : "line-clamp-2"}`}
-                    onClick={() => setExpanded(expanded === c.id ? null : c.id)}
-                  >
-                    {summary || "Ingen samtale registrert"}
-                  </button>
-                </td>
-                <td className="w-40 px-2 py-2">
-                  <details>
-                    <summary className="cursor-pointer text-xs">
-                      {data.contactPersonTags
-                        .filter((x) => x.contactId === c.id)
-                        .map((x) => data.personTags.find((t) => t.id === x.tagId)?.name)
-                        .filter(Boolean)
-                        .join(", ") || "Ingen"}
-                    </summary>
-                    <div className="mt-2 space-y-1">
-                      {data.personTags.map((tag) => (
-                        <label
-                          key={tag.id}
-                          title={tag.description ?? "Ingen beskrivelse"}
-                          className="flex gap-1 text-xs"
-                        >
-                          <Checkbox
-                            disabled={c.status === "duplicate"}
-                            checked={data.contactPersonTags.some(
-                              (x) => x.contactId === c.id && x.tagId === tag.id,
-                            )}
-                            onCheckedChange={(checked) =>
-                              void mutate(`/contacts/${c.id}/tags`, {
-                                tagIds: checked
-                                  ? [
-                                      ...data.contactPersonTags
-                                        .filter((x) => x.contactId === c.id)
+                  </td>
+                  <td className="w-36 px-2 pt-2">
+                    <Select
+                      value={c.companyId}
+                      onValueChange={(companyId) => void mutate(`/contacts/${c.id}`, { companyId })}
+                      items={data.companies.map((x) => ({ value: x.id, label: x.name }))}
+                      disabled={c.status === "duplicate"}
+                    />
+                  </td>
+                  <td className="w-36 px-2 pt-2">
+                    <Select
+                      value={c.departmentId ?? ""}
+                      onValueChange={(departmentId) =>
+                        void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
+                      }
+                      items={[
+                        { value: "", label: "Ingen" },
+                        ...data.departments
+                          .filter((d) => d.companyId === c.companyId)
+                          .map((d) => ({ value: d.id, label: d.name })),
+                      ]}
+                      disabled={c.status === "duplicate"}
+                    />
+                  </td>
+                  <td rowSpan={2} className="w-24 px-2 py-2">
+                    <InlineText
+                      value={c.position}
+                      disabled={c.status === "duplicate"}
+                      onSave={(position, old) =>
+                        void mutate(`/contacts/${c.id}`, { position, expected: { position: old } })
+                      }
+                    />
+                  </td>
+                  <td rowSpan={2} className="w-40 px-2 py-2">
+                    <InlineText
+                      value={c.email}
+                      disabled={c.status === "duplicate"}
+                      onSave={(email, old) =>
+                        void mutate(`/contacts/${c.id}`, { email, expected: { email: old } })
+                      }
+                    />
+                  </td>
+                  <td rowSpan={2} className="w-28 px-2 py-2">
+                    <InlineText
+                      value={c.phone}
+                      disabled={c.status === "duplicate"}
+                      onSave={(phone, old) =>
+                        void mutate(`/contacts/${c.id}`, { phone, expected: { phone: old } })
+                      }
+                    />
+                  </td>
+                  <td rowSpan={2} className="w-12 px-2 py-2">
+                    {c.status === "duplicate" ? (
+                      <ContactStatusIcon status="duplicate" size={20} />
+                    ) : (
+                      <Select
+                        value={c.status}
+                        iconOnly
+                        aria-label="Status"
+                        onValueChange={(status) => void mutate(`/contacts/${c.id}`, { status })}
+                        items={statusOptions}
+                      />
+                    )}
+                  </td>
+                  <td rowSpan={2} className="w-12 px-2 py-2">
+                    <Select
+                      value={c.assigneeId ?? ""}
+                      iconOnly
+                      aria-label="Ansvarlig"
+                      onValueChange={(assigneeId) =>
+                        void mutate(`/contacts/${c.id}`, { assigneeId: assigneeId || null })
+                      }
+                      items={assigneeOptions(data.members)}
+                      disabled={c.status === "duplicate"}
+                    />
+                  </td>
+                  <td rowSpan={2} className="min-w-72 w-[28%] px-3 py-3">
+                    <button
+                      className={`text-left ${expanded === c.id ? "" : "line-clamp-2"}`}
+                      onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+                    >
+                      {summary || "Ingen samtale registrert"}
+                    </button>
+                  </td>
+                  <td rowSpan={2} className="w-28 px-2 py-2">
+                    <details>
+                      <summary className="cursor-pointer text-xs">
+                        {data.contactPersonTags
+                          .filter((x) => x.contactId === c.id)
+                          .map((x) => data.personTags.find((t) => t.id === x.tagId)?.name)
+                          .filter(Boolean)
+                          .join(", ") || "Ingen"}
+                      </summary>
+                      <div className="mt-2 space-y-1">
+                        {data.personTags.map((tag) => (
+                          <label
+                            key={tag.id}
+                            title={tag.description ?? "Ingen beskrivelse"}
+                            className="flex gap-1 text-xs"
+                          >
+                            <Checkbox
+                              disabled={c.status === "duplicate"}
+                              checked={data.contactPersonTags.some(
+                                (x) => x.contactId === c.id && x.tagId === tag.id,
+                              )}
+                              onCheckedChange={(checked) =>
+                                void mutate(`/contacts/${c.id}/tags`, {
+                                  tagIds: checked
+                                    ? [
+                                        ...data.contactPersonTags
+                                          .filter((x) => x.contactId === c.id)
+                                          .map((x) => x.tagId),
+                                        tag.id,
+                                      ]
+                                    : data.contactPersonTags
+                                        .filter((x) => x.contactId === c.id && x.tagId !== tag.id)
                                         .map((x) => x.tagId),
-                                      tag.id,
-                                    ]
-                                  : data.contactPersonTags
-                                      .filter((x) => x.contactId === c.id && x.tagId !== tag.id)
-                                      .map((x) => x.tagId),
-                              })
-                            }
-                            aria-label={tag.name}
-                          />
-                          {tag.name}
-                        </label>
-                      ))}
+                                })
+                              }
+                              aria-label={tag.name}
+                            />
+                            {tag.name}
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  </td>
+                  <td rowSpan={2} className="px-2 py-2">
+                    <Button variant="ghost" size="sm" onClick={() => onOpen(c.id)}>
+                      Åpne
+                    </Button>
+                  </td>
+                </tr>
+                <tr
+                  className={`border-b border-border/70 hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
+                >
+                  <td colSpan={3} className="px-2 pb-2 pt-0">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <AlignLeft size={13} className="shrink-0" aria-hidden />
+                      <InlineText
+                        value={c.description}
+                        disabled={c.status === "duplicate"}
+                        ariaLabel="Kort beskrivelse"
+                        className="h-7 min-w-0 flex-1 text-xs"
+                        onSave={(description, old) =>
+                          void mutate(`/contacts/${c.id}`, {
+                            description,
+                            expected: { description: old },
+                          })
+                        }
+                      />
                     </div>
-                  </details>
-                </td>
-                <td className="px-2 py-2">
-                  <Button variant="ghost" size="sm" onClick={() => onOpen(c.id)}>
-                    Åpne
-                  </Button>
-                </td>
-              </tr>
+                  </td>
+                </tr>
+              </Fragment>
             );
           })}
         </tbody>
@@ -4294,6 +4335,7 @@ function ContactDetail({
   busy,
   focusedActivityId,
   focusedPassage,
+  focusedQuery,
   notificationPermission,
   onEnableNotifications,
 }: {
@@ -4306,6 +4348,7 @@ function ContactDetail({
   busy: boolean;
   focusedActivityId: string | null;
   focusedPassage: string | null;
+  focusedQuery: string | null;
   notificationPermission: NotificationPermission | "unsupported";
   onEnableNotifications: () => void;
 }) {
@@ -4329,25 +4372,28 @@ function ContactDetail({
     enabled: !!c && c.status !== "duplicate" && !!state.org,
     refetchInterval: 60_000,
   });
+  const library = useQuery({
+    queryKey: ["library", state.org?.id],
+    queryFn: () => request<LibraryItem[]>("/org/library", state.org!.id),
+    enabled: !!state.org,
+    refetchInterval: 60_000,
+  });
   const contactId = c?.id;
   useEffect(() => {
     if (!focusedActivityId || !contactId) return;
     const timer = window.setTimeout(() => {
-      document
-        .querySelector<HTMLElement>(
-          focusedActivityId === "note"
-            ? "[data-note-source]"
-            : `[data-activity-id="${focusedActivityId}"]`,
-        )
-        ?.scrollIntoView({
-          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-            ? "auto"
-            : "smooth",
-          block: "center",
-        });
+      const target = document.querySelector<HTMLElement>(
+        focusedActivityId === "note"
+          ? "[data-note-source]"
+          : `[data-activity-id="${focusedActivityId}"]`,
+      );
+      (target?.querySelector<HTMLElement>("[data-search-match]") ?? target)?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center",
+      });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [focusedActivityId, contactId]);
+  }, [focusedActivityId, focusedPassage, focusedQuery, contactId]);
   if (!c)
     return (
       <Button variant="ghost" onClick={onBack}>
@@ -4408,6 +4454,10 @@ function ContactDetail({
   const related = data.contacts.filter(
     (x) =>
       !!c.companyId && x.id !== c.id && x.companyId === c.companyId && x.status !== "duplicate",
+  );
+  const timelineIds = new Set(timeline.map((activity) => activity.id));
+  const contactLibrary = (library.data ?? []).filter(
+    (item) => item.contactId === c.id || (!!item.activityId && timelineIds.has(item.activityId)),
   );
   const viewingPeers = peers.filter(
     (peer, index, rows) =>
@@ -4658,18 +4708,10 @@ function ContactDetail({
             contact={c}
             mutate={mutate}
             focused={focusedActivityId === "note"}
+            focusedPassage={focusedActivityId === "note" ? focusedPassage : null}
+            focusedQuery={focusedQuery}
           />
-          {focusedActivityId === "note" && focusedPassage && (
-            <p className="rounded-lg bg-primary/10 p-3 text-sm">
-              <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
-            </p>
-          )}
-          {c.stikkord && (
-            <Card className="p-5">
-              <h2 className="font-semibold">Stikkord</h2>
-              <p className="mt-3 whitespace-pre-wrap text-sm">{c.stikkord}</p>
-            </Card>
-          )}
+          <StikkordEditor contact={c} mutate={mutate} busy={busy} />
           {c.status !== "duplicate" && (
             <ContactAiPanel
               contact={c}
@@ -4751,11 +4793,6 @@ function ContactDetail({
                     data-activity-id={a.id}
                     className={`rounded-xl border border-l-[3px] border-border bg-card p-4 shadow-sm ${presentation.borderClass} ${focusedActivityId === a.id ? "activity-focus-flash" : ""}`}
                   >
-                    {focusedActivityId === a.id && focusedPassage && (
-                      <p className="mb-3 rounded-lg bg-primary/10 p-2 text-sm">
-                        <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
-                      </p>
-                    )}
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h3
                         className={`flex items-center gap-2.5 text-lg font-semibold tracking-tight sm:text-xl ${presentation.titleClass}`}
@@ -4814,11 +4851,12 @@ function ContactDetail({
                       (() => {
                         const email = data.emailActivities.find((row) => row.activityId === a.id);
                         return email ? (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Fra: {email.fromEmail} · Til: {email.toEmails.join(", ")}
-                            {email.ccEmails.length ? ` · Kopi: ${email.ccEmails.join(", ")}` : ""}
-                            <br />
-                            Emne: {email.subject || "Uten emne"}
+                          <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                            <HighlightedText
+                              text={`Fra: ${email.fromEmail} · Til: ${email.toEmails.join(", ")}${email.ccEmails.length ? ` · Kopi: ${email.ccEmails.join(", ")}` : ""}\nEmne: ${email.subject || "Uten emne"}`}
+                              passage={focusedActivityId === a.id ? focusedPassage : null}
+                              query={focusedActivityId === a.id ? focusedQuery : null}
+                            />
                           </p>
                         ) : null;
                       })()}
@@ -4834,6 +4872,8 @@ function ContactDetail({
                         kind="summary"
                         id={a.id}
                         initialText={a.summary}
+                        highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
+                        highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
                         disabled={c.status === "duplicate"}
                         readOnly={!editing}
                         className={
@@ -4872,11 +4912,9 @@ function ContactDetail({
                         <BookOpen size={14} /> Legg til i biblioteket
                       </Button>
                     )}
-                    {a.kind !== "missed_phone" && (
-                      <details className={editing || a.transcript ? "mt-3" : "hidden"}>
-                        <summary className="cursor-pointer text-sm font-medium">
-                          Vis transkripsjon
-                        </summary>
+                    {a.kind !== "missed_phone" && (editing || !!a.transcript) && (
+                      <section className="mt-3">
+                        <h4 className="text-sm font-medium">Transkripsjon</h4>
                         <div
                           onMouseUp={(event) =>
                             !editing && captureActivityQuote(event.currentTarget, a.id)
@@ -4889,6 +4927,8 @@ function ContactDetail({
                             kind="transcript"
                             id={a.id}
                             initialText={a.transcript}
+                            highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
+                            highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
                             disabled={c.status === "duplicate"}
                             readOnly={!editing}
                             className={
@@ -4905,7 +4945,7 @@ function ContactDetail({
                             }}
                           />
                         </div>
-                      </details>
+                      </section>
                     )}
                     <ActivityAttachments
                       activity={a}
@@ -5017,6 +5057,41 @@ function ContactDetail({
               </ContactDetailField>
             </div>
           </Card>
+          {contactLibrary.length > 0 && (
+            <Card className="p-4">
+              <h2 className="flex items-center gap-2 font-semibold">
+                <BookOpen size={16} className="text-primary" /> Bibliotek ({contactLibrary.length})
+              </h2>
+              <div className="mt-3 space-y-2">
+                {contactLibrary.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="block w-full rounded-xl border border-border p-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-primary/5"
+                    onClick={() =>
+                      document
+                        .querySelector<HTMLElement>(
+                          item.activityId
+                            ? `[data-activity-id="${item.activityId}"]`
+                            : "[data-note-source]",
+                        )
+                        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                    }
+                  >
+                    <span className="block whitespace-pre-wrap break-words">{item.quote}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {item.sourceKind === "note" ? "Notat" : "Aktivitet"}
+                      {item.sourceDeleted
+                        ? " · Kilde slettet"
+                        : item.sourceEdited
+                          ? " · Kilde endret"
+                          : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
           {c.status !== "duplicate" && (
             <ContactReminderCard
               contactId={c.id}
@@ -5172,14 +5247,122 @@ function ContactDetail({
     </>
   );
 }
+function StikkordEditor({
+  contact,
+  mutate,
+  busy,
+}: {
+  contact: Contact;
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  busy: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(contact.stikkord ?? "");
+  const [expected, setExpected] = useState(contact.stikkord);
+  const [newer, setNewer] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!editing) {
+      setDraft(contact.stikkord ?? "");
+      setExpected(contact.stikkord);
+    }
+  }, [contact.stikkord, editing]);
+  async function save() {
+    setError("");
+    try {
+      await mutate(`/contacts/${contact.id}`, {
+        stikkord: draft.trim() || null,
+        expected: { stikkord: expected },
+      });
+      setEditing(false);
+      setNewer(null);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        const current = cause.details.current as { stikkord?: string | null } | undefined;
+        setNewer(current?.stikkord ?? "");
+        setExpected(current?.stikkord ?? null);
+      } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre stikkord.");
+    }
+  }
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold">Stikkord</h2>
+        {!editing && contact.status !== "duplicate" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Rediger stikkord"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size={16} />
+          </Button>
+        )}
+      </div>
+      {editing ? (
+        <div className="mt-3 space-y-2">
+          <Textarea
+            value={draft}
+            maxLength={300}
+            rows={3}
+            onChange={(event) => setDraft(event.target.value)}
+            aria-label="Stikkord"
+            placeholder="Korte stikkord om kontakten"
+          />
+          <p className="text-right text-xs text-muted-foreground">{draft.length}/300</p>
+          {newer !== null && (
+            <div className="rounded-xl border border-warn bg-warn-soft p-3 text-sm">
+              <p className="font-medium">Nyere lagret tekst</p>
+              <p className="mt-1 whitespace-pre-wrap">{newer || "(tomt)"}</p>
+              <p className="mt-2 text-xs">Utkastet ditt er beholdt. Lagre igjen for å bruke det.</p>
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="text-sm text-risk">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={busy || draft.trim() === (expected ?? "")}
+              onClick={() => void save()}
+            >
+              Lagre
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setEditing(false);
+                setNewer(null);
+              }}
+            >
+              Avbryt
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 whitespace-pre-wrap break-words text-sm">
+          {contact.stikkord || <span className="text-muted-foreground">Ingen stikkord ennå.</span>}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function SharedNote({
   contact,
   mutate,
   focused,
+  focusedPassage,
+  focusedQuery,
 }: {
   contact: Contact;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   focused: boolean;
+  focusedPassage: string | null;
+  focusedQuery: string | null;
 }) {
   const qc = useQueryClient();
   const { org } = useOrg();
@@ -5223,10 +5406,21 @@ function SharedNote({
           Blir ikke inkludert i kontaktloggen eller til AI.
         </p>
         <p className="text-xs text-muted-foreground">Endringer lagres fortløpende for teamet.</p>
+        {focusedPassage && (
+          <p className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-primary/5 p-3 text-sm">
+            <HighlightedText
+              text={contact.sharedNote}
+              passage={focusedPassage}
+              query={focusedQuery}
+            />
+          </p>
+        )}
         <LiveText
           kind="note"
           id={contact.id}
           initialText={contact.sharedNote}
+          highlightPassage={focusedPassage}
+          highlightQuery={focusedQuery}
           disabled={contact.status === "duplicate"}
           className="mt-3 min-h-28"
           onSelect={(event) => {
@@ -6841,6 +7035,9 @@ function Settings({
       {section === "team_settings" && state.org?.role !== "member" && <TeamAiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}
+      {section === "team_settings" && state.org?.role !== "member" && state.org && (
+        <TeamMcpSettings orgId={state.org.id} />
+      )}
       {section === "team_settings" && state.org?.role !== "member" && (
         <DomainTagSettings tags={data.domains} mutate={mutate} busy={busy} />
       )}

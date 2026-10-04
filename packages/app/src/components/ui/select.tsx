@@ -27,6 +27,7 @@ export function Select({
   className,
   id,
   disabled,
+  iconOnly = false,
   "aria-label": ariaLabel,
 }: {
   value: string;
@@ -37,6 +38,7 @@ export function Select({
   className?: string;
   id?: string;
   disabled?: boolean;
+  iconOnly?: boolean;
   "aria-label"?: string;
 }) {
   const selected = items.find((o) => o.value === value);
@@ -46,8 +48,10 @@ export function Select({
       <S.Trigger
         id={id}
         aria-label={ariaLabel}
+        title={iconOnly ? label : undefined}
         className={cn(
           "group/select-trigger flex h-9 w-full cursor-pointer items-center gap-2 rounded-xl border border-input bg-card pl-3.5 pr-2.5 text-sm transition-[color,border-color,box-shadow] duration-150 ease-out hover:border-primary/25 focus-visible:outline-none data-[popup-open]:border-primary/40 data-[popup-open]:ring-2 data-[popup-open]:ring-ring/40 focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring/50 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+          iconOnly && "size-9 justify-center gap-0 p-0",
           className,
         )}
       >
@@ -55,12 +59,15 @@ export function Select({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-left",
+            iconOnly && "sr-only",
             !selected?.label && "text-muted-foreground",
           )}
         >
           {label}
         </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[popup-open]/select-trigger:rotate-180" />
+        {!iconOnly && (
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out group-data-[popup-open]/select-trigger:rotate-180" />
+        )}
       </S.Trigger>
       <S.Portal>
         {/* z-[60]: selects must layer above dialogs (z-50). */}

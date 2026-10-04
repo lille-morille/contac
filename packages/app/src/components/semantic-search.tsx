@@ -28,7 +28,7 @@ export function SemanticSearch({
   initialQuery = "",
   initialShared = null,
 }: {
-  onOpen: (contactId: string, activityId: string | null, passage: string) => void;
+  onOpen: (contactId: string, activityId: string | null, passage: string, query: string) => void;
   initialQuery?: string;
   initialShared?: SearchResult | null;
 }) {
@@ -115,6 +115,7 @@ export function SemanticSearch({
                         result.contactId,
                         result.activityId ?? (result.kind === "note" ? "note" : null),
                         result.passage,
+                        submitted,
                       )
                     : setShared(result)
                 }
