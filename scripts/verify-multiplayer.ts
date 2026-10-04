@@ -102,7 +102,7 @@ try {
     teams.push(team.id);
   }
   await client`INSERT INTO public.memberships (org_id,user_id,role) VALUES
-    (${teams[0]},${a.id},'member'), (${teams[0]},${b.id},'member'),
+    (${teams[0]},${a.id},'admin'), (${teams[0]},${b.id},'member'),
     (${teams[1]},${outsider.id},'member')`;
   const aEvents: Record<string, unknown>[] = [];
   const bEvents: Record<string, unknown>[] = [];
@@ -194,7 +194,10 @@ try {
   assert.equal(webhook.status, 202);
   await waitForNext(bEvents, "inbound_suggestions", "insert", inboxCount);
   assert(!otherEvents.some((event) => event.entity === "inbound_suggestions"));
-  const tag = await call(a.token, teams[0], "/person-tags", { name: "Multiplayer test tag" });
+  const tag = await call(a.token, teams[0], "/person-tags", {
+    name: "Multiplayer test tag",
+    description: "Used for verifying shared tag updates.",
+  });
   assert.equal(tag.status, 201);
   assert.equal(
     (

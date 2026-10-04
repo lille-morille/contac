@@ -19,6 +19,7 @@ An account's recovery code must remain available for copying in profile settings
 - Required: name and organization/institution/company. Choose an existing organization in a combobox or create a new organization inline.
 - Optional: email, phone, position, department, short description, person tags (for example `Ildsjelen`, `Beslutningstaker`, `Portvokter`, `Bruker`).
 - Team person tags have a name and a description explaining the concrete criteria for applying them. The team settings page lets administrators add tags with descriptions and fill in descriptions for older tags. Existing undescribed tags remain available for manual selection.
+- Domain tags also have a description explaining which organizations belong there. Domain creation asks for this description, and team settings lets administrators describe older domains. People may still attach an older undescribed domain manually.
 - Exactly one current organization; department may be absent. This is a static snapshot model, with no employment history or multiple simultaneous organizations.
 - Each contact belongs to one team. A contact's third-party AI permission defaults to allowed, unless the team changes its default; see spec 04.
 - Contact statuses are manually chosen, with quick activity actions allowed to make an explicit status change. The seven normal statuses are `Ikke kontaktet`, `Avsluttet`, `Kan kontaktes igjen`, `Skal ringe`, `Venter på svar`, `Follow up / Ring igjen`, and `Ikke kontakt igjen`. `Duplicate` is an eighth archival status reached only by the confirmed duplicate flow.

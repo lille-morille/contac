@@ -228,8 +228,14 @@ const domainPalette = [
   "cyan",
   "slate",
 ] as const;
-async function ensureDomain(deps: ApiDeps, orgId: string, rawName: string) {
+async function ensureDomain(
+  deps: ApiDeps,
+  orgId: string,
+  rawName: string,
+  rawDescription?: string | null,
+) {
   const name = clean(rawName, 100);
+  const description = clean(rawDescription, 500) || null;
   const normalizedName = normalizeDomainName(name);
   if (!normalizedName) throw new Error("Domenenavn mangler");
   const paletteIndex =
@@ -237,10 +243,21 @@ async function ensureDomain(deps: ApiDeps, orgId: string, rawName: string) {
     domainPalette.length;
   const [created] = await deps.db
     .insert(domainTags)
-    .values({ orgId, name, normalizedName, color: domainPalette[paletteIndex]! })
+    .values({ orgId, name, description, normalizedName, color: domainPalette[paletteIndex]! })
     .onConflictDoNothing({ target: [domainTags.orgId, domainTags.normalizedName] })
     .returning({ id: domainTags.id });
   if (created) return created.id;
+  if (description)
+    await deps.db
+      .update(domainTags)
+      .set({ description })
+      .where(
+        and(
+          eq(domainTags.orgId, orgId),
+          eq(domainTags.normalizedName, normalizedName),
+          isNull(domainTags.description),
+        ),
+      );
   const [existing] = await deps.db
     .select({ id: domainTags.id })
     .from(domainTags)
@@ -486,7 +503,7 @@ async function generateContact(
     missingHierarchyFields = [
       ...(!person.contact.departmentId ? ["departmentId", "departmentName"] : []),
       ...(!existingTags.length ? ["personTagIds"] : []),
-      ...(!existingDomains.length ? ["domainIds", "newDomainName"] : []),
+      ...(!existingDomains.length ? ["domainIds", "newDomainName", "newDomainDescription"] : []),
     ];
     if (!missingHierarchyFields.length) return null;
   }
@@ -525,9 +542,14 @@ async function generateContact(
         .from(departments)
         .where(eq(departments.orgId, orgId)),
       deps.db
-        .select({ id: domainTags.id, name: domainTags.name })
+        .select({ id: domainTags.id, name: domainTags.name, description: domainTags.description })
         .from(domainTags)
-        .where(eq(domainTags.orgId, orgId)),
+        .where(
+          and(
+            eq(domainTags.orgId, orgId),
+            sql`NULLIF(BTRIM(${domainTags.description}), '') IS NOT NULL`,
+          ),
+        ),
       deps.db
         .select({ id: personTags.id, name: personTags.name, description: personTags.description })
         .from(personTags)
@@ -547,7 +569,7 @@ async function generateContact(
         personTags: tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå avdeling, domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, newDomainName, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Persontaggenes beskrivelser er kriteriene for når de skal brukes: velg bare en tagg når konkrete opplysninger om personen støtter beskrivelsen. Et navn, en organisasjon eller en stilling alene er ikke nok med mindre beskrivelsen sier det. Ikke velg alle tagger; returner tom personTagIds-liste hvis ingen er godt dokumentert. Velg passende eksisterende domener først. Bruk newDomainName for ett kort, konkret nytt fagdomene bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Hvis en avdeling er tydelig navngitt men ikke finnes, bruk departmentName. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå avdeling, domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, newDomainName, newDomainDescription, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Hvis en avdeling er tydelig navngitt men ikke finnes, bruk departmentName. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -600,7 +622,12 @@ async function generateContact(
       deps.db
         .select({ id: domainTags.id, normalizedName: domainTags.normalizedName })
         .from(domainTags)
-        .where(eq(domainTags.orgId, orgId)),
+        .where(
+          and(
+            eq(domainTags.orgId, orgId),
+            sql`NULLIF(BTRIM(${domainTags.description}), '') IS NOT NULL`,
+          ),
+        ),
       deps.db
         .select({ id: personTags.id })
         .from(personTags)
@@ -621,6 +648,7 @@ async function generateContact(
       ? (raw.departmentId as string)
       : null;
     const proposedDomain = resolveDomainProposal(raw.newDomainName, validDomains);
+    const proposedDomainDescription = clean(raw.newDomainDescription, 500);
     const chosenDomainIds = Array.isArray(raw.domainIds)
       ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item))
       : [];
@@ -638,7 +666,12 @@ async function generateContact(
         ...chosenDomainIds,
         ...(proposedDomain.domainId ? [proposedDomain.domainId] : []),
       ],
-      newDomainName: chosenDomainIds.length ? null : proposedDomain.newDomainName,
+      newDomainName:
+        chosenDomainIds.length || !proposedDomainDescription ? null : proposedDomain.newDomainName,
+      newDomainDescription:
+        chosenDomainIds.length || !proposedDomain.newDomainName
+          ? null
+          : proposedDomainDescription || null,
       personTagIds: Array.isArray(raw.personTagIds)
         ? raw.personTagIds.filter((item) => validTags.some((row) => row.id === item))
         : [],
@@ -738,6 +771,7 @@ async function generateContact(
         departmentName: string | null;
         domainIds: string[];
         newDomainName: string | null;
+        newDomainDescription: string | null;
         personTagIds: string[];
       };
       if (hierarchy.companyId && (mode === "dangerous" || !fresh.companyId))
@@ -804,7 +838,9 @@ async function generateContact(
       }
       const proposedDomainIds = [...hierarchy.domainIds];
       if (hierarchy.newDomainName && (mode === "dangerous" || !existingDomains.length))
-        proposedDomainIds.push(await ensureDomain(deps, orgId, hierarchy.newDomainName));
+        proposedDomainIds.push(
+          await ensureDomain(deps, orgId, hierarchy.newDomainName, hierarchy.newDomainDescription),
+        );
       if (proposedDomainIds.length && (mode === "dangerous" || !existingDomains.length)) {
         await applyTagSet(
           deps,
@@ -1064,6 +1100,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             departmentName?: string;
             domainIds?: string[];
             newDomainName?: string;
+            newDomainDescription?: string;
             personTagIds?: string[];
           }
         | undefined;
@@ -1125,7 +1162,9 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       }
       const proposedDomainIds = selected.has("domainIds") ? [...(hierarchy?.domainIds ?? [])] : [];
       if (hierarchy?.newDomainName && selected.has("newDomainName"))
-        proposedDomainIds.push(await ensureDomain(deps, orgId, hierarchy.newDomainName));
+        proposedDomainIds.push(
+          await ensureDomain(deps, orgId, hierarchy.newDomainName, hierarchy.newDomainDescription),
+        );
       if (proposedDomainIds.length) {
         const targetCompanyId = patch.companyId ?? current.companyId;
         const existingDomainIds = await deps.db

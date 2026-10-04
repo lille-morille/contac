@@ -137,7 +137,7 @@ type Company = {
   loiLogoUrl: string | null;
 };
 type Department = { id: string; companyId: string; name: string };
-type Domain = { id: string; name: string; color: Color };
+type Domain = { id: string; name: string; description: string | null; color: Color };
 type Tag = { id: string; name: string; description: string | null };
 type Contact = {
   id: string;
@@ -904,7 +904,11 @@ function Home() {
       setNow(Date.now());
       return result;
     } catch (cause) {
-      if (path.startsWith("/person-tags/") && cause instanceof ApiError && cause.status === 409) {
+      if (
+        (path.startsWith("/person-tags/") || path.startsWith("/domains/")) &&
+        cause instanceof ApiError &&
+        cause.status === 409
+      ) {
         setError(
           "Taggen ble endret av noen andre. Sammenlign den nye beskrivelsen med utkastet ditt.",
         );
@@ -5908,6 +5912,7 @@ function OrganizationMap({
   const [companyActiveIndex, setCompanyActiveIndex] = useState(0);
   const [domainDialogOpen, setDomainDialogOpen] = useState(false);
   const [newDomain, setNewDomain] = useState("");
+  const [newDomainDescription, setNewDomainDescription] = useState("");
   const [domainColor, setDomainColor] = useState<Color>("blue");
   const [newDept, setNewDept] = useState("");
   const [loiCompanyId, setLoiCompanyId] = useState<string | null>(null);
@@ -5992,6 +5997,7 @@ function OrganizationMap({
     );
   function openCreateDomain() {
     setNewDomain(domainSearch.trim());
+    setNewDomainDescription("");
     setDomainOpen(false);
     setDomainDialogOpen(true);
   }
@@ -6004,9 +6010,14 @@ function OrganizationMap({
   }
   async function createDomain(event: FormEvent) {
     event.preventDefault();
-    if (!newDomain.trim()) return;
-    const tag = await mutate<Domain>("/domains", { name: newDomain.trim(), color: domainColor });
+    if (!newDomain.trim() || !newDomainDescription.trim()) return;
+    const tag = await mutate<Domain>("/domains", {
+      name: newDomain.trim(),
+      description: newDomainDescription.trim(),
+      color: domainColor,
+    });
     setNewDomain("");
+    setNewDomainDescription("");
     setDomainDialogOpen(false);
     chooseSelection({ kind: "domain", id: tag.id });
   }
@@ -6403,6 +6414,14 @@ function OrganizationMap({
               value={newDomain}
               onChange={(event) => setNewDomain(event.target.value)}
             />
+            <Textarea
+              required
+              maxLength={500}
+              placeholder="Når skal et selskap knyttes til dette domenet?"
+              aria-label="Beskrivelse av domenet"
+              value={newDomainDescription}
+              onChange={(event) => setNewDomainDescription(event.target.value)}
+            />
             <div className="grid grid-cols-5 gap-3" role="group" aria-label="Farge">
               {(Object.keys(colors) as Color[]).map((color) => (
                 <button
@@ -6499,7 +6518,13 @@ function PersonTagSettings({
       </p>
       <div className="mt-4 space-y-3">
         {tags.map((tag) => (
-          <PersonTagDescription key={tag.id} tag={tag} mutate={mutate} busy={busy} />
+          <TagDescription
+            key={tag.id}
+            tag={tag}
+            pathPrefix="/person-tags"
+            mutate={mutate}
+            busy={busy}
+          />
         ))}
       </div>
       <form
@@ -6535,12 +6560,45 @@ function PersonTagSettings({
   );
 }
 
-function PersonTagDescription({
-  tag,
+function DomainTagSettings({
+  tags,
   mutate,
   busy,
 }: {
-  tag: Tag;
+  tags: Domain[];
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  busy: boolean;
+}) {
+  return (
+    <Card className="p-5">
+      <h2 className="font-semibold">Domener</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Beskriv hvilke organisasjoner hvert domene passer for. Nye domener opprettes fra
+        organisasjonsgrafen.
+      </p>
+      <div className="mt-4 space-y-3">
+        {tags.map((tag) => (
+          <TagDescription
+            key={tag.id}
+            tag={tag}
+            pathPrefix="/domains"
+            mutate={mutate}
+            busy={busy}
+          />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function TagDescription({
+  tag,
+  pathPrefix,
+  mutate,
+  busy,
+}: {
+  tag: Tag | Domain;
+  pathPrefix: "/person-tags" | "/domains";
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
 }) {
@@ -6550,7 +6608,7 @@ function PersonTagDescription({
   async function save(event: FormEvent) {
     event.preventDefault();
     try {
-      await mutate(`/person-tags/${tag.id}`, {
+      await mutate(`${pathPrefix}/${tag.id}`, {
         description: draft.trim(),
         expected: { description: expected },
       });
@@ -6712,6 +6770,9 @@ function Settings({
       {section === "team_settings" && state.org?.role !== "member" && <TeamAiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}
+      {section === "team_settings" && state.org?.role !== "member" && (
+        <DomainTagSettings tags={data.domains} mutate={mutate} busy={busy} />
+      )}
       {section === "team_settings" && state.org?.role !== "member" && (
         <PersonTagSettings tags={data.personTags} mutate={mutate} busy={busy} />
       )}

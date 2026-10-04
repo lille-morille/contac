@@ -458,18 +458,54 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json(row, 201);
   });
   app.post("/v1/org/domains", async (c) => {
-    const data = await parse(c, z.object({ name: z.string().trim().min(1).max(100), color }));
+    const data = await parse(
+      c,
+      z.object({
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().min(1).max(500),
+        color,
+      }),
+    );
     if (!data) return c.json({ error: "Invalid domain" }, 400);
     const orgId = c.get("org").id;
     const [row] = await deps.db
       .insert(domainTags)
       .values({ orgId, ...data, normalizedName: norm(data.name) })
-      .onConflictDoUpdate({
-        target: [domainTags.orgId, domainTags.normalizedName],
-        set: { color: data.color },
-      })
+      .onConflictDoNothing({ target: [domainTags.orgId, domainTags.normalizedName] })
       .returning();
+    if (!row) return c.json({ error: "Domenet finnes allerede. Velg det i listen." }, 409);
     return c.json(row, 201);
+  });
+  app.post("/v1/org/domains/:id", async (c) => {
+    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
+    const domainId = id.safeParse(c.req.param("id"));
+    const data = await parse(
+      c,
+      z.object({
+        description: z.string().trim().min(1).max(500),
+        expected: z.object({ description: z.string().nullable() }),
+      }),
+    );
+    if (!domainId.success || !data) return c.json({ error: "Invalid domain description" }, 400);
+    const orgId = c.get("org").id;
+    const [updated] = await deps.db
+      .update(domainTags)
+      .set({ description: data.description })
+      .where(
+        and(
+          eq(domainTags.orgId, orgId),
+          eq(domainTags.id, domainId.data),
+          sql`${domainTags.description} IS NOT DISTINCT FROM ${data.expected.description}`,
+        ),
+      )
+      .returning();
+    if (updated) return c.json(updated);
+    const [current] = await deps.db
+      .select({ description: domainTags.description })
+      .from(domainTags)
+      .where(and(eq(domainTags.orgId, orgId), eq(domainTags.id, domainId.data)));
+    if (!current) return c.json({ error: "Domain not found" }, 404);
+    return c.json({ error: "Domain changed while you were editing", current }, 409);
   });
   app.post("/v1/org/companies/:id/domains", async (c) => {
     const companyId = id.safeParse(c.req.param("id"));
@@ -536,7 +572,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       c,
       z.object({
         name: z.string().trim().min(1).max(100),
-        description: z.string().trim().min(1).max(500).optional(),
+        description: z.string().trim().min(1).max(500),
       }),
     );
     if (!data) return c.json({ error: "Invalid tag" }, 400);
@@ -546,7 +582,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .values({
         orgId,
         name: data.name,
-        description: data.description ?? null,
+        description: data.description,
         normalizedName: norm(data.name),
       })
       .onConflictDoNothing({ target: [personTags.orgId, personTags.normalizedName] })

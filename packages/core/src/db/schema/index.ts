@@ -317,6 +317,7 @@ export const domainTags = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    description: text("description"),
     normalizedName: text("normalized_name").notNull(),
     color: text("color")
       .$type<

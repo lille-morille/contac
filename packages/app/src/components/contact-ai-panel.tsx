@@ -212,6 +212,7 @@ export function ContactAiPanel({
                   ? ((payload.fields as Record<string, unknown>) ?? {})
                   : (hierarchy ?? {});
             const keys = Object.keys(proposed).filter((key) => {
+              if (key === "newDomainDescription") return false;
               const next = proposed[key];
               if (next === null || next === undefined || next === "") return false;
               if (Array.isArray(next) && !next.length) return false;
@@ -284,6 +285,12 @@ export function ContactAiPanel({
                         <span className="block break-words">
                           Forslag: {display(proposed[key], key, data)}
                         </span>
+                        {key === "newDomainName" &&
+                          typeof proposed.newDomainDescription === "string" && (
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              Kriterier: {proposed.newDomainDescription}
+                            </span>
+                          )}
                       </span>
                     </label>
                   ))}
