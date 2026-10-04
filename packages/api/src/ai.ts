@@ -207,6 +207,29 @@ const editable = [
   "stikkord",
 ] as const;
 type Editable = (typeof editable)[number];
+async function ensureDepartment(deps: ApiDeps, orgId: string, companyId: string, rawName: string) {
+  const name = clean(rawName, 200);
+  const normalizedName = name.normalize("NFKC").toLocaleLowerCase("nb-NO").replace(/\s+/g, " ");
+  if (!normalizedName) throw new Error("Avdelingsnavn mangler");
+  const [created] = await deps.db
+    .insert(departments)
+    .values({ orgId, companyId, name, normalizedName })
+    .onConflictDoNothing({ target: [departments.companyId, departments.normalizedName] })
+    .returning({ id: departments.id });
+  if (created) return created.id;
+  const [existing] = await deps.db
+    .select({ id: departments.id })
+    .from(departments)
+    .where(
+      and(
+        eq(departments.orgId, orgId),
+        eq(departments.companyId, companyId),
+        eq(departments.normalizedName, normalizedName),
+      ),
+    );
+  if (!existing) throw new Error("Kunne ikke opprette avdeling");
+  return existing.id;
+}
 function snapshot(contact: typeof contacts.$inferSelect) {
   return {
     ...Object.fromEntries(editable.map((key) => [key, contact[key]])),
@@ -390,9 +413,10 @@ async function generateContact(
   const { person, conversations, version } = await contactContext(deps, orgId, contactId);
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
   if (!conversations.length) throw new Error("Ingen tillatte samtaler å bruke");
-  const missingFields = (["email", "phone", "position", "description"] as const).filter(
+  const missingFields: string[] = (["email", "phone", "position", "description"] as const).filter(
     (key) => !person.contact[key]?.trim(),
   );
+  if (!person.contact.departmentId) missingFields.push("departmentName");
   if (
     trigger === "automatic" &&
     mode === "safe_auto" &&
@@ -447,7 +471,7 @@ async function generateContact(
     system =
       "Lag korte norske stikkord om viktigste funn for kontakten. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields")
-    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, position, description"}, evidence. Ukjente felter utelates. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} Description skal være én kort setning på norsk.`;
+    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, position, description, departmentName"}, evidence. Ukjente felter utelates. departmentName er navnet på en konkret avdeling innen kontaktens organisasjon, bare når samtalen tydelig navngir den. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} Description skal være én kort setning på norsk.`;
   if (feature === "hierarchy") {
     const [companyRows, departmentRows, domainRows, tagRows] = await Promise.all([
       deps.db
@@ -496,14 +520,20 @@ async function generateContact(
   };
   if (feature === "contact_fields") {
     const fields = Object.fromEntries(
-      ["email", "phone", "position", "description"]
+      ["email", "phone", "position", "description", "departmentName"]
         .map((key) => [key, clean(raw[key], key === "description" ? 500 : 200)])
         .filter(([, value]) => !!value),
     );
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;
     for (const key of Object.keys(fields)) {
-      if (mode === "safe_auto" && !missingFields.includes(key as (typeof missingFields)[number]))
+      if (mode === "safe_auto" && !missingFields.includes(key)) delete fields[key];
+      else if (
+        key === "departmentName" &&
+        String(fields[key]).trim().toLocaleLowerCase("nb-NO") ===
+          (person.departmentName ?? "").trim().toLocaleLowerCase("nb-NO")
+      )
         delete fields[key];
+      else if (key === "departmentName") continue;
       else if (
         String(person.contact[key as "email" | "phone" | "position" | "description"] ?? "")
           .trim()
@@ -630,8 +660,12 @@ async function generateContact(
       if (mode === "dangerous" || !fresh.stikkord) patch.stikkord = generated.output;
     }
     if (feature === "contact_fields")
-      for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>))
-        if (mode === "dangerous" || !fresh[key as Editable]) patch[key as Editable] = value;
+      for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>)) {
+        if (key === "departmentName") {
+          if (mode === "dangerous" || !fresh.departmentId)
+            patch.departmentId = await ensureDepartment(deps, orgId, fresh.companyId, value);
+        } else if (mode === "dangerous" || !fresh[key as Editable]) patch[key as Editable] = value;
+      }
     if (feature === "hierarchy") {
       const hierarchy = suggestion.hierarchy as {
         companyId: string | null;
@@ -941,7 +975,11 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       for (const [key, value] of Object.entries(
         (suggestion.payload.fields as Record<string, string>) ?? {},
       ))
-        if (selected.has(key as Editable)) patch[key as Editable] = value;
+        if (selected.has(key as Editable)) {
+          if (key === "departmentName")
+            patch.departmentId = await ensureDepartment(deps, orgId, current.companyId, value);
+          else patch[key as Editable] = value;
+        }
     if (suggestion.feature === "hierarchy") {
       const hierarchy = suggestion.payload.hierarchy as
         | {

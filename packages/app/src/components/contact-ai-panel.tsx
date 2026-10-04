@@ -119,11 +119,13 @@ export function ContactAiPanel({
   });
   const data = { companies, departments, domains, tags };
   const currentValue = (key: string) =>
-    key === "personTagIds"
-      ? personTagIds
-      : key === "domainIds"
-        ? domainIds
-        : contact[key as keyof Contact];
+    key === "departmentName"
+      ? (departments.find((item) => item.id === contact.departmentId)?.name ?? null)
+      : key === "personTagIds"
+        ? personTagIds
+        : key === "domainIds"
+          ? domainIds
+          : contact[key as keyof Contact];
   async function action(path: string, body: unknown) {
     if (!org) return;
     setBusy(true);
