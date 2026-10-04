@@ -4355,25 +4355,22 @@ function ContactDetail({
                   {c.position && ` · ${c.position}`}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                {c.status !== "duplicate" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
-                    aria-pressed={favorite}
-                    onClick={() =>
-                      void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })
-                    }
-                  >
-                    <Star size={16} className={favorite ? "fill-current text-primary" : ""} />
-                    {favorite ? "Favoritt" : "Legg til favoritter"}
-                  </Button>
-                )}
-                <ContactStatusBadge status={c.status} />
-              </div>
+              {c.status !== "duplicate" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
+                  aria-pressed={favorite}
+                  onClick={() =>
+                    void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })
+                  }
+                >
+                  <Star size={16} className={favorite ? "fill-current text-primary" : ""} />
+                  {favorite ? "Favoritt" : "Legg til favoritter"}
+                </Button>
+              )}
             </div>
             {viewingPeers.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
