@@ -108,11 +108,17 @@ const statusOptions = statuses.map(([value, label]) => ({
   icon: <ContactStatusIcon status={value} />,
 }));
 const companyStatuses = [
-  ["ikke_relevant", "Ikke relevant"],
-  ["relevant", "Relevant"],
-  ["potensiell_kunde", "Potensiell kunde"],
-  ["signert_intensjonsavtale", "Signert intensjonsavtale"],
+  ["ingen", "Ingen status"],
+  ["kunde", "Kunde"],
+  ["konkurrent", "Konkurrent"],
+  ["samarbeidspartner", "Samarbeidspartner"],
 ] as const;
+const companyStatusColors: Record<(typeof companyStatuses)[number][0], string> = {
+  ingen: "var(--border)",
+  kunde: "var(--mint)",
+  konkurrent: "var(--coral)",
+  samarbeidspartner: "var(--blue)",
+};
 const colors = {
   blue: "var(--blue)",
   orange: "var(--orange)",
@@ -5129,6 +5135,7 @@ function OrganizationGraph({
     x: number;
     y: number;
     color?: Color;
+    status?: Company["status"];
   };
   type GraphEdge = {
     id: string;
@@ -5174,6 +5181,7 @@ function OrganizationGraph({
       label: company.name,
       x: center,
       y: 180 + yOffset,
+      status: company.status,
     });
     groups.forEach((group) => {
       const directContact = data.contacts.find((contact) => contact.id === group.id);
@@ -5294,20 +5302,23 @@ function OrganizationGraph({
                   node.kind === "domain"
                     ? "var(--card)"
                     : node.kind === "company"
-                      ? "var(--primary-soft)"
+                      ? node.status === "ingen"
+                        ? "var(--card)"
+                        : "var(--primary-soft)"
                       : "var(--muted)"
                 }
                 stroke={
                   node.kind === "domain"
                     ? colors[node.color ?? "blue"]
-                    : node.kind === "company" ||
-                        (node.kind === "contact" &&
+                    : node.kind === "company"
+                      ? companyStatusColors[node.status ?? "ingen"]
+                      : node.kind === "contact" &&
                           activeNode?.kind === "contact" &&
-                          activeNode.id === node.entityId)
-                      ? "var(--primary)"
-                      : "var(--border)"
+                          activeNode.id === node.entityId
+                        ? "var(--primary)"
+                        : "var(--border)"
                 }
-                strokeWidth={node.kind === "domain" ? 2 : 1.5}
+                strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
               />
               <text
                 x="0"
@@ -5738,20 +5749,30 @@ function OrganizationMap({
         >
           {popupCompany && (
             <div>
-              <h2 className="pr-6 text-lg font-semibold">{popupCompany.name}</h2>
-              <label className="mt-4 block text-xs text-muted-foreground">
-                Status
+              <div className="flex flex-wrap items-center gap-2 pr-5">
+                <h2 className="min-w-0 flex-1 text-lg font-semibold">{popupCompany.name}</h2>
                 <Select
                   value={popupCompany.status}
+                  aria-label={`Status for ${popupCompany.name}`}
+                  className="w-auto max-w-full shrink-0"
                   onValueChange={(status) =>
                     void mutate(`/companies/${popupCompany.id}`, {
                       status,
                       expected: { status: popupCompany.status },
                     })
                   }
-                  items={companyStatuses.map(([value, label]) => ({ value, label }))}
+                  items={companyStatuses.map(([value, label]) => ({
+                    value,
+                    label,
+                    icon: (
+                      <span
+                        className="block size-2.5 rounded-full"
+                        style={{ backgroundColor: companyStatusColors[value] }}
+                      />
+                    ),
+                  }))}
                 />
-              </label>
+              </div>
               <p className="mt-4 text-xs font-medium text-muted-foreground">Domener</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {data.domains.map((domain) => {

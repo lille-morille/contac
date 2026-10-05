@@ -459,6 +459,6 @@ export function registerLoiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         createdBy: c.get("user").id,
       })
       .returning();
-    return c.json({ ...version, suggestCompanyStatus: "signert_intensjonsavtale" }, 201);
+    return c.json(version, 201);
   });
 }

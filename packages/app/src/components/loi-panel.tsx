@@ -51,7 +51,6 @@ type LastSent = {
 type Company = {
   id: string;
   name: string;
-  status: string;
   loiLogoFileId?: string | null;
   loiLogoUrl?: string | null;
 };
@@ -77,7 +76,6 @@ export function LoiPanel({
   const [message, setMessage] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState("");
-  const [suggestStatus, setSuggestStatus] = useState(false);
   const list = useQuery({
     queryKey: ["lois", org?.id, company.id],
     queryFn: () =>
@@ -214,23 +212,9 @@ export function LoiPanel({
         label: file.name,
       });
       await refresh();
-      setSuggestStatus(company.status !== "signert_intensjonsavtale");
       setMessage("Signert PDF er lagret som en ny versjon.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Kunne ikke lagre signert PDF.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function setCompanyStatus() {
-    if (!org) return;
-    setBusy(true);
-    try {
-      await request(`/org/companies/${company.id}`, org.id, { status: "signert_intensjonsavtale" });
-      await refresh();
-      setSuggestStatus(false);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Kunne ikke oppdatere status.");
     } finally {
       setBusy(false);
     }
@@ -322,7 +306,6 @@ export function LoiPanel({
             onClick={() => {
               setActiveId(row.id);
               setDraft(null);
-              setSuggestStatus(false);
             }}
           >
             {row.sentAt ? "Sendt" : "Utkast"} ·{" "}
@@ -650,19 +633,6 @@ export function LoiPanel({
                 }}
               />
             </label>
-          )}
-          {suggestStatus && (
-            <div className="rounded-xl bg-primary-soft p-3 text-sm">
-              Signert versjon er lagret. Oppdatere organisasjonen til «Signert intensjonsavtale»?
-              <div className="mt-2 flex gap-2">
-                <Button size="sm" disabled={busy} onClick={() => void setCompanyStatus()}>
-                  Ja, oppdater status
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setSuggestStatus(false)}>
-                  Ikke nå
-                </Button>
-              </div>
-            </div>
           )}
         </div>
       )}

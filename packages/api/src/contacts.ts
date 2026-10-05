@@ -33,12 +33,7 @@ const status = z.enum([
   "follow_up",
   "ikke_kontakt_igjen",
 ]);
-const companyStatus = z.enum([
-  "ikke_relevant",
-  "relevant",
-  "potensiell_kunde",
-  "signert_intensjonsavtale",
-]);
+const companyStatus = z.enum(["ingen", "kunde", "konkurrent", "samarbeidspartner"]);
 const color = z.enum([
   "blue",
   "orange",

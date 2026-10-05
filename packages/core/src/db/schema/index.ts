@@ -26,10 +26,10 @@ export const contactStatus = pgEnum("contact_status", [
   "duplicate",
 ]);
 export const companyStatus = pgEnum("company_status", [
-  "ikke_relevant",
-  "relevant",
-  "potensiell_kunde",
-  "signert_intensjonsavtale",
+  "ingen",
+  "kunde",
+  "konkurrent",
+  "samarbeidspartner",
 ]);
 export const contactActivityKind = pgEnum("contact_activity_kind", [
   "phone",
@@ -249,7 +249,7 @@ export const companies = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     normalizedName: text("normalized_name").notNull(),
-    status: companyStatus("status").notNull().default("relevant"),
+    status: companyStatus("status").notNull().default("ingen"),
     loiLogoFileId: uuid("loi_logo_file_id").references(() => workspaceFiles.id, {
       onDelete: "set null",
     }),
