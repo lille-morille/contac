@@ -588,6 +588,7 @@ function Home() {
     nonce: number;
   }>({ id: null, nonce: 0 });
   const [inboxOpen, setInboxOpen] = useState(false);
+  const inboxPanelRef = useRef<HTMLElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
@@ -612,6 +613,16 @@ function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canOpenCommand]);
+  useEffect(() => {
+    if (!inboxOpen) return;
+    inboxPanelRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setInboxOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [inboxOpen]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
@@ -978,6 +989,7 @@ function Home() {
   }, [createdNotice]);
   const chosen = data.contacts.find((c) => c.id === selectedId) ?? null;
   function go(next: Page) {
+    setInboxOpen(false);
     setCreatedHighlightId(null);
     setCreatedNotice(null);
     setFiltersOpen(false);
@@ -1017,6 +1029,7 @@ function Home() {
     setOrganizationTarget((current) => ({ id, nonce: current.nonce + 1 }));
   }
   function selectTeam(id: string) {
+    setInboxOpen(false);
     setCreatedHighlightId(null);
     setCreatedNotice(null);
     setFiltersOpen(false);
@@ -1094,6 +1107,11 @@ function Home() {
     ["organizations", "Organisasjoner", Building2],
     ["duplicates", "Duplikate kontakter", Copy],
   ];
+  const inboxCount =
+    dueReminders.length +
+    (inboxQuery.data?.suggestions.length ?? 0) +
+    (inboxQuery.data?.requests.length ?? 0) +
+    (classInboxQuery.data?.length ?? 0);
   const paletteItems: PaletteItem[] = [
     {
       id: "action:new-contact",
@@ -1296,7 +1314,7 @@ function Home() {
       : page;
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="glass flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">
+      <aside className="glass workspace-sidebar flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">
         <div className="mb-4 flex items-center justify-between gap-2 px-2">
           <div className="flex min-w-0 items-center gap-2">
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -1336,15 +1354,21 @@ function Home() {
               <ClipboardPaste size={17} />
             </Button>
           </div>
-          <Button variant="outline" size="sm" className="w-full" onClick={() => setInboxOpen(true)}>
+          <Button
+            variant={inboxCount > 0 ? "outline" : "ghost"}
+            size="sm"
+            className="w-full"
+            aria-expanded={inboxOpen}
+            aria-controls="sidebar-inbox"
+            onClick={() => setInboxOpen((open) => !open)}
+          >
             <Inbox size={16} />
             Innboks
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
-              {dueReminders.length +
-                (inboxQuery.data?.suggestions.length ?? 0) +
-                (inboxQuery.data?.requests.length ?? 0) +
-                (classInboxQuery.data?.length ?? 0)}
-            </span>
+            {inboxCount > 0 && (
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground">
+                {inboxCount}
+              </span>
+            )}
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1820,91 +1844,115 @@ function Home() {
           />
         </DialogContent>
       </Dialog>
-      <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogTitle>Innboks</DialogTitle>
-          <DialogDescription>
-            Påminnelser, e-postforslag og forespørsler på ett sted.
-          </DialogDescription>
-          <div className="mt-3">
-            <BrowserNotificationPrompt
-              permission={notificationPermission}
-              onEnable={() => void enableBrowserNotifications()}
-            />
-          </div>
-          <InboxItems
-            orgId={org.id}
-            inbox={inboxQuery.data}
-            adminItems={classInboxQuery.data}
-            contacts={data.contacts}
-            teams={state.organizations}
-            onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
-          />
-          {data.reminders.length === 0 ? (
-            !inboxQuery.data?.suggestions.length &&
-            !inboxQuery.data?.requests.length &&
-            !classInboxQuery.data?.length ? (
-              <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
-            ) : null
-          ) : (
-            <div className="mt-4 space-y-4">
-              {[
-                { title: "Klare nå", items: dueReminders },
-                {
-                  title: "Kommende",
-                  items: data.reminders.filter((reminder) => !dueReminders.includes(reminder)),
-                },
-              ].map((group) =>
-                group.items.length ? (
-                  <section key={group.title}>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {group.title}
-                    </h3>
-                    <div className="space-y-2">
-                      {group.items.map((reminder) => {
-                        const contact = data.contacts.find(
-                          (item) => item.id === reminder.contactId,
-                        );
-                        return (
-                          <div key={reminder.id} className="rounded-xl border border-border p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <button
-                                  type="button"
-                                  className="font-medium text-primary hover:underline"
-                                  onClick={() => {
-                                    setInboxOpen(false);
-                                    setSelectedId(reminder.contactId);
-                                  }}
-                                >
-                                  {contact?.name ?? "Kontakt"}
-                                </button>
-                                <p className="text-xs text-muted-foreground">
-                                  {dateTimeLabel(reminder.dueAt)}
-                                </p>
-                              </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void mutate(`/reminders/${reminder.id}/dismiss`, {})}
-                              >
-                                Fjern
-                              </Button>
-                            </div>
-                            {reminder.message && (
-                              <p className="mt-2 whitespace-pre-wrap text-sm">{reminder.message}</p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ) : null,
-              )}
+      {inboxOpen && (
+        <aside
+          id="sidebar-inbox"
+          ref={inboxPanelRef}
+          tabIndex={-1}
+          aria-label="Innboks"
+          className="fixed inset-y-0 right-0 z-[70] flex w-full flex-col border-l border-border bg-card shadow-2xl outline-none sm:max-w-md lg:right-auto lg:left-60 lg:w-[min(30rem,calc(100vw-15rem))]"
+        >
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border p-4">
+            <div>
+              <h2 className="font-semibold">Innboks</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Påminnelser, e-postforslag og forespørsler på ett sted.
+              </p>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Lukk innboks"
+              onClick={() => setInboxOpen(false)}
+            >
+              <X size={18} />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="mt-3">
+              <BrowserNotificationPrompt
+                permission={notificationPermission}
+                onEnable={() => void enableBrowserNotifications()}
+              />
+            </div>
+            <InboxItems
+              orgId={org.id}
+              inbox={inboxQuery.data}
+              adminItems={classInboxQuery.data}
+              contacts={data.contacts}
+              teams={state.organizations}
+              onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
+            />
+            {data.reminders.length === 0 ? (
+              !inboxQuery.data?.suggestions.length &&
+              !inboxQuery.data?.requests.length &&
+              !classInboxQuery.data?.length ? (
+                <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
+              ) : null
+            ) : (
+              <div className="mt-4 space-y-4">
+                {[
+                  { title: "Klare nå", items: dueReminders },
+                  {
+                    title: "Kommende",
+                    items: data.reminders.filter((reminder) => !dueReminders.includes(reminder)),
+                  },
+                ].map((group) =>
+                  group.items.length ? (
+                    <section key={group.title}>
+                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {group.title}
+                      </h3>
+                      <div className="space-y-2">
+                        {group.items.map((reminder) => {
+                          const contact = data.contacts.find(
+                            (item) => item.id === reminder.contactId,
+                          );
+                          return (
+                            <div key={reminder.id} className="rounded-xl border border-border p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <button
+                                    type="button"
+                                    className="font-medium text-primary hover:underline"
+                                    onClick={() => {
+                                      setInboxOpen(false);
+                                      setSelectedId(reminder.contactId);
+                                    }}
+                                  >
+                                    {contact?.name ?? "Kontakt"}
+                                  </button>
+                                  <p className="text-xs text-muted-foreground">
+                                    {dateTimeLabel(reminder.dueAt)}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    void mutate(`/reminders/${reminder.id}/dismiss`, {})
+                                  }
+                                >
+                                  Fjern
+                                </Button>
+                              </div>
+                              {reminder.message && (
+                                <p className="mt-2 whitespace-pre-wrap text-sm">
+                                  {reminder.message}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null,
+                )}
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
       <Dialog open={!!scalarConflict} onOpenChange={(open) => !open && setScalarConflict(null)}>
         <DialogContent className="max-w-xl">
           <DialogTitle>Endringen ble ikke lagret</DialogTitle>

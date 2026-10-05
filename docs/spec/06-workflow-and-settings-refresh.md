@@ -23,7 +23,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Reviewed specs 06 and 07 recorded | Done | This commit |
+| Reviewed specs 06 and 07 recorded | Done | `4fa200b` |
+| A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | This commit |
 
 ## A. Navigation and daily work
 

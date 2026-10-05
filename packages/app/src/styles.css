@@ -282,6 +282,13 @@
   box-shadow: var(--glass-shadow);
 }
 
+:root[data-theme="dark"] .workspace-sidebar {
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  box-shadow: none;
+}
+
 /*
  * Stronger glass for floating popups that open WITHOUT a dimming backdrop
  * (dropdowns/selects, menus, popovers, tooltips). Dialogs/sheets sit on a
