@@ -45,8 +45,9 @@ All units were assigned by the product owner. Mark each completed change in the 
 | D3: copy quote with `#cite-contact(...)` and source metadata | Done; template ZIP validation pending | `25209ba` |
 | F5: automatic matched-log sharing; remove team toggle and settings card | Done; database migration not run here | `6a4cc6d` |
 | F2: retire Økter page, session API/data, and AI feature | Done; database migration not run here | `bb1054a` |
-| B1: remove contact position and department model across API, AI, MCP, UI, search, export, graph | Done; database migration not run here | This commit |
-| B3: concise evidence-grounded person description prompt | Prompt updated; representative output review pending | This commit |
+| B1: remove contact position and department model across API, AI, MCP, UI, search, export, graph | Done; database migration not run here | `c9300b5` |
+| B3: concise evidence-grounded person description prompt | Prompt updated; representative output review pending | `c9300b5` |
+| B2: create or select organization from the contact detail field | Done | This commit |
 
 ## A. Navigation and daily work
 

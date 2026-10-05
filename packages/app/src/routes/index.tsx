@@ -3613,6 +3613,135 @@ function ContactReminderCard({
     </Card>
   );
 }
+function ContactOrganizationPicker({
+  contact,
+  companies,
+  mutate,
+  disabled,
+}: {
+  contact: Contact;
+  companies: Company[];
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const current = companies.find((company) => company.id === contact.companyId);
+  const query = search.trim().toLocaleLowerCase("nb-NO");
+  const matches = companies.filter((company) =>
+    company.name.toLocaleLowerCase("nb-NO").includes(query),
+  );
+  const existing = companies.find(
+    (company) => company.name.trim().toLocaleLowerCase("nb-NO") === query,
+  );
+  async function select(companyId: string) {
+    if (companyId === contact.companyId) {
+      setOpen(false);
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await mutate(`/contacts/${contact.id}`, { companyId });
+      setOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke velge organisasjon.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function create() {
+    if (!search.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      const company = await mutate<{ id: string }>("/companies", { name: search.trim() });
+      await mutate(`/contacts/${contact.id}`, { companyId: company.id });
+      setOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke opprette organisasjonen.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          setSearch("");
+          setError("");
+        }
+      }}
+    >
+      <PopoverTrigger
+        type="button"
+        disabled={disabled}
+        className={`${detailFieldClass} flex w-full items-center justify-between rounded-lg text-left text-sm`}
+        aria-label="Organisasjon"
+      >
+        <span className="truncate">{current?.name ?? "Velg organisasjon"}</span>
+        <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2">
+        <Input
+          autoFocus
+          role="combobox"
+          aria-label="Søk eller opprett organisasjon"
+          aria-expanded={open}
+          aria-controls="contact-organization-options"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            if (existing) void select(existing.id);
+            else if (search.trim()) void create();
+          }}
+        />
+        <div
+          id="contact-organization-options"
+          role="listbox"
+          className="mt-2 max-h-56 overflow-y-auto"
+        >
+          {matches.map((company) => (
+            <button
+              key={company.id}
+              type="button"
+              role="option"
+              aria-selected={company.id === contact.companyId}
+              disabled={saving}
+              className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-muted"
+              onClick={() => void select(company.id)}
+            >
+              {company.name}
+            </button>
+          ))}
+        </div>
+        {search.trim() && !existing && (
+          <Button
+            className="mt-2 w-full"
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            onClick={() => void create()}
+          >
+            <Plus size={14} /> Opprett «{search.trim()}»
+          </Button>
+        )}
+        {error && (
+          <p role="alert" className="mt-2 text-xs text-risk">
+            {error}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ContactDetail({
   contact: c,
   data,
@@ -3806,12 +3935,10 @@ function ContactDetail({
                 />
               </ContactDetailField>
               <ContactDetailField icon={Building2} label="Organisasjon">
-                <Select
-                  value={c.companyId}
-                  className={detailFieldClass}
-                  aria-label="Organisasjon"
-                  onValueChange={(companyId) => void mutate(`/contacts/${c.id}`, { companyId })}
-                  items={data.companies.map((x) => ({ value: x.id, label: x.name }))}
+                <ContactOrganizationPicker
+                  contact={c}
+                  companies={data.companies}
+                  mutate={mutate}
                   disabled={c.status === "duplicate"}
                 />
               </ContactDetailField>
