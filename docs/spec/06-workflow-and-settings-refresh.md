@@ -53,7 +53,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B6 and E6: separate Markdown information on contacts and MCP creation, local search, MCP reads | Done; database migration not run here | `ebf205b` |
 | E5: batch MCP creation with per-item validation, duplicate candidates, and partial success | Done; live MCP integration not run here | `d30ae2f` |
 | E3: identity tool and required team-ID guard on every MCP data tool | Done | `037b153` |
-| E1, E2 and E4: profile team selection, personal OAuth connections, copied agent instructions, old token retirement | Done; live OAuth connection not verified here | This commit |
+| E1, E2 and E4: profile team selection, personal OAuth connections, copied agent instructions, old token retirement | Done; live OAuth connection not verified here | `e2d5fa5` |
+| E2: reject MCP-scoped OAuth tokens from browser profile and workspace API | Done | This commit |
 
 ## A. Navigation and daily work
 
