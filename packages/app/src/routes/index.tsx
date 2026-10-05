@@ -5226,6 +5226,9 @@ function OrganizationGraph({
   onCloseNode,
   activeNode,
   viewportHeight,
+  viewportWidth,
+  fitToken,
+  zoomAction,
 }: {
   data: Data;
   companies: Company[];
@@ -5235,6 +5238,9 @@ function OrganizationGraph({
   onCloseNode: () => void;
   activeNode: { kind: "company" | "contact"; id: string } | null;
   viewportHeight: number;
+  viewportWidth: number;
+  fitToken: number;
+  zoomAction: { sequence: number; factor: number };
 }) {
   const reducedMotion = useReducedMotion();
   const transition = reducedMotion ? { duration: 0 } : graphSpring;
@@ -5247,49 +5253,25 @@ function OrganizationGraph({
           )
         : true,
   );
-  const columns = companies.map((company) => {
-    const people = data.contacts.filter(
+  const companyPeople = companies.map((company) => ({
+    company,
+    people: data.contacts.filter(
       (contact) => contact.companyId === company.id && contact.status !== "duplicate",
-    );
-    const groups = people.map((contact) => ({
-      id: contact.id,
-      name: contact.name,
-      type: "contact" as const,
-    }));
-    const groupWidths = groups.map(() => 240);
-    const groupsWidth =
-      groupWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, groups.length - 1) * 30;
-    return { company, groups, groupWidths, groupsWidth, width: Math.max(270, groupsWidth + 40) };
+    ),
+  }));
+  const domainRadius = domains.length > 1 ? Math.max(170, domains.length * 55) : 0;
+  const companyRadius = Math.max(domainRadius + 290, companies.length * 155);
+  const maxRows = Math.max(1, ...companyPeople.map(({ people }) => Math.ceil(people.length / 3)));
+  const graphRadius = companyRadius + 240 + maxRows * 155;
+  const graphWidth = graphRadius * 2;
+  const graphHeight = graphWidth;
+  const center = graphRadius;
+  const angle = (index: number, count: number) =>
+    -Math.PI / 2 + (index * 2 * Math.PI) / Math.max(count, 1);
+  const polar = (radius: number, radians: number) => ({
+    x: center + Math.cos(radians) * radius,
+    y: center + Math.sin(radians) * radius,
   });
-  const totalWidth =
-    columns.reduce((sum, column) => sum + column.width, 0) + Math.max(0, columns.length - 1) * 50;
-  const graphWidth = Math.max(900, totalWidth + 100, domains.length * 190 + 100);
-  const graphHeight = Math.max(560, viewportHeight);
-  const yOffset = Math.max(0, (graphHeight - 500) / 2);
-  const [canvasWidth, setCanvasWidth] = useState(graphWidth);
-  useEffect(() => {
-    if (graphWidth === canvasWidth) return;
-    // Allow departing nodes and links to finish before the canvas narrows.
-    const timeout = window.setTimeout(
-      () => setCanvasWidth(graphWidth),
-      graphWidth < canvasWidth ? 480 : 0,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [graphWidth, canvasWidth]);
-  let left = (graphWidth - totalWidth) / 2;
-  const positioned = columns.map((column) => {
-    const center = left + column.width / 2;
-    const groupLeft = left + (column.width - column.groupsWidth) / 2;
-    let groupOffset = groupLeft;
-    const groups = column.groups.map((group, index) => {
-      const x = groupOffset + column.groupWidths[index] / 2;
-      groupOffset += column.groupWidths[index] + 30;
-      return { ...group, x };
-    });
-    left += column.width + 50;
-    return { ...column, center, groups };
-  });
-  const domainX = (index: number) => graphWidth / 2 + (index - (domains.length - 1) / 2) * 190;
   type GraphNode = {
     id: string;
     entityId: string;
@@ -5309,78 +5291,139 @@ function OrganizationGraph({
     y2: number;
     color: string;
   };
-  const nodes: GraphNode[] = domains.map((domain, index) => ({
+  const domainPositions = new Map(
+    domains.map((domain, index) => [domain.id, polar(domainRadius, angle(index, domains.length))]),
+  );
+  const nodes: GraphNode[] = domains.map((domain) => ({
     id: `domain:${domain.id}`,
     entityId: domain.id,
     kind: "domain",
     label: domain.name,
-    x: domainX(index),
-    y: 35 + yOffset,
+    ...domainPositions.get(domain.id)!,
     color: domain.color,
   }));
   const edges: GraphEdge[] = [];
-  domains.forEach((domain, index) => {
-    positioned.forEach(({ company, center }) => {
-      if (
-        data.companyDomains.some(
-          (link) => link.companyId === company.id && link.domainId === domain.id,
-        )
-      ) {
-        edges.push({
-          id: `domain:${domain.id}:company:${company.id}`,
-          x1: domainX(index),
-          y1: 85 + yOffset,
-          x2: center,
-          y2: 180 + yOffset,
-          color: colors[domain.color],
-        });
-      }
-    });
-  });
-  positioned.forEach(({ company, center, groups }) => {
+  companyPeople.forEach(({ company, people }, index) => {
+    const radians = angle(index, companies.length);
+    const position = polar(companyRadius, radians);
     nodes.push({
       id: `company:${company.id}`,
       entityId: company.id,
       kind: "company",
       label: company.name,
-      x: center,
-      y: 180 + yOffset,
+      ...position,
       status: company.status,
     });
-    groups.forEach((group) => {
-      const directContact = data.contacts.find((contact) => contact.id === group.id);
+    for (const domain of domains) {
+      if (
+        !data.companyDomains.some(
+          (link) => link.companyId === company.id && link.domainId === domain.id,
+        )
+      )
+        continue;
+      const start = domainPositions.get(domain.id)!;
+      edges.push({
+        id: `domain:${domain.id}:company:${company.id}`,
+        x1: start.x,
+        y1: start.y,
+        x2: position.x,
+        y2: position.y,
+        color: colors[domain.color],
+      });
+    }
+    people.forEach((contact, contactIndex) => {
+      const row = Math.floor(contactIndex / 3);
+      const countInRow = Math.min(3, people.length - row * 3);
+      const column = contactIndex % 3;
+      const lateral = (column - (countInRow - 1) / 2) * 265;
+      const radius = companyRadius + 210 + row * 155;
+      const x = center + Math.cos(radians) * radius - Math.sin(radians) * lateral;
+      const y = center + Math.sin(radians) * radius + Math.cos(radians) * lateral;
       nodes.push({
-        id: `${group.type}:${group.id}`,
-        entityId: group.id,
-        kind: group.type,
-        label: group.name,
-        subtitle: directContact?.description?.trim() || "Ingen kort beskrivelse",
-        x: group.x,
-        y: 318 + yOffset,
+        id: `contact:${contact.id}`,
+        entityId: contact.id,
+        kind: "contact",
+        label: contact.name,
+        subtitle: contact.description?.trim() || "Ingen kort beskrivelse",
+        x,
+        y,
       });
       edges.push({
-        id: `company:${company.id}:${group.type}:${group.id}`,
-        x1: center,
-        y1: 230 + yOffset,
-        x2: group.x,
-        y2: 318 + yOffset,
+        id: `company:${company.id}:contact:${contact.id}`,
+        x1: position.x,
+        y1: position.y,
+        x2: x,
+        y2: y,
         color: "var(--border)",
       });
     });
   });
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
+  const dragging = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    viewX: number;
+    viewY: number;
+  } | null>(null);
+  useEffect(() => {
+    const scale = Math.min(
+      1.2,
+      Math.max(0.04, Math.min(viewportWidth, viewportHeight) / graphWidth),
+    );
+    setView({ x: 0, y: 0, scale });
+  }, [
+    viewportWidth,
+    viewportHeight,
+    graphWidth,
+    selection.kind,
+    selection.kind === "all" ? "" : selection.id,
+    fitToken,
+  ]);
+  useEffect(() => {
+    if (!zoomAction.sequence) return;
+    setView((current) => ({
+      ...current,
+      scale: Math.min(3, Math.max(0.04, current.scale * zoomAction.factor)),
+    }));
+  }, [zoomAction]);
+  useEffect(() => {
+    const element = svgRef.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      if (event.ctrlKey) {
+        setView((current) => ({
+          ...current,
+          scale: Math.min(3, Math.max(0.04, current.scale * Math.exp(-event.deltaY / 500))),
+        }));
+      } else {
+        const factor = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? viewportHeight : 1;
+        setView((current) => ({
+          ...current,
+          x: current.x - event.deltaX * factor,
+          y: current.y - event.deltaY * factor,
+        }));
+      }
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [viewportHeight]);
+  const transform = `translate(${viewportWidth / 2 + view.x} ${viewportHeight / 2 + view.y}) scale(${view.scale}) translate(${-center} ${-center})`;
   return (
-    <motion.svg
-      className="block"
-      initial={false}
-      animate={{ width: Math.max(canvasWidth, graphWidth) }}
-      transition={transition}
-      height={graphHeight}
+    <svg
+      ref={svgRef}
+      className="block h-full w-full touch-none"
+      width={viewportWidth}
+      height={viewportHeight}
+      viewBox={`0 0 ${viewportWidth} ${viewportHeight}`}
       role="group"
       aria-label={
         selection.kind === "domain"
           ? `Organisasjoner under ${domains[0]?.name ?? "domenet"}`
           : selection.kind === "company"
-            ? `Hierarki for ${companies[0]?.name ?? "organisasjonen"}`
+            ? `Kart for ${companies[0]?.name ?? "organisasjonen"}`
             : "Alle organisasjoner og domener"
       }
     >
@@ -5389,148 +5432,182 @@ function OrganizationGraph({
           <circle cx="12" cy="12" r="1" fill="var(--border)" />
         </pattern>
       </defs>
-      <rect width="100%" height="100%" fill="url(#organization-graph-dots)" onClick={onCloseNode} />
-      <AnimatePresence initial={false}>
-        {edges.map((edge) => (
-          <motion.line
-            key={edge.id}
-            initial={{ opacity: 0, x1: edge.x1, y1: edge.y1 - 20, x2: edge.x1, y2: edge.y1 }}
-            animate={{
-              opacity: 1,
-              x1: edge.x1,
-              y1: edge.y1,
-              x2: edge.x2,
-              y2: edge.y2,
-            }}
-            exit={{ opacity: 0, x2: edge.x1, y2: edge.y1 }}
-            transition={transition}
-            stroke={edge.color}
-            strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
-            strokeLinecap="round"
-          />
-        ))}
-      </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {nodes.map((node) => {
-          const interactive = true;
-          const width = node.kind === "company" ? 210 : node.kind === "domain" ? 160 : 220;
-          const height = node.kind === "contact" ? 72 : 50;
-          const activate = (anchor: Element) => {
-            if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
-            else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
+      <rect
+        width="100%"
+        height="100%"
+        fill="url(#organization-graph-dots)"
+        className={dragging.current ? "cursor-grabbing" : "cursor-grab"}
+        onClick={onCloseNode}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          dragging.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            viewX: view.x,
+            viewY: view.y,
           };
-          return (
-            <motion.g
-              key={node.id}
-              initial={{
-                opacity: 0,
-                x: node.x,
-                y: node.kind === "domain" ? 5 : node.y - 45,
-                scale: 0.72,
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const drag = dragging.current;
+          if (!drag || drag.pointerId !== event.pointerId) return;
+          setView((current) => ({
+            ...current,
+            x: drag.viewX + event.clientX - drag.x,
+            y: drag.viewY + event.clientY - drag.y,
+          }));
+        }}
+        onPointerUp={(event) => {
+          if (dragging.current?.pointerId === event.pointerId) dragging.current = null;
+        }}
+        onPointerCancel={() => {
+          dragging.current = null;
+        }}
+      />
+      <g transform={transform}>
+        <AnimatePresence initial={false}>
+          {edges.map((edge) => (
+            <motion.line
+              key={edge.id}
+              initial={{ opacity: 0, x1: edge.x1, y1: edge.y1 - 20, x2: edge.x1, y2: edge.y1 }}
+              animate={{
+                opacity: 1,
+                x1: edge.x1,
+                y1: edge.y1,
+                x2: edge.x2,
+                y2: edge.y2,
               }}
-              animate={{ opacity: 1, x: node.x, y: node.y, scale: 1 }}
-              exit={{ opacity: 0, y: node.kind === "domain" ? -15 : node.y - 35, scale: 0.72 }}
-              whileHover={interactive && !reducedMotion ? { scale: 1.055 } : undefined}
-              whileTap={interactive && !reducedMotion ? { scale: 0.97 } : undefined}
+              exit={{ opacity: 0, x2: edge.x1, y2: edge.y1 }}
               transition={transition}
-              className={interactive ? "cursor-pointer" : undefined}
-              role={interactive ? "button" : undefined}
-              tabIndex={interactive ? 0 : undefined}
-              aria-label={
-                interactive
-                  ? node.kind === "contact"
-                    ? `Vis kontaktkort for ${node.label}`
-                    : `Vis ${node.label}`
-                  : undefined
-              }
-              onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
-              onKeyDown={
-                interactive
-                  ? (event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        activate(event.currentTarget);
+              stroke={edge.color}
+              strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
+              strokeLinecap="round"
+            />
+          ))}
+        </AnimatePresence>
+        <AnimatePresence initial={false}>
+          {nodes.map((node) => {
+            const interactive = true;
+            const width = node.kind === "company" ? 210 : node.kind === "domain" ? 160 : 220;
+            const height = node.kind === "contact" ? 72 : 50;
+            const activate = (anchor: Element) => {
+              if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
+              else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
+            };
+            return (
+              <motion.g
+                key={node.id}
+                initial={{
+                  opacity: 0,
+                  x: node.x,
+                  y: node.kind === "domain" ? 5 : node.y - 45,
+                  scale: 0.72,
+                }}
+                animate={{ opacity: 1, x: node.x, y: node.y, scale: 1 }}
+                exit={{ opacity: 0, y: node.kind === "domain" ? -15 : node.y - 35, scale: 0.72 }}
+                whileHover={interactive && !reducedMotion ? { scale: 1.055 } : undefined}
+                whileTap={interactive && !reducedMotion ? { scale: 0.97 } : undefined}
+                transition={transition}
+                className={interactive ? "cursor-pointer" : undefined}
+                role={interactive ? "button" : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                aria-label={
+                  interactive
+                    ? node.kind === "contact"
+                      ? `Vis kontaktkort for ${node.label}`
+                      : `Vis ${node.label}`
+                    : undefined
+                }
+                onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
+                onKeyDown={
+                  interactive
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          activate(event.currentTarget);
+                        }
                       }
-                    }
-                  : undefined
-              }
-              style={{ transformBox: "fill-box", transformOrigin: "center" }}
-            >
-              <rect
-                x={-width / 2}
-                y="0"
-                width={width}
-                height={height}
-                rx="12"
-                fill={
-                  node.kind === "domain"
-                    ? "var(--card)"
-                    : node.kind === "company"
-                      ? node.status === "ingen"
-                        ? "var(--card)"
-                        : "var(--primary-soft)"
-                      : "var(--muted)"
+                    : undefined
                 }
-                stroke={
-                  node.kind === "domain"
-                    ? colors[node.color ?? "blue"]
-                    : node.kind === "company"
-                      ? companyStatusColors[node.status ?? "ingen"]
-                      : node.kind === "contact" &&
-                          activeNode?.kind === "contact" &&
-                          activeNode.id === node.entityId
-                        ? "var(--primary)"
-                        : "var(--border)"
-                }
-                strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
-              />
-              <text
-                x="0"
-                y={node.subtitle ? (node.kind === "contact" ? 28 : 25) : height / 2 + 5}
-                textAnchor="middle"
-                fontSize={node.kind === "contact" ? 14 : 15}
-                fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
-                fill="var(--foreground)"
-                className="pointer-events-none"
+                style={{ transformBox: "fill-box", transformOrigin: "center" }}
               >
-                {node.label.length > (node.kind === "company" ? 26 : 25)
-                  ? `${node.label.slice(0, node.kind === "company" ? 25 : 24)}…`
-                  : node.label}
-              </text>
-              {node.subtitle && (
+                <rect
+                  x={-width / 2}
+                  y="0"
+                  width={width}
+                  height={height}
+                  rx="12"
+                  fill={
+                    node.kind === "domain"
+                      ? "var(--card)"
+                      : node.kind === "company"
+                        ? node.status === "ingen"
+                          ? "var(--card)"
+                          : "var(--primary-soft)"
+                        : "var(--muted)"
+                  }
+                  stroke={
+                    node.kind === "domain"
+                      ? colors[node.color ?? "blue"]
+                      : node.kind === "company"
+                        ? companyStatusColors[node.status ?? "ingen"]
+                        : node.kind === "contact" &&
+                            activeNode?.kind === "contact" &&
+                            activeNode.id === node.entityId
+                          ? "var(--primary)"
+                          : "var(--border)"
+                  }
+                  strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
+                />
                 <text
                   x="0"
-                  y={node.kind === "contact" ? 50 : 43}
+                  y={node.subtitle ? (node.kind === "contact" ? 28 : 25) : height / 2 + 5}
                   textAnchor="middle"
-                  fontSize="11"
-                  fill="var(--muted-foreground)"
+                  fontSize={node.kind === "contact" ? 14 : 15}
+                  fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
+                  fill="var(--foreground)"
                   className="pointer-events-none"
                 >
-                  {node.subtitle.length > 30 ? `${node.subtitle.slice(0, 29)}…` : node.subtitle}
+                  {node.label.length > (node.kind === "company" ? 26 : 25)
+                    ? `${node.label.slice(0, node.kind === "company" ? 25 : 24)}…`
+                    : node.label}
                 </text>
-              )}
-            </motion.g>
-          );
-        })}
-      </AnimatePresence>
-      <AnimatePresence>
-        {companies.length === 0 && (
-          <motion.text
-            key="empty"
-            x={graphWidth / 2}
-            y={235 + yOffset}
-            textAnchor="middle"
-            fill="var(--muted-foreground)"
-            initial={{ opacity: 0, y: 220 + yOffset }}
-            animate={{ opacity: 1, y: 235 + yOffset }}
-            exit={{ opacity: 0, y: 220 + yOffset }}
-            transition={transition}
-          >
-            Ingen organisasjoner i dette utvalget.
-          </motion.text>
-        )}
-      </AnimatePresence>
-    </motion.svg>
+                {node.subtitle && (
+                  <text
+                    x="0"
+                    y={node.kind === "contact" ? 50 : 43}
+                    textAnchor="middle"
+                    fontSize="11"
+                    fill="var(--muted-foreground)"
+                    className="pointer-events-none"
+                  >
+                    {node.subtitle.length > 30 ? `${node.subtitle.slice(0, 29)}…` : node.subtitle}
+                  </text>
+                )}
+              </motion.g>
+            );
+          })}
+        </AnimatePresence>
+        <AnimatePresence>
+          {companies.length === 0 && (
+            <motion.text
+              key="empty"
+              x={graphWidth / 2}
+              y={graphHeight / 2 + 35}
+              textAnchor="middle"
+              fill="var(--muted-foreground)"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={transition}
+            >
+              Ingen organisasjoner i dette utvalget.
+            </motion.text>
+          )}
+        </AnimatePresence>
+      </g>
+    </svg>
   );
 }
 
@@ -5573,13 +5650,17 @@ function OrganizationMap({
   } | null>(null);
   const graphRef = useRef<HTMLElement>(null);
   const [viewportHeight, setViewportHeight] = useState(560);
+  const [viewportWidth, setViewportWidth] = useState(900);
+  const [fitToken, setFitToken] = useState(0);
+  const [zoomAction, setZoomAction] = useState({ sequence: 0, factor: 1 });
 
   useEffect(() => {
     const element = graphRef.current;
     if (!element) return;
-    const observer = new ResizeObserver(() =>
-      setViewportHeight(Math.max(560, element.clientHeight)),
-    );
+    const observer = new ResizeObserver(() => {
+      setViewportHeight(Math.max(560, element.clientHeight));
+      setViewportWidth(Math.max(320, element.clientWidth));
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -5881,7 +5962,7 @@ function OrganizationMap({
       </div>
       <section
         ref={graphRef}
-        className="relative min-h-[560px] min-w-0 flex-1 overflow-auto rounded-2xl border border-border bg-card shadow-card"
+        className="relative min-h-[560px] min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-card"
         aria-label="Relasjoner"
       >
         <OrganizationGraph
@@ -5897,7 +5978,42 @@ function OrganizationMap({
           onCloseNode={() => setActiveNode(null)}
           activeNode={activeNode}
           viewportHeight={viewportHeight}
+          viewportWidth={viewportWidth}
+          fitToken={fitToken}
+          zoomAction={zoomAction}
         />
+        <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-card">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Zoom ut"
+            onClick={() =>
+              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 0.8 }))
+            }
+          >
+            −
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setFitToken((current) => current + 1)}
+          >
+            Tilpass kart
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label="Zoom inn"
+            onClick={() =>
+              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 1.25 }))
+            }
+          >
+            +
+          </Button>
+        </div>
       </section>
       {selectedDomain && (
         <div className="absolute bottom-5 left-5 z-10 w-[min(360px,calc(100%-40px))] max-h-[40vh] overflow-y-auto rounded-xl border border-border bg-card p-3 shadow-card">
