@@ -56,6 +56,16 @@ The MCP endpoint is served by the existing API container at
 After deployment, a team admin can create a token in Teaminnstillinger and
 connect an agent as described in [mcp.md](mcp.md). Check that a revoked token
 returns HTTP 401 and a token from another team cannot read its contacts.
+For ChatGPT OAuth, enable the production Supabase OAuth 2.1 server and dynamic
+client registration. Set its Site URL to `https://contac.plingapp.no` and its
+authorization path to `/oauth/consent`. Enable the Custom Access Token hook
+`private.mcp_access_token_hook`. Deploy migration
+`0031_mcp_oauth_grants.sql` before enabling OAuth connections. Verify the
+resource metadata endpoint and the Supabase authorization-server discovery
+endpoint, then complete one real ChatGPT connection. The project already needs
+an asymmetric JWT signing key for the OAuth flow. The optional API variable
+`MCP_PUBLIC_BASE_URL` is the fixed external API origin; in production it is
+`https://api.contac.plingapp.no`.
 
 The API's SMTP listener does not advertise STARTTLS under Bun. The deployment
 guide in [deploy-inbound-email.md](deploy-inbound-email.md) describes a TLS

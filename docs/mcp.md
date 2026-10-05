@@ -47,4 +47,43 @@ The API stores a SHA-256 hash of the token, never the secret. The token table
 has RLS enabled and no `anon` or `authenticated` table access; the Hono API
 checks team admin permission for token management. MCP requests are resolved
 to exactly one team from the token, and database reads and writes include that
-team ID. The endpoint accepts no browser Origin other than the app origin.
+team ID. Requests that use a raw team key reject foreign browser Origins;
+OAuth requests still require a valid signed token and team grant.
+
+## Claude
+
+For Claude's remote custom connector, open **Customize → Connectors → Add custom
+connector**. On Team/Enterprise plans an owner first adds it under
+**Organization settings → Connectors → Add → Custom → Web**. Use the MCP URL above,
+choose **No sign in**, and add one **Request header** with name `Authorization`
+and value `Bearer <team-token>`. Then enable the connector for a conversation.
+The token creation screen has separate copy buttons for the URL, raw team token,
+header name, and complete header value.
+
+## ChatGPT
+
+ChatGPT's remote MCP connection uses OAuth rather than a pasted API key. Enable
+Developer mode, open **ChatGPT Plugins**, add the same MCP URL, and select the
+OAuth connection. The Contac consent screen asks the user to log in with their
+recovery code or passcode and paste the raw team token. The user must belong to
+that team or be a class admin. Contac binds the OAuth client's ID and user ID to
+the team token; the MCP API verifies the signed OAuth access token, current team
+membership, and that the team token is not revoked on every request. A revoked
+team token immediately blocks both Claude and ChatGPT connections using it.
+The raw team token is sent only to Contac during consent, not to ChatGPT.
+
+Production OAuth needs the Contac Production Supabase project to have its OAuth
+2.1 server and dynamic client registration enabled. Enable the Custom Access
+Token hook `private.mcp_access_token_hook` after applying migration 0031. This
+binds OAuth access tokens to the Contac MCP resource; ordinary app tokens keep
+their existing audience. The Auth Site URL must be
+`https://contac.plingapp.no` and the OAuth authorization path must be
+`/oauth/consent`. The project must use an asymmetric signing key. The MCP
+resource metadata is served at
+`https://api.contac.plingapp.no/.well-known/oauth-protected-resource/mcp`.
+The OAuth issuer is the production project's Supabase Auth endpoint, configured
+through `SUPABASE_URL`. The API's `MCP_PUBLIC_BASE_URL` may override the public
+API origin for local or staging deployments; add the corresponding issuer and
+resource URL to `private.mcp_oauth_config` before using OAuth there. Never
+derive the public URL from request Host.
+The `mcp_oauth_grants` table is API-only with RLS and no client role grants.

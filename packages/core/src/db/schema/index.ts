@@ -135,6 +135,22 @@ export const teamMcpTokens = pgTable(
   },
   (table) => [index("team_mcp_tokens_org_idx").on(table.orgId)],
 );
+export const mcpOauthGrants = pgTable(
+  "mcp_oauth_grants",
+  {
+    userId: uuid("user_id").notNull(),
+    clientId: text("client_id").notNull(),
+    tokenId: uuid("token_id")
+      .notNull()
+      .references(() => teamMcpTokens.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.clientId] }),
+    index("mcp_oauth_grants_token_idx").on(table.tokenId),
+  ],
+);
 export const conversations = pgTable(
   "conversations",
   {

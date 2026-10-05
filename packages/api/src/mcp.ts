@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   activityContacts,
   activityFiles,
@@ -21,10 +21,18 @@ import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm
 import type { Hono } from "hono";
 import { z } from "zod";
 import { runContactAutomations } from "./ai.ts";
+import {
+  authorizeMcpOauth,
+  mcpOauthChallenge,
+  mcpOauthToolMeta,
+  registerMcpOauthRoutes,
+} from "./mcp-oauth.ts";
+import { authorizeMcpToken, tokenHash, type TokenIdentity } from "./mcp-token-auth.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
+export { authorizeMcpToken } from "./mcp-token-auth.ts";
+
 const uuid = z.uuid();
-const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 const normalize = (value: string) =>
   value.trim().normalize("NFKC").toLocaleLowerCase("nb-NO").replace(/\s+/g, " ");
 const phoneKey = (value: string | null | undefined) => {
@@ -43,23 +51,6 @@ const failed = (message: string) => ({
   content: [{ type: "text" as const, text: message }],
 });
 
-type TokenIdentity = { id: string; orgId: string; createdBy: string };
-
-export async function authorizeMcpToken(deps: ApiDeps, authorization: string | undefined) {
-  const match = /^Bearer (ctc_[A-Za-z0-9_-]{40,})$/.exec(authorization ?? "");
-  if (!match) return null;
-  const [row] = await deps.db
-    .select({
-      id: teamMcpTokens.id,
-      orgId: teamMcpTokens.orgId,
-      createdBy: teamMcpTokens.createdBy,
-    })
-    .from(teamMcpTokens)
-    .where(and(eq(teamMcpTokens.tokenHash, tokenHash(match[1]!)), isNull(teamMcpTokens.revokedAt)))
-    .limit(1);
-  return row ?? null;
-}
-
 function makeServer(deps: ApiDeps, identity: TokenIdentity) {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
@@ -71,6 +62,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         "List active contacts in this token's team, including their full contact fields. Page using the returned nextCursor.",
       inputSchema: page,
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async ({ cursor, limit }) => {
       const rows = await deps.db
@@ -107,6 +99,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         "Get a contact with its organization, department, tags, shared note, summaries, linked activities, transcripts, email details, and attachment metadata.",
       inputSchema: z.object({ contactId: uuid }),
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async ({ contactId }) => {
       const [contact] = await deps.db
@@ -212,6 +205,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         "List organizations, departments, domains, domain links, and person tags for this team. Use IDs when creating contacts.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async () => {
       const [companyRows, departmentRows, domainRows, companyDomainRows, tagRows] =
@@ -255,6 +249,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         "List saved team library quotes. Page using nextCursor; contactId and activityId identify their source.",
       inputSchema: page,
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async ({ cursor, limit }) => {
       const rows = await deps.db
@@ -280,6 +275,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         limit: z.number().int().min(1).max(100).default(50),
       }),
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async ({ cursor, limit }) => {
       const [dateText, idText] = cursor?.split("|") ?? [];
@@ -326,6 +322,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       description: "Get a short-lived download URL for an activity attachment in this team.",
       inputSchema: z.object({ fileId: uuid }),
       annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
     },
     async ({ fileId }) => {
       const [file] = await deps.db
@@ -377,6 +374,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           "Company ID or name is required",
         ),
       annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
     },
     async (input) => {
       const ids = [...new Set(input.tagIds ?? [])];
@@ -474,6 +472,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         occurredAt: z.iso.datetime().optional(),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
     },
     async (input) => {
       if (input.missedOutcome && input.kind !== "missed_phone")
@@ -525,14 +524,21 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
 }
 
 export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: string) {
+  registerMcpOauthRoutes(app, deps, appOrigin);
   app.all("/mcp", async (c) => {
     const origin = c.req.header("origin");
-    if (origin && origin !== appOrigin) return c.json({ error: "Origin not allowed" }, 403);
-    const identity = await authorizeMcpToken(deps, c.req.header("authorization"));
-    if (!identity)
-      return c.json({ error: "Invalid or revoked MCP token" }, 401, {
-        "WWW-Authenticate": "Bearer",
+    const header = c.req.header("authorization");
+    const apiKey = header?.startsWith("Bearer ctc_") ?? false;
+    if (origin && origin !== appOrigin && apiKey)
+      return c.json({ error: "Origin not allowed" }, 403);
+    const identity = apiKey
+      ? await authorizeMcpToken(deps, header)
+      : await authorizeMcpOauth(deps, header);
+    if (!identity) {
+      return c.json({ error: "Invalid or revoked MCP authorization" }, 401, {
+        "WWW-Authenticate": mcpOauthChallenge(appOrigin),
       });
+    }
     await deps.db
       .update(teamMcpTokens)
       .set({ lastUsedAt: new Date() })
