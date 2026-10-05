@@ -147,6 +147,7 @@ type Domain = { id: string; name: string; description: string | null; color: Col
 type Tag = { id: string; name: string; description: string | null };
 type Contact = {
   id: string;
+  contactNumber: number;
   companyId: string;
   departmentId: string | null;
   name: string;
@@ -4105,7 +4106,12 @@ function ContactDetail({
           <Card className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h1 className="text-2xl font-semibold">{c.name}</h1>
+                <h1 className="text-2xl font-semibold">
+                  {c.name}{" "}
+                  <span className="text-base font-normal text-muted-foreground">
+                    #{c.contactNumber}
+                  </span>
+                </h1>
                 <p className="text-muted-foreground">
                   {company?.name}
                   {c.position && ` · ${c.position}`}

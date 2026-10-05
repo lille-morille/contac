@@ -114,6 +114,7 @@ export function registerContactExportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         const company = companyRows.find((row) => row.id === person.companyId);
         return {
           id: person.id,
+          contactNumber: person.contactNumber,
           name: person.name,
           status: person.status,
           companyId: person.companyId,

@@ -81,6 +81,7 @@ export const organizations = pgTable("organizations", {
   slug: text("slug").notNull().unique(),
   inboundKey: text("inbound_key"),
   autoShareLogs: boolean("auto_share_logs").notNull().default(false),
+  nextContactNumber: integer("next_contact_number").notNull().default(1),
   sessionsEnabled: boolean("sessions_enabled").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -407,6 +408,7 @@ export const contacts = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => companies.id),
+    contactNumber: integer("contact_number").notNull().default(0),
     departmentId: uuid("department_id").references(() => departments.id),
     name: text("name").notNull(),
     normalizedName: text("normalized_name").notNull(),
@@ -432,6 +434,7 @@ export const contacts = pgTable(
     index("contacts_org_status_idx").on(table.orgId, table.status),
     index("contacts_company_idx").on(table.companyId),
     index("contacts_updated_idx").on(table.orgId, table.updatedAt),
+    uniqueIndex("contacts_org_contact_number_unique").on(table.orgId, table.contactNumber),
   ],
 );
 export const favoriteContacts = pgTable(

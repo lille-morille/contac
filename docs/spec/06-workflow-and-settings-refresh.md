@@ -39,7 +39,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | D5 and F1: built-in LOI template and product/team name card | Done | `44a8637` |
 | F6 and F1: flat team permissions and invitation directly below product name | Done | `911626e` |
 | B2: reduce new-contact form to name, organization, email, and phone | Done | `f470571` |
-| C5: group summary labels, linked/eligible counts, shared activity deduplication | Done; regression cases pending | This commit |
+| C5: group summary labels, linked/eligible counts, shared activity deduplication | Done; regression cases pending | `c6c896d` |
+| D1: permanent team-scoped contact numbers and export field | Done; database migration not run here | This commit |
 
 ## A. Navigation and daily work
 

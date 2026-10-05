@@ -1,5 +1,6 @@
 export type ExportContact = {
   id: string;
+  contactNumber: number;
   name: string;
   status: string;
   companyId: string;

@@ -3,6 +3,7 @@ import { buildContactExport, type ExportActivity, type ExportContact } from "./c
 
 const contact = (id: string, status = "relevant"): ExportContact => ({
   id,
+  contactNumber: id === "a" ? 1 : id === "b" ? 2 : 3,
   name: id,
   status,
   companyId: "company",
@@ -42,6 +43,7 @@ describe("contact-log export", () => {
       activities: [activity("meeting", ["a", "b", "old"]), activity("meeting", ["a", "b", "old"])],
     });
     expect(result.contacts.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(result.contacts.map((item) => item.contactNumber)).toEqual([1, 2]);
     expect(result.activities).toHaveLength(1);
     expect(result.activities[0]).toMatchObject({
       exportOwnerContactId: "a",
