@@ -135,6 +135,7 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
         .select({
           id: contacts.id,
           name: contacts.name,
+          contactNumber: contacts.contactNumber,
           sharedNoteSavedAt: contacts.sharedNoteSavedAt,
         })
         .from(contacts)
@@ -150,6 +151,7 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
         return {
           ...item,
           contactName: contact?.name ?? null,
+          contactNumber: contact?.contactNumber ?? null,
           sourceDeleted: !source,
           sourceEdited: !!source && source.getTime() !== item.sourceUpdatedAt.getTime(),
         };

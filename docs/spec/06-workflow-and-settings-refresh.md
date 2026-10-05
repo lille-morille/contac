@@ -41,7 +41,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B2: reduce new-contact form to name, organization, email, and phone | Done | `f470571` |
 | C5: group summary labels, linked/eligible counts, shared activity deduplication | Done; regression cases pending | `c6c896d` |
 | D1: permanent team-scoped contact numbers and export field | Done; database migration not run here | `b87f202` |
-| D4: copy complete YAML from team settings; remove contact-level export buttons | Done | This commit |
+| D4: copy complete YAML from team settings; remove contact-level export buttons | Done | `31e3262` |
+| D3: copy quote with `#cite-contact(...)` and source metadata | Done; template ZIP validation pending | This commit |
 
 ## A. Navigation and daily work
 

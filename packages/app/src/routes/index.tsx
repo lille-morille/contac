@@ -98,6 +98,7 @@ import {
 } from "../lib/api.ts";
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
+import { typstQuoteSnippet } from "../lib/typst-citation.ts";
 import { parseContactPaste, remainingSuggestion } from "../lib/contact-paste.ts";
 import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useOrg } from "../lib/org.tsx";
@@ -207,6 +208,7 @@ type LibraryItem = {
   sourceKind: "activity" | "note";
   quote: string;
   contactName: string | null;
+  contactNumber: number | null;
   sourceDeleted: boolean;
   sourceEdited: boolean;
   createdAt: string;
@@ -2073,6 +2075,7 @@ function LibraryPage({
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const library = useQuery({
     queryKey: ["library", org?.id],
     queryFn: () => request<LibraryItem[]>("/org/library", org!.id),
@@ -2142,6 +2145,34 @@ function LibraryPage({
                   Fjern sitat
                 </Button>
               </div>
+              <Button
+                className="mt-2"
+                size="sm"
+                variant="outline"
+                disabled={item.sourceDeleted || !item.contactId || !item.contactNumber}
+                title={
+                  item.sourceDeleted || !item.contactId || !item.contactNumber
+                    ? "Kilden eller kontaktnummeret er ikke tilgjengelig"
+                    : undefined
+                }
+                onClick={() => {
+                  if (!item.contactId || !item.contactNumber) return;
+                  void copyText(
+                    typstQuoteSnippet({
+                      quote: item.quote,
+                      contactNumbers: [item.contactNumber],
+                      contactId: item.contactId,
+                      activityId: item.activityId,
+                      libraryId: item.id,
+                    }),
+                  ).then(
+                    () => setCopiedId(item.id),
+                    () => setError("Kunne ikke kopiere Typst-sitatet."),
+                  );
+                }}
+              >
+                {copiedId === item.id ? "Typst-sitat kopiert" : "Kopier Typst-sitat"}
+              </Button>
             </Card>
           ))}
         </div>
