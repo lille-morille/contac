@@ -24,7 +24,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | Change | Status | Commit |
 | --- | --- | --- |
 | Reviewed specs 06 and 07 recorded | Done | `4fa200b` |
-| A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | This commit |
+| A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | `6d325e2` |
+| A5 and A7: conditional duplicates navigation, Kontaktlogg label, simpler sidebar | Done | This commit |
 
 ## A. Navigation and daily work
 

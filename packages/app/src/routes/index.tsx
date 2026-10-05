@@ -539,9 +539,7 @@ function SidebarNavSection({
 }) {
   return (
     <section className="mt-5">
-      <h2 className="px-3 pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h2>
+      <h2 className="sr-only">{title}</h2>
       <nav className="space-y-1" aria-label={title}>
         {items.map(([key, label, Icon]) => {
           const active = activeItem === key;
@@ -1096,8 +1094,11 @@ function Home() {
     );
   if (!org) return <NoTeam />;
   const contactNav: [Page, string, typeof LayoutGrid][] = [
-    ["contacts", "Hjem", LayoutGrid],
+    ["contacts", "Kontaktlogg", LayoutGrid],
     ["contacted", "Sist kontaktet", CalendarDays],
+    ...(data.contacts.some((contact) => contact.status === "duplicate")
+      ? ([["duplicates", "Duplikate kontakter", Copy]] as [Page, string, typeof LayoutGrid][])
+      : []),
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
@@ -1105,7 +1106,6 @@ function Home() {
       ? ([["sessions", "Økter", CalendarDays]] as [Page, string, typeof LayoutGrid][])
       : []),
     ["organizations", "Organisasjoner", Building2],
-    ["duplicates", "Duplikate kontakter", Copy],
   ];
   const inboxCount =
     dueReminders.length +
@@ -1150,7 +1150,7 @@ function Home() {
       id: "action:board",
       group: "actions",
       title: "Vis kontakttavle",
-      detail: "Åpne Hjem i tavlevisning",
+      detail: "Åpne Kontaktlogg i tavlevisning",
       searchText: "kanban board kolonner",
       icon: LayoutGrid,
       run: () => showContactLayout("board"),
@@ -1159,7 +1159,7 @@ function Home() {
       id: "action:list",
       group: "actions",
       title: "Vis kontaktliste",
-      detail: "Åpne Hjem i listevisning",
+      detail: "Åpne Kontaktlogg i listevisning",
       searchText: "regneark tabell spreadsheet",
       icon: List,
       run: () => showContactLayout("list"),
@@ -1334,26 +1334,15 @@ function Home() {
           </button>
         </div>
         <div className="space-y-2 px-1">
-          <div className="flex gap-1.5">
-            <Button
-              className="min-w-0 flex-1"
-              onClick={() => {
-                setPaste("");
-                setCreateOpen(true);
-              }}
-            >
-              <Plus /> Ny kontakt
-            </Button>
-            <Button
-              variant="outline"
-              className="size-9 shrink-0 px-0"
-              aria-label="Lim inn kontaktinformasjon som ny kontakt fra utklippstavle"
-              title="Lim inn kontaktinformasjon som ny kontakt fra utklippstavle (kan inkludere navn, selskap, mobilnummer og/eller epost)"
-              onClick={() => void openClipboardContact()}
-            >
-              <ClipboardPaste size={17} />
-            </Button>
-          </div>
+          <Button
+            className="w-full"
+            onClick={() => {
+              setPaste("");
+              setCreateOpen(true);
+            }}
+          >
+            <Plus /> Ny kontakt
+          </Button>
           <Button
             variant={inboxCount > 0 ? "outline" : "ghost"}
             size="sm"
@@ -1631,7 +1620,9 @@ function Home() {
           />
         ) : (
           <>
-            <h1 className="sr-only">{page === "duplicates" ? "Duplikate kontakter" : "Hjem"}</h1>
+            <h1 className="sr-only">
+              {page === "duplicates" ? "Duplikate kontakter" : "Kontaktlogg"}
+            </h1>
             {page === "contacts" && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -1826,7 +1817,16 @@ function Home() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogTitle>Ny kontakt</DialogTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-3"
+            onClick={() => void openClipboardContact()}
+          >
+            <ClipboardPaste size={16} /> Lim inn kontaktinformasjon
+          </Button>
           <CreateContact
+            key={paste}
             data={data}
             initial={parseContactPaste(paste)}
             mutate={mutate}
