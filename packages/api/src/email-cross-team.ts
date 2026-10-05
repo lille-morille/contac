@@ -198,7 +198,7 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
 export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   app.get("/v1/org/email-settings", async (c) => {
     const [team] = await deps.db
-      .select({ inboundKey: organizations.inboundKey, autoShareLogs: organizations.autoShareLogs })
+      .select({ inboundKey: organizations.inboundKey })
       .from(organizations)
       .where(eq(organizations.id, c.get("org").id));
     const domain = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase();
@@ -206,19 +206,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({
       captureAddress:
         common || (domain && team?.inboundKey ? `inbox+${team.inboundKey}@${domain}` : null),
-      autoShareLogs: team?.autoShareLogs ?? false,
     });
-  });
-  app.post("/v1/org/email-settings", async (c) => {
-    const parsed = z
-      .object({ autoShareLogs: z.boolean() })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "Invalid setting" }, 400);
-    await deps.db
-      .update(organizations)
-      .set({ autoShareLogs: parsed.data.autoShareLogs })
-      .where(eq(organizations.id, c.get("org").id));
-    return c.json(parsed.data);
   });
   app.get("/v1/org/email-drafts", async (c) => {
     const contactId = uuid.safeParse(c.req.query("contactId"));
@@ -692,7 +680,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({
         contact: contacts,
         teamName: organizations.name,
-        autoShareLogs: organizations.autoShareLogs,
         companyName: companies.normalizedName,
         assigneeName: profiles.fullName,
       })
@@ -716,27 +703,16 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     );
     if (!matching.length) return c.json([]);
     const ids = matching.map((row) => row.contact.id);
-    const [events, grants] = await Promise.all([
-      deps.db
-        .select({ contactId: activityContacts.contactId, occurredAt: contactActivities.occurredAt })
-        .from(activityContacts)
-        .innerJoin(contactActivities, eq(contactActivities.id, activityContacts.activityId))
-        .where(
-          and(
-            inArray(activityContacts.contactId, ids),
-            inArray(contactActivities.kind, ["phone", "meeting", "email"]),
-          ),
+    const events = await deps.db
+      .select({ contactId: activityContacts.contactId, occurredAt: contactActivities.occurredAt })
+      .from(activityContacts)
+      .innerJoin(contactActivities, eq(contactActivities.id, activityContacts.activityId))
+      .where(
+        and(
+          inArray(activityContacts.contactId, ids),
+          inArray(contactActivities.kind, ["phone", "meeting", "email"]),
         ),
-      deps.db
-        .select()
-        .from(logAccessRequests)
-        .where(
-          and(
-            eq(logAccessRequests.requesterOrgId, orgId),
-            inArray(logAccessRequests.ownerContactId, ids),
-          ),
-        ),
-    ]);
+      );
     return c.json(
       matching.map((row) => ({
         contactId: row.contact.id,
@@ -749,9 +725,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             .filter((event) => event.contactId === row.contact.id)
             .map((event) => event.occurredAt)
             .sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
-        accessStatus: row.autoShareLogs
-          ? "approved"
-          : (grants.find((grant) => grant.ownerContactId === row.contact.id)?.status ?? "none"),
+        accessStatus: "approved",
       })),
     );
   });
@@ -776,7 +750,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         contact: contacts,
         companyName: companies.normalizedName,
         classId: organizations.classId,
-        autoShareLogs: organizations.autoShareLogs,
       })
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
@@ -805,7 +778,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         ),
       );
     if (existing) {
-      if (existing.status === "pending" && other.autoShareLogs) {
+      if (existing.status === "pending") {
         const [approved] = await deps.db
           .update(logAccessRequests)
           .set({ status: "approved", approvedAt: new Date() })
@@ -822,12 +795,12 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         ownerOrgId: other.contact.orgId,
         ownerContactId: other.contact.id,
         requestedBy: c.get("user").id,
-        status: other.autoShareLogs ? "approved" : "pending",
-        approvedAt: other.autoShareLogs ? new Date() : null,
+        status: "approved",
+        approvedAt: new Date(),
       })
       .onConflictDoNothing()
       .returning();
-    return c.json(row ?? { status: "pending" });
+    return c.json(row ?? { status: "approved" });
   });
   app.post("/v1/org/log-access-requests/:id/approve", async (c) => {
     const requestId = uuid.safeParse(c.req.param("id"));
@@ -853,7 +826,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({
         contact: contacts,
         teamName: organizations.name,
-        autoShareLogs: organizations.autoShareLogs,
         classId: organizations.classId,
         companyName: companies.normalizedName,
       })
@@ -861,59 +833,52 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
       .innerJoin(companies, eq(companies.id, contacts.companyId))
       .where(eq(contacts.id, contactId.data));
-    if (!target || target.contact.orgId === orgId) return c.json({ error: "Log not found" }, 404);
+    if (
+      !target ||
+      target.contact.orgId === orgId ||
+      ["ikke_kontaktet", "duplicate"].includes(target.contact.status)
+    )
+      return c.json({ error: "Log not found" }, 404);
     const [requesterTeam] = await deps.db
       .select({ classId: organizations.classId })
       .from(organizations)
       .where(eq(organizations.id, orgId));
-    const [grant] = await deps.db
-      .select({ id: logAccessRequests.id })
-      .from(logAccessRequests)
+    if (requesterTeam?.classId !== target.classId)
+      return c.json({ error: "Log access not approved" }, 403);
+    const candidates = await deps.db
+      .select({ contact: contacts, companyName: companies.normalizedName })
+      .from(contacts)
+      .innerJoin(companies, eq(companies.id, contacts.companyId))
       .where(
         and(
-          eq(logAccessRequests.requesterOrgId, orgId),
-          eq(logAccessRequests.ownerContactId, contactId.data),
-          eq(logAccessRequests.status, "approved"),
+          eq(contacts.orgId, orgId),
+          ne(contacts.status, "ikke_kontaktet"),
+          ne(contacts.status, "duplicate"),
         ),
       );
-    if (requesterTeam?.classId !== target.classId || (!grant && !target.autoShareLogs))
-      return c.json({ error: "Log access not approved" }, 403);
-    if (!grant && target.autoShareLogs) {
-      const candidates = await deps.db
-        .select({ contact: contacts, companyName: companies.normalizedName })
-        .from(contacts)
-        .innerJoin(companies, eq(companies.id, contacts.companyId))
-        .where(
-          and(
-            eq(contacts.orgId, orgId),
-            ne(contacts.status, "ikke_kontaktet"),
-            ne(contacts.status, "duplicate"),
-          ),
-        );
-      if (
-        !candidates.some((candidate) =>
-          contactsOverlap(
-            { ...candidate.contact, companyName: candidate.companyName },
-            { ...target.contact, companyName: target.companyName },
-          ),
-        )
+    if (
+      !candidates.some((candidate) =>
+        contactsOverlap(
+          { ...candidate.contact, companyName: candidate.companyName },
+          { ...target.contact, companyName: target.companyName },
+        ),
       )
-        return c.json({ error: "Matching contact not found" }, 403);
-      await deps.db
-        .insert(logAccessRequests)
-        .values({
-          requesterOrgId: orgId,
-          ownerOrgId: target.contact.orgId,
-          ownerContactId: contactId.data,
-          requestedBy: c.get("user").id,
-          status: "approved",
-          approvedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [logAccessRequests.requesterOrgId, logAccessRequests.ownerContactId],
-          set: { status: "approved", approvedAt: new Date() },
-        });
-    }
+    )
+      return c.json({ error: "Matching contact not found" }, 403);
+    await deps.db
+      .insert(logAccessRequests)
+      .values({
+        requesterOrgId: orgId,
+        ownerOrgId: target.contact.orgId,
+        ownerContactId: contactId.data,
+        requestedBy: c.get("user").id,
+        status: "approved",
+        approvedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [logAccessRequests.requesterOrgId, logAccessRequests.ownerContactId],
+        set: { status: "approved", approvedAt: new Date() },
+      });
     const links = await deps.db
       .select({ activity: contactActivities })
       .from(activityContacts)

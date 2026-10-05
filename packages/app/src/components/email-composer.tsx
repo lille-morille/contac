@@ -24,7 +24,7 @@ type Draft = {
   createdBy: string;
   updatedAt: string;
 };
-type Settings = { captureAddress: string | null; autoShareLogs: boolean };
+type Settings = { captureAddress: string | null };
 const blank = {
   id: "",
   sent: false,

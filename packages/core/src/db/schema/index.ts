@@ -80,7 +80,6 @@ export const organizations = pgTable("organizations", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   inboundKey: text("inbound_key"),
-  autoShareLogs: boolean("auto_share_logs").notNull().default(false),
   nextContactNumber: integer("next_contact_number").notNull().default(1),
   sessionsEnabled: boolean("sessions_enabled").notNull().default(false),
   createdAt: createdAt(),

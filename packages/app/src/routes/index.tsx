@@ -75,7 +75,6 @@ import { TeamLoiSettings } from "../components/team-loi-settings.tsx";
 import { LiveText } from "../components/live-text.tsx";
 import { CrossTeamOverlap } from "../components/cross-team-overlap.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../components/inbox-items.tsx";
-import { TeamEmailSettings } from "../components/email-settings.tsx";
 import { TeamMcpSettings } from "../components/team-mcp-settings.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -6754,7 +6753,6 @@ function Settings({
         </Card>
       )}
       {section === "team_settings" && state.org && <TeamAiSettings />}
-      {section === "team_settings" && state.org && <TeamEmailSettings />}
       {section === "team_settings" && state.org && <TeamMcpSettings orgId={state.org.id} />}
       {section === "team_settings" && state.org && (
         <DomainTagSettings tags={data.domains} mutate={mutate} busy={busy} />
