@@ -6,6 +6,7 @@ import {
   aiSuggestions,
   aiUsage,
   checkinAiSettings,
+  classMemberships,
   companies,
   companyDomains,
   contactActivities,
@@ -26,6 +27,15 @@ import { normalizeDomainName, resolveDomainProposal } from "./ai-domain.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 export const defaultModels = { low: "openai/gpt-4.1-nano", medium: "openai/gpt-4.1-mini" };
+async function isClassAdmin(deps: ApiDeps, orgId: string, userId: string) {
+  const [member] = await deps.db
+    .select({ role: classMemberships.role })
+    .from(classMemberships)
+    .innerJoin(organizations, eq(organizations.classId, classMemberships.classId))
+    .where(and(eq(organizations.id, orgId), eq(classMemberships.userId, userId)))
+    .limit(1);
+  return member?.role === "admin";
+}
 export const aiFeatures = [
   "stikkord",
   "contact_fields",
@@ -980,6 +990,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const contactId = id.safeParse(c.req.param("id"));
     if (!contactId.success) return c.json({ error: "Invalid contact" }, 400);
     const orgId = c.get("org").id;
+    const canViewEdits = await isClassAdmin(deps, orgId, c.get("user").id);
     const [suggestions, edits] = await Promise.all([
       deps.db
         .select()
@@ -987,12 +998,14 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .where(and(eq(aiSuggestions.orgId, orgId), eq(aiSuggestions.contactId, contactId.data)))
         .orderBy(desc(aiSuggestions.createdAt))
         .limit(30),
-      deps.db
-        .select()
-        .from(aiEditLog)
-        .where(and(eq(aiEditLog.orgId, orgId), eq(aiEditLog.contactId, contactId.data)))
-        .orderBy(desc(aiEditLog.createdAt))
-        .limit(30),
+      canViewEdits
+        ? deps.db
+            .select()
+            .from(aiEditLog)
+            .where(and(eq(aiEditLog.orgId, orgId), eq(aiEditLog.contactId, contactId.data)))
+            .orderBy(desc(aiEditLog.createdAt))
+            .limit(30)
+        : Promise.resolve([]),
     ]);
     const context = await contactContext(deps, orgId, contactId.data).catch(() => null);
     return c.json({
@@ -1195,6 +1208,8 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return row ? c.json({ dismissed: true }) : c.json({ error: "Suggestion not found" }, 404);
   });
   app.post("/v1/org/ai/edits/:id/revert", async (c) => {
+    if (!(await isClassAdmin(deps, c.get("org").id, c.get("user").id)))
+      return c.json({ error: "Class admin access required" }, 403);
     const editId = id.safeParse(c.req.param("id"));
     if (!editId.success) return c.json({ error: "Invalid edit" }, 400);
     const [edit] = await deps.db

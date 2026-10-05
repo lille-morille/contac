@@ -288,6 +288,8 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
     const userId = c.get("user").id;
     const [current] = await deps.db.select().from(profiles).where(eq(profiles.id, userId));
     if (!current) return c.json({ error: "Profile not found" }, 404);
+    if (!current.onboardedAt && !/^\S+\s+\S+/.test(body.data.name))
+      return c.json({ error: "Enter your full name, including first and last name" }, 400);
     if (!current.onboardedAt && !current.avatarPath)
       return c.json({ error: "Add a profile photo to complete onboarding" }, 400);
     const email = body.data.email.trim().toLowerCase();

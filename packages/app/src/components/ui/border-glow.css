@@ -12,7 +12,7 @@
   isolation: isolate;
   transform: translate3d(0, 0, 0.01px);
   display: grid;
-  background: var(--card-bg, rgb(255 255 255 / 0.62));
+  background: var(--card-bg, var(--glow-card-bg));
   overflow: visible;
 }
 
@@ -39,7 +39,7 @@
 .border-glow-card::before {
   border: 1.5px solid transparent;
   background:
-    var(--card-bg, rgb(255 255 255 / 0.62)) padding-box,
+    var(--card-bg, var(--glow-card-bg)) padding-box,
     linear-gradient(rgb(255 255 255 / 0%) 0% 100%) border-box,
     var(--gradient-one) border-box,
     var(--gradient-two) border-box,

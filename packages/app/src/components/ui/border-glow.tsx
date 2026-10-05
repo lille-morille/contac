@@ -122,7 +122,7 @@ export function BorderGlow({
   className = "",
   edgeSensitivity = 30,
   glowColor = "258 85 70",
-  backgroundColor = "rgb(255 255 255 / 0.62)",
+  backgroundColor = "var(--glow-card-bg)",
   borderRadius = 16,
   glowRadius = 28,
   glowIntensity = 0.55,

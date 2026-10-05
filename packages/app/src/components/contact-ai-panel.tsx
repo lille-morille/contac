@@ -94,7 +94,7 @@ export function ContactAiPanel({
   personTagIds: string[];
   domainIds: string[];
 }) {
-  const { org } = useOrg();
+  const { org, classSpace } = useOrg();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -323,7 +323,7 @@ export function ContactAiPanel({
           })}
         </div>
       )}
-      {!!state.data?.edits.length && (
+      {classSpace?.role === "admin" && !!state.data?.edits.length && (
         <details className="mt-5 border-t border-border pt-3">
           <summary className="cursor-pointer text-sm font-medium">
             Endringslogg · {state.data.edits.length}

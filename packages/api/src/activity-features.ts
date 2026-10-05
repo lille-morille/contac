@@ -8,6 +8,7 @@ import {
   contactActivities,
   contacts,
   libraryItems,
+  organizations,
   workspaceFiles,
 } from "@contac/core/db";
 import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
@@ -215,7 +216,30 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     return row ? c.json({ deleted: true }) : c.json({ error: "Library item not found" }, 404);
   });
 
+  app.get("/v1/org/session-settings", async (c) => {
+    const [team] = await deps.db
+      .select({ enabled: organizations.sessionsEnabled })
+      .from(organizations)
+      .where(eq(organizations.id, c.get("org").id));
+    return c.json({ enabled: team?.enabled ?? false });
+  });
+  app.post("/v1/org/session-settings", async (c) => {
+    if (c.get("org").role === "member") return c.json({ error: "Team admin access required" }, 403);
+    const data = await json(c, z.object({ enabled: z.boolean() }));
+    if (!data) return c.json({ error: "Invalid session settings" }, 400);
+    const [team] = await deps.db
+      .update(organizations)
+      .set({ sessionsEnabled: data.enabled, updatedAt: new Date() })
+      .where(eq(organizations.id, c.get("org").id))
+      .returning({ enabled: organizations.sessionsEnabled });
+    return c.json(team);
+  });
   app.get("/v1/org/sessions", async (c) => {
+    const [team] = await deps.db
+      .select({ enabled: organizations.sessionsEnabled })
+      .from(organizations)
+      .where(eq(organizations.id, c.get("org").id));
+    if (!team?.enabled) return c.json({ error: "Sessions are disabled for this team" }, 403);
     return c.json(
       await deps.db
         .select()
@@ -225,6 +249,11 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     );
   });
   app.post("/v1/org/sessions/start", async (c) => {
+    const [team] = await deps.db
+      .select({ enabled: organizations.sessionsEnabled })
+      .from(organizations)
+      .where(eq(organizations.id, c.get("org").id));
+    if (!team?.enabled) return c.json({ error: "Sessions are disabled for this team" }, 403);
     try {
       const [row] = await deps.db
         .insert(checkinSessions)
@@ -238,6 +267,11 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     }
   });
   app.post("/v1/org/sessions/:id/end", async (c) => {
+    const [team] = await deps.db
+      .select({ enabled: organizations.sessionsEnabled })
+      .from(organizations)
+      .where(eq(organizations.id, c.get("org").id));
+    if (!team?.enabled) return c.json({ error: "Sessions are disabled for this team" }, 403);
     const sessionId = id.safeParse(c.req.param("id"));
     if (!sessionId.success) return c.json({ error: "Invalid session" }, 400);
     const [row] = await deps.db
@@ -360,6 +394,11 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     });
   });
   app.post("/v1/org/sessions/:id/generate", async (c) => {
+    const [team] = await deps.db
+      .select({ enabled: organizations.sessionsEnabled })
+      .from(organizations)
+      .where(eq(organizations.id, c.get("org").id));
+    if (!team?.enabled) return c.json({ error: "Sessions are disabled for this team" }, 403);
     const sessionId = id.safeParse(c.req.param("id"));
     const data = await json(c, z.object({ activityIds: z.array(id).min(1).max(100) }));
     if (!sessionId.success || !data)

@@ -20,6 +20,7 @@ import {
   ListFilter,
   LogOut,
   Mail,
+  Moon,
   BookOpen,
   FileText,
   Network,
@@ -33,6 +34,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Sun,
   Tag as TagIcon,
   Tags,
   Trash2,
@@ -44,7 +46,6 @@ import {
 } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
-  Fragment,
   useEffect,
   useRef,
   useState,
@@ -95,6 +96,7 @@ import { HighlightedText } from "../lib/search-highlight.tsx";
 import { formatFullContactLog } from "../lib/full-contact-log.ts";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
+import { useTheme } from "../lib/theme.ts";
 
 export const Route = createFileRoute("/")({ component: Home });
 const statusOptions = statuses.map(([value, label]) => ({
@@ -291,21 +293,12 @@ function activityPresentation(activity: Activity): {
   };
 }
 type Reminder = { id: string; contactId: string; dueAt: string; message: string };
-type SavedView = {
-  id: string;
-  revision: number;
-  name: string;
-  layout: "board" | "list";
-  filters: Record<string, unknown>;
-  sortKey: SortKey;
-};
 type Filters = {
   status?: string[];
   assigneeId?: string[];
   companyId?: string[];
   domainId?: string[];
   tagId?: string[];
-  search?: string;
 };
 function normalizeFilters(input: Record<string, unknown>): Filters {
   const values = (key: keyof Filters) => {
@@ -322,26 +315,19 @@ function normalizeFilters(input: Record<string, unknown>): Filters {
     companyId: values("companyId"),
     domainId: values("domainId"),
     tagId: values("tagId"),
-    search: typeof input.search === "string" ? input.search.slice(0, 200) : "",
   };
 }
 type SortKey = "updated" | "name" | "last_contacted" | "created";
 type ViewSettings = { layout: "board" | "list"; filters: Filters; sortKey: SortKey };
 const defaultViewSettings: ViewSettings = { layout: "board", filters: {}, sortKey: "updated" };
-function readViewDrafts(key: string): {
-  selectedView: string | null;
-  drafts: Record<string, ViewSettings>;
-  viewBase: { id: string; revision: number } | null;
-} {
+function readViewDrafts(key: string): Record<string, ViewSettings> {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null") as {
-      selectedView?: unknown;
       drafts?: Record<string, unknown>;
-      viewBase?: { id?: unknown; revision?: unknown };
     } | null;
     const drafts: Record<string, ViewSettings> = {};
     for (const [draftKey, raw] of Object.entries(saved?.drafts ?? {})) {
-      if (draftKey !== "home" && !draftKey.startsWith("view:")) continue;
+      if (draftKey !== "home") continue;
       if (!raw || typeof raw !== "object") continue;
       const value = raw as Record<string, unknown>;
       drafts[draftKey] = {
@@ -356,16 +342,9 @@ function readViewDrafts(key: string): {
           : "updated",
       };
     }
-    return {
-      selectedView: typeof saved?.selectedView === "string" ? saved.selectedView : null,
-      drafts,
-      viewBase:
-        typeof saved?.viewBase?.id === "string" && typeof saved.viewBase.revision === "number"
-          ? { id: saved.viewBase.id, revision: saved.viewBase.revision }
-          : null,
-    };
+    return drafts;
   } catch {
-    return { selectedView: null, drafts: {}, viewBase: null };
+    return {};
   }
 }
 type Data = {
@@ -381,7 +360,6 @@ type Data = {
   activityFiles: ActivityFile[];
   emailActivities: EmailActivity[];
   members: { userId: string; role: string; name: string | null; avatarPath: string | null }[];
-  savedViews: SavedView[];
   favoriteContactIds: string[];
   reminders: Reminder[];
 };
@@ -403,7 +381,6 @@ function assigneeOptions(members: Data["members"]) {
 }
 type Page =
   | "contacts"
-  | "mine"
   | "contacted"
   | "search"
   | "duplicates"
@@ -426,7 +403,6 @@ const emptyData: Data = {
   activityFiles: [],
   emailActivities: [],
   members: [],
-  savedViews: [],
   favoriteContactIds: [],
   reminders: [],
 };
@@ -591,6 +567,7 @@ function SidebarNavSection({
 }
 function Home() {
   const auth = useAuth();
+  const { theme, setTheme } = useTheme();
   const state = useOrg();
   const org = state.org;
   const qc = useQueryClient();
@@ -611,11 +588,7 @@ function Home() {
     nonce: number;
   }>({ id: null, nonce: 0 });
   const [inboxOpen, setInboxOpen] = useState(false);
-  const [saveOpen, setSaveOpen] = useState(false);
-  const [saveName, setSaveName] = useState("");
-  const [saveTargetId, setSaveTargetId] = useState("");
-  const [saveError, setSaveError] = useState("");
-  const [deletingView, setDeletingView] = useState<SavedView | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >(() =>
@@ -658,12 +631,6 @@ function Home() {
     current: Record<string, unknown>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [selectedView, setSelectedView] = useState<string | null>(null);
-  const [viewBase, setViewBase] = useState<{ id: string; revision: number } | null>(null);
-  const [viewConflict, setViewConflict] = useState<{
-    local: ViewSettings;
-    remote: SavedView;
-  } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, ViewSettings>>({});
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const query = useQuery({
@@ -680,7 +647,6 @@ function Home() {
           | "contactPersonTags"
           | "contacts"
           | "members"
-          | "savedViews"
         >
       >("/org/contact-data?part=core", org!.id),
     enabled: !!org && !!state.user?.onboarded,
@@ -707,6 +673,15 @@ function Home() {
     refetchInterval: 60_000,
   });
   const data: Data = { ...emptyData, ...query.data, ...activityQuery.data, ...personalQuery.data };
+  const sessionSettings = useQuery({
+    queryKey: ["session-settings", org?.id],
+    queryFn: () => request<{ enabled: boolean }>("/org/session-settings", org!.id),
+    enabled: !!org && !!state.user?.onboarded,
+    refetchInterval: 60_000,
+  });
+  useEffect(() => {
+    if (page === "sessions" && sessionSettings.data?.enabled === false) setPage("contacts");
+  }, [page, sessionSettings.data?.enabled]);
   useEffect(() => {
     setContact(
       selectedId && data.contacts.some((item) => item.id === selectedId) ? selectedId : null,
@@ -731,46 +706,27 @@ function Home() {
       setDraftScope(null);
       return;
     }
-    const stored = readViewDrafts(viewScope);
-    setDrafts(stored.drafts);
-    setSelectedView(stored.selectedView);
-    setViewBase(stored.viewBase);
+    setDrafts(readViewDrafts(viewScope));
     setDraftScope(viewScope);
   }, [viewScope]);
   useEffect(() => {
     if (!viewScope || draftScope !== viewScope) return;
     try {
-      localStorage.setItem(viewScope, JSON.stringify({ selectedView, drafts, viewBase }));
+      localStorage.setItem(viewScope, JSON.stringify({ drafts }));
     } catch {
       // A blocked or full browser store does not prevent editing a view in memory.
     }
-  }, [viewScope, draftScope, selectedView, drafts, viewBase]);
-  useEffect(() => {
-    if (
-      query.isSuccess &&
-      draftScope === viewScope &&
-      selectedView &&
-      !data.savedViews.some((view) => view.id === selectedView)
-    )
-      setSelectedView(null);
-  }, [query.isSuccess, draftScope, viewScope, selectedView, data.savedViews]);
-  const publishedView = data.savedViews.find((view) => view.id === selectedView);
-  const publishedSettings: ViewSettings = publishedView
-    ? {
-        layout: publishedView.layout,
-        filters: normalizeFilters(publishedView.filters),
-        sortKey: publishedView.sortKey,
-      }
-    : defaultViewSettings;
-  const draftKey = selectedView ? `view:${selectedView}` : "home";
-  const viewSettings = drafts[draftKey] ?? publishedSettings;
+  }, [viewScope, draftScope, drafts]);
+  const viewSettings = drafts.home ?? defaultViewSettings;
   const { layout, filters, sortKey } = viewSettings;
+  const activeControls =
+    [filters.status, filters.assigneeId, filters.companyId, filters.domainId, filters.tagId].filter(
+      (value) => value?.length,
+    ).length + (sortKey === "updated" ? 0 : 1);
   function editViewSettings(update: (current: ViewSettings) => ViewSettings) {
-    if (publishedView && viewBase?.id !== publishedView.id)
-      setViewBase({ id: publishedView.id, revision: publishedView.revision });
     setDrafts((current) => ({
       ...current,
-      [draftKey]: update(current[draftKey] ?? publishedSettings),
+      home: update(current.home ?? defaultViewSettings),
     }));
   }
   function setFilters(update: Filters | ((current: Filters) => Filters)) {
@@ -893,7 +849,6 @@ function Home() {
         path.startsWith("/departments") ||
         path.startsWith("/domains") ||
         path.startsWith("/person-tags") ||
-        path.startsWith("/saved-views") ||
         path.endsWith("/tags")
       )
         await qc.invalidateQueries({ queryKey: ["contact-data", org.id, "core"] });
@@ -922,7 +877,6 @@ function Home() {
         );
         void qc.invalidateQueries({ queryKey: ["contact-data", org.id, "core"] });
       } else if (
-        !path.startsWith("/saved-views") &&
         cause instanceof ApiError &&
         cause.status === 409 &&
         cause.details.current &&
@@ -954,8 +908,6 @@ function Home() {
       page === "duplicates"
         ? data.contacts.filter((c) => c.status === "duplicate")
         : [...allVisible];
-    if (page === "mine")
-      rows = rows.filter((c) => !c.assigneeId || c.assigneeId === state.user?.id);
     if (page === "contacts" && filters.status?.length)
       rows = rows.filter((c) => filters.status?.includes(c.status));
     if (page === "contacts" && filters.assigneeId?.length)
@@ -974,14 +926,6 @@ function Home() {
           (x) => x.contactId === c.id && filters.tagId?.includes(x.tagId),
         ),
       );
-    if (filters.search?.trim()) {
-      const term = filters.search.trim().toLocaleLowerCase("nb-NO");
-      rows = rows.filter((c) =>
-        `${c.name} ${c.email ?? ""} ${c.phone ?? ""} ${data.companies.find((x) => x.id === c.companyId)?.name ?? ""}`
-          .toLocaleLowerCase("nb-NO")
-          .includes(term),
-      );
-    }
     const activeSort = sortKey;
     rows.sort((a, b) =>
       activeSort === "name"
@@ -1036,13 +980,13 @@ function Home() {
   function go(next: Page) {
     setCreatedHighlightId(null);
     setCreatedNotice(null);
+    setFiltersOpen(false);
     setSelectedId(null);
     setFocusedActivityId(null);
     setFocusedPassage(null);
     setFocusedQuery(null);
     if (typeof window !== "undefined" && window.location.search)
       window.history.replaceState(null, "", window.location.pathname);
-    setSelectedView(null);
     if (next === "organizations")
       setOrganizationTarget((current) => ({ id: null, nonce: current.nonce + 1 }));
     setPage(next);
@@ -1075,10 +1019,9 @@ function Home() {
   function selectTeam(id: string) {
     setCreatedHighlightId(null);
     setCreatedNotice(null);
+    setFiltersOpen(false);
     setDraftScope(null);
     setDrafts({});
-    setSelectedView(null);
-    setViewBase(null);
     setSelectedId(null);
     setOrganizationTarget((current) => ({ id: null, nonce: current.nonce + 1 }));
     state.select(id);
@@ -1089,96 +1032,6 @@ function Home() {
       ...current,
       home: { ...(current.home ?? defaultViewSettings), layout: next },
     }));
-  }
-  function chooseSaved(view: SavedView) {
-    setCreatedHighlightId(null);
-    setCreatedNotice(null);
-    setSelectedView(view.id);
-    setViewBase({ id: view.id, revision: view.revision });
-    setSelectedId(null);
-    setFocusedActivityId(null);
-    setPage("contacts");
-  }
-  function openSaveView() {
-    setSaveTargetId(publishedView?.id ?? "");
-    setSaveName(publishedView?.name ?? "");
-    setSaveError("");
-    setSaveOpen(true);
-  }
-  async function publishView(retryRevision?: number) {
-    const name = saveName.trim();
-    if (!name) {
-      setSaveError("Gi visningen et navn.");
-      return;
-    }
-    const target = data.savedViews.find((view) => view.id === saveTargetId);
-    const overwrite = target?.name === name ? target : null;
-    if (
-      !overwrite &&
-      data.savedViews.some(
-        (view) => view.name.toLocaleLowerCase("nb-NO") === name.toLocaleLowerCase("nb-NO"),
-      )
-    ) {
-      setSaveError("Navnet brukes allerede. Velg visningen over for å oppdatere den.");
-      return;
-    }
-    try {
-      const saved = await mutate<SavedView>(
-        overwrite ? `/saved-views/${overwrite.id}` : "/saved-views",
-        {
-          ...(overwrite
-            ? {
-                expectedRevision:
-                  retryRevision ??
-                  (viewBase?.id === overwrite.id ? viewBase.revision : overwrite.revision),
-              }
-            : { name }),
-          layout,
-          filters,
-          sortKey,
-        },
-      );
-      setViewBase({ id: saved.id, revision: saved.revision });
-      setViewConflict(null);
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[draftKey];
-        delete next[`view:${saved.id}`];
-        return next;
-      });
-      setSelectedView(saved.id);
-      setPage("contacts");
-      setSaveOpen(false);
-    } catch (cause) {
-      if (
-        cause instanceof ApiError &&
-        cause.status === 409 &&
-        cause.details.current &&
-        typeof cause.details.current === "object"
-      )
-        setViewConflict({
-          local: { layout, filters, sortKey },
-          remote: cause.details.current as SavedView,
-        });
-      setSaveError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-  async function deleteView() {
-    if (!deletingView) return;
-    try {
-      await mutate(`/saved-views/${deletingView.id}/delete`, {
-        expectedRevision: deletingView.revision,
-      });
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[`view:${deletingView.id}`];
-        return next;
-      });
-      if (selectedView === deletingView.id) setSelectedView(null);
-      setDeletingView(null);
-    } catch {
-      // The page-level mutation displays the error; keep the confirmation open.
-    }
   }
   async function openClipboardContact() {
     try {
@@ -1202,7 +1055,7 @@ function Home() {
   if (!auth.session)
     return (
       <main className="mx-auto grid min-h-screen max-w-lg place-content-center gap-5 px-6">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-white">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
           <Users />
         </div>
         <h1 className="text-4xl font-semibold">Kontaktarbeid for hele klassen</h1>
@@ -1231,16 +1084,16 @@ function Home() {
   if (!org) return <NoTeam />;
   const contactNav: [Page, string, typeof LayoutGrid][] = [
     ["contacts", "Hjem", LayoutGrid],
-    ["mine", "Mine kontakter", UserRound],
     ["contacted", "Sist kontaktet", CalendarDays],
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
-    ["library", "Bibliotek", BookOpen],
-    ["sessions", "Økter", CalendarDays],
+    ["library", "Sitater", BookOpen],
+    ...(sessionSettings.data?.enabled
+      ? ([["sessions", "Økter", CalendarDays]] as [Page, string, typeof LayoutGrid][])
+      : []),
     ["organizations", "Organisasjoner", Building2],
     ["duplicates", "Duplikate kontakter", Copy],
   ];
-  const nav = [...contactNav, ...overviewNav];
   const paletteItems: PaletteItem[] = [
     {
       id: "action:new-contact",
@@ -1293,19 +1146,6 @@ function Home() {
       icon: List,
       run: () => showContactLayout("list"),
     },
-    ...(page === "contacts"
-      ? [
-          {
-            id: "action:save-view",
-            group: "actions" as const,
-            title: "Lagre visning",
-            detail: "Publiser filtre og sortering til teamet",
-            searchText: "teamvisning publiser",
-            icon: Star,
-            run: openSaveView,
-          },
-        ]
-      : []),
     {
       id: "action:logout",
       group: "actions",
@@ -1323,9 +1163,7 @@ function Home() {
         searchText:
           id === "contacts"
             ? "kontakter hjem tavle liste board kanban"
-            : id === "mine"
-              ? "tildelt meg ansvarlig"
-              : "samtaler møter telefon e-post aktivitet feed",
+            : "samtaler møter telefon e-post aktivitet feed",
         run: () => go(id),
       }),
     ),
@@ -1401,9 +1239,10 @@ function Home() {
           group: "contacts",
           title: contact.name,
           detail: company?.name,
+          phone: contact.phone,
           searchText: [
             contact.email,
-            contact.phone,
+            contact.phone ? "telefon tlf" : null,
             contact.position,
             contact.description,
             contact.stikkord,
@@ -1436,17 +1275,6 @@ function Home() {
         run: () => openOrganization(company.id),
       }),
     ),
-    ...data.savedViews.map(
-      (view): PaletteItem => ({
-        id: `view:${view.id}`,
-        group: "views",
-        title: view.name,
-        detail: view.layout === "board" ? "Tavlevisning" : "Listevisning",
-        searchText: "lagret teamvisning",
-        icon: view.layout === "board" ? LayoutGrid : List,
-        run: () => chooseSaved(view),
-      }),
-    ),
     ...state.organizations.map(
       (team): PaletteItem => ({
         id: `team:${team.id}`,
@@ -1465,15 +1293,13 @@ function Home() {
   const activeSidebarItem =
     selectedId && favorites.some((contact) => contact.id === selectedId)
       ? `favorite:${selectedId}`
-      : selectedView
-        ? `view:${selectedView}`
-        : page;
+      : page;
   return (
     <div className="min-h-screen lg:flex">
       <aside className="glass flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">
         <div className="mb-4 flex items-center justify-between gap-2 px-2">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-white">
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
               <Users size={18} />
             </div>
             <strong>Contac</strong>
@@ -1534,40 +1360,6 @@ function Home() {
             activeItem={activeSidebarItem}
             onSelect={go}
           />
-          {data.savedViews.length > 0 && (
-            <div className="mt-6 border-t border-border pt-4">
-              <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Teamvisninger
-              </p>
-              {data.savedViews.map((view) => (
-                <div key={view.id} className="group relative flex items-center">
-                  <button
-                    className={`relative min-w-0 flex-1 rounded-xl px-3 py-2 text-left text-sm transition-colors ${activeSidebarItem === `view:${view.id}` ? "font-medium text-foreground" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
-                    onClick={() => chooseSaved(view)}
-                  >
-                    {activeSidebarItem === `view:${view.id}` && <SidebarActivePill />}
-                    <span className="relative z-10 flex min-w-0 items-center gap-1.5">
-                      <span className="truncate">{view.name}</span>
-                      {drafts[`view:${view.id}`] && (
-                        <span
-                          className="size-1.5 shrink-0 rounded-full bg-warn"
-                          title="Lokale, upubliserte endringer"
-                          aria-label="Lokale, upubliserte endringer"
-                        />
-                      )}
-                    </span>
-                  </button>
-                  <button
-                    className="relative z-10 hidden p-1 text-muted-foreground hover:text-foreground group-hover:block group-focus-within:block"
-                    aria-label={`Slett ${view.name}`}
-                    onClick={() => setDeletingView(view)}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
           {favorites.length > 0 && (
             <div className="mt-6 border-t border-border pt-4">
               <p className="flex items-center gap-1.5 px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1668,13 +1460,30 @@ function Home() {
               <GraduationCap size={16} /> Klasseinnstillinger
             </button>
           )}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-card/70 hover:text-foreground"
-            onClick={() => void auth.signOut()}
-          >
-            <LogOut size={16} /> Logg ut
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-card/70 hover:text-foreground"
+              onClick={() => void auth.signOut()}
+            >
+              <LogOut size={16} /> Logg ut
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={theme === "dark"}
+              aria-label="Mørk modus"
+              title={theme === "dark" ? "Slå av mørk modus" : "Slå på mørk modus"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${theme === "dark" ? "bg-primary" : "bg-slate/30"}`}
+            >
+              <span
+                className={`ml-0.5 grid size-5 place-items-center rounded-full bg-card text-foreground shadow-sm transition-transform ${theme === "dark" ? "translate-x-5" : "translate-x-0"}`}
+              >
+                {theme === "dark" ? <Moon size={12} /> : <Sun size={12} />}
+              </span>
+            </button>
+          </div>
         </div>
       </aside>
       <main
@@ -1780,7 +1589,6 @@ function Home() {
           <ActivityFeed
             data={data}
             currentUserId={state.user?.id ?? ""}
-            teamName={org.name}
             onOpenActivity={(contactId, activityId) => {
               setFocusedActivityId(activityId);
               setSelectedId(contactId);
@@ -1799,24 +1607,53 @@ function Home() {
           />
         ) : (
           <>
-            <header>
-              <h1 className="text-2xl font-semibold">{nav.find((n) => n[0] === page)?.[1]}</h1>
-              <p className="text-sm text-muted-foreground">
-                {visible.length} kontakter · {org.name}
-              </p>
-            </header>
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <Input
-                className="max-w-xs"
-                placeholder="Søk i kontakter …"
-                value={filters.search ?? ""}
-                onChange={(e) =>
-                  setFilters((current) => ({ ...current, search: e.target.value.slice(0, 200) }))
-                }
-              />
-            </div>
+            <h1 className="sr-only">{page === "duplicates" ? "Duplikate kontakter" : "Hjem"}</h1>
             {page === "contacts" && (
-              <div className="mt-3 flex flex-wrap items-end gap-x-3 gap-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={filtersOpen}
+                  aria-controls="contact-filters-and-sort"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                >
+                  <ListFilter size={16} /> Filtre og sortering
+                  {activeControls > 0 && (
+                    <span className="rounded-full bg-primary-soft px-1.5 text-xs text-primary">
+                      {activeControls}
+                    </span>
+                  )}
+                  <ChevronDown size={15} className={filtersOpen ? "rotate-180" : ""} />
+                </Button>
+                <div
+                  role="group"
+                  aria-label="Kontaktvisning"
+                  className="inline-flex items-center rounded-xl border border-border bg-muted p-0.5"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={layout === "board"}
+                    onClick={() => setLayout("board")}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "board" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <LayoutGrid size={16} /> Kanban
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={layout === "list"}
+                    onClick={() => setLayout("list")}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <List size={16} /> Liste
+                  </button>
+                </div>
+              </div>
+            )}
+            {page === "contacts" && (
+              <div
+                id="contact-filters-and-sort"
+                className={`mt-3 flex-wrap items-end gap-x-3 gap-y-3 rounded-xl border border-border bg-card p-3 ${filtersOpen ? "flex" : "hidden"}`}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <ListFilter size={15} /> Filtre
@@ -1912,27 +1749,18 @@ function Home() {
                     className="w-48"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Visning
-                  </span>
-                  <Select
-                    value={layout}
-                    onValueChange={(value) => setLayout(value as "board" | "list")}
-                    items={[
-                      { value: "board", label: "Tavle", icon: <LayoutGrid size={16} /> },
-                      { value: "list", label: "Liste", icon: <List size={16} /> },
-                    ]}
-                    aria-label="Velg kontaktvisning"
-                    className="w-36"
-                  />
-                  {drafts[draftKey] && (
-                    <span className="text-xs text-muted-foreground">Lokale endringer</span>
-                  )}
-                  <Button variant="outline" size="sm" onClick={openSaveView}>
-                    Lagre visning
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={
+                    !Object.values(filters).some((value) =>
+                      Array.isArray(value) ? value.length > 0 : !!value,
+                    )
+                  }
+                  onClick={() => setFilters({})}
+                >
+                  Fjern alle filtre
+                </Button>
               </div>
             )}
             {page === "contacts" && layout === "board" ? (
@@ -1984,155 +1812,12 @@ function Home() {
               setCreatedHighlightId(null);
               setCreatedNotice(null);
               if (openDetail) setSelectedId(id);
-              else if (!selectedId && ["contacts", "mine", "duplicates"].includes(page))
+              else if (!selectedId && ["contacts", "duplicates"].includes(page))
                 setCreatedHighlightId(id);
               else setCreatedNotice({ id, hidden: false });
             }}
             busy={busy}
           />
-        </DialogContent>
-      </Dialog>
-      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-        <DialogContent>
-          <DialogTitle>Publiser visning</DialogTitle>
-          <DialogDescription>
-            Filtre, søk, sortering og oppsett lagres lokalt mens du redigerer. Publisering gjør
-            visningen tilgjengelig for hele teamet.
-          </DialogDescription>
-          <form
-            className="mt-4 space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void publishView();
-            }}
-          >
-            <label className="block space-y-1 text-sm">
-              Publiser til
-              <Select
-                value={saveTargetId}
-                onValueChange={(id) => {
-                  setSaveTargetId(id);
-                  setSaveName(data.savedViews.find((view) => view.id === id)?.name ?? "");
-                  setSaveError("");
-                }}
-                items={[
-                  { value: "", label: "Ny visning", icon: <Plus size={16} /> },
-                  ...data.savedViews.map((view) => ({
-                    value: view.id,
-                    label: view.name,
-                    icon: <LayoutGrid size={16} />,
-                  })),
-                ]}
-                aria-label="Publiser til"
-              />
-            </label>
-            <label className="block space-y-1 text-sm">
-              Navn
-              <Input
-                autoFocus
-                value={saveName}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setSaveName(next);
-                  if (
-                    saveTargetId &&
-                    next !== data.savedViews.find((view) => view.id === saveTargetId)?.name
-                  )
-                    setSaveTargetId("");
-                  setSaveError("");
-                }}
-                maxLength={80}
-                placeholder="Gi visningen et navn"
-              />
-            </label>
-            {saveError && (
-              <p role="alert" className="text-sm text-risk">
-                {saveError}
-              </p>
-            )}
-            {viewConflict && (
-              <div className="space-y-3 rounded-xl border border-risk/30 bg-risk-soft/40 p-3 text-sm">
-                <p className="font-medium">
-                  En annen på teamet publiserte endringer i denne visningen.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <p className="font-medium">Dine lokale innstillinger</p>
-                    <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs">
-                      {JSON.stringify(viewConflict.local, null, 2)}
-                    </pre>
-                  </div>
-                  <div>
-                    <p className="font-medium">Nyeste publiserte innstillinger</p>
-                    <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs">
-                      {JSON.stringify(
-                        {
-                          layout: viewConflict.remote.layout,
-                          filters: viewConflict.remote.filters,
-                          sortKey: viewConflict.remote.sortKey,
-                        },
-                        null,
-                        2,
-                      )}
-                    </pre>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      const remote = viewConflict.remote;
-                      setDrafts((current) => ({
-                        ...current,
-                        [draftKey]: {
-                          layout: remote.layout,
-                          filters: normalizeFilters(remote.filters),
-                          sortKey: remote.sortKey,
-                        },
-                      }));
-                      setViewBase({ id: remote.id, revision: remote.revision });
-                      setViewConflict(null);
-                      setSaveError("");
-                    }}
-                  >
-                    Bruk nyeste
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => void publishView(viewConflict.remote.revision)}
-                    disabled={busy}
-                  >
-                    Publiser mine innstillinger
-                  </Button>
-                </div>
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSaveOpen(false)}>
-                Avbryt
-              </Button>
-              <Button type="submit" disabled={busy || !saveName.trim()}>
-                {saveTargetId ? "Publiser endringer" : "Publiser ny visning"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!deletingView} onOpenChange={(open) => !open && setDeletingView(null)}>
-        <DialogContent>
-          <DialogTitle>Slett teamvisning?</DialogTitle>
-          <DialogDescription>
-            «{deletingView?.name}» fjernes fra hele teamets sidepanel. Dette kan ikke angres.
-          </DialogDescription>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeletingView(null)} disabled={busy}>
-              Avbryt
-            </Button>
-            <Button variant="destructive" onClick={() => void deleteView()} disabled={busy}>
-              Slett visning
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
       <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
@@ -2353,18 +2038,13 @@ function LibraryPage({
   }
   return (
     <div className="mx-auto max-w-5xl">
-      <header>
-        <h1 className="text-2xl font-semibold">Bibliotek</h1>
-        <p className="text-sm text-muted-foreground">
-          Utvalgte sitater fra kontaktaktiviteter og notater, delt med teamet.
-        </p>
-      </header>
+      <h1 className="sr-only">Sitater</h1>
       <Input
-        className="mt-5 max-w-sm"
+        className="max-w-sm"
         value={search}
         onChange={(event) => setSearch(event.target.value)}
-        placeholder="Søk i biblioteket …"
-        aria-label="Søk i biblioteket"
+        placeholder="Søk i sitater …"
+        aria-label="Søk i sitater"
       />
       {error && (
         <p role="alert" className="mt-3 text-sm text-risk">
@@ -2372,7 +2052,7 @@ function LibraryPage({
         </p>
       )}
       {library.isLoading ? (
-        <p className="mt-6 text-sm text-muted-foreground">Laster biblioteket …</p>
+        <p className="mt-6 text-sm text-muted-foreground">Laster sitater …</p>
       ) : entries.length ? (
         <div className="mt-5 grid gap-3 md:grid-cols-2">
           {entries.map((item) => (
@@ -2402,7 +2082,7 @@ function LibraryPage({
                   </Button>
                 )}
                 <Button size="sm" variant="ghost" onClick={() => void remove(item.id)}>
-                  Fjern fra bibliotek
+                  Fjern sitat
                 </Button>
               </div>
             </Card>
@@ -2411,7 +2091,7 @@ function LibraryPage({
       ) : (
         <Card className="mt-5 p-8 text-center text-sm text-muted-foreground">
           Ingen sitater ennå. Marker tekst i en aktivitet eller et notat og velg «Legg til i
-          biblioteket».
+          sitater».
         </Card>
       )}
       <p className="mt-4 text-xs text-muted-foreground">
@@ -2508,32 +2188,25 @@ function SessionsPage({
   }
   return (
     <div className="mx-auto max-w-5xl">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Økter</h1>
-          <p className="text-sm text-muted-foreground">
-            Samle kontaktaktivitet fra en ringeøkt og forbered en innsjekk.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {active ? (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void action(`/sessions/${active.id}/end`, {})}
-            >
-              Avslutt økt
-            </Button>
-          ) : (
-            <Button disabled={busy} onClick={() => void action("/sessions/start", {})}>
-              Start økt
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => setShowAll((value) => !value)}>
-            Vis alle
+      <h1 className="sr-only">Økter</h1>
+      <div className="flex flex-wrap justify-end gap-2">
+        {active ? (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void action(`/sessions/${active.id}/end`, {})}
+          >
+            Avslutt økt
           </Button>
-        </div>
-      </header>
+        ) : (
+          <Button disabled={busy} onClick={() => void action("/sessions/start", {})}>
+            Start økt
+          </Button>
+        )}
+        <Button variant="outline" onClick={() => setShowAll((value) => !value)}>
+          Vis alle
+        </Button>
+      </div>
       {error && (
         <p role="alert" className="mt-4 rounded-xl bg-risk-soft p-3 text-sm text-risk">
           {error}
@@ -2701,12 +2374,10 @@ function SessionsPage({
 function ActivityFeed({
   data,
   currentUserId,
-  teamName,
   onOpenActivity,
 }: {
   data: Data;
   currentUserId: string;
-  teamName: string;
   onOpenActivity: (contactId: string, activityId: string) => void;
 }) {
   const [assigneeId, setAssigneeId] = useState(currentUserId);
@@ -2752,13 +2423,8 @@ function ActivityFeed({
     );
   return (
     <div className="mx-auto max-w-4xl">
-      <header>
-        <h1 className="text-2xl font-semibold">Sist kontaktet</h1>
-        <p className="text-sm text-muted-foreground">
-          {entries.length} aktiviteter · {teamName}
-        </p>
-      </header>
-      <div className="mt-5 flex flex-wrap items-end gap-3">
+      <h1 className="sr-only">Sist kontaktet</h1>
+      <div className="flex flex-wrap items-end gap-3">
         <label className="min-w-52 flex-1 space-y-1 text-xs font-medium text-muted-foreground sm:flex-none">
           Ansvarlig for kontakten
           <Select
@@ -3256,9 +2922,18 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
   const assignee = data.members.find((member) => member.userId === c.assigneeId);
   return (
     <div className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-card transition hover:border-primary/30 hover:shadow-card-hover">
-      <span className="flex items-start gap-2 text-sm font-semibold">
-        <ContactStatusIcon status={c.status} />
-        <span>{c.name}</span>
+      <span className="flex items-start justify-between gap-2">
+        <span className="flex min-w-0 items-start gap-2 text-sm font-semibold">
+          <ContactStatusIcon status={c.status} />
+          <span>{c.name}</span>
+        </span>
+        <span className="shrink-0" title={assignee?.name ?? "Uten ansvarlig"}>
+          <Avatar
+            name={assignee?.name ?? "Uten ansvarlig"}
+            src={profileAvatarUrl(assignee?.avatarPath)}
+            className="size-6"
+          />
+        </span>
       </span>
       <span className="block truncate text-xs text-muted-foreground">{company?.name}</span>
       {c.stikkord && (
@@ -3280,17 +2955,6 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
               )
             );
           })}
-      </div>
-      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span>{dateLabel(c.updatedAt)}</span>
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Avatar
-            name={assignee?.name ?? "Uten ansvarlig"}
-            src={profileAvatarUrl(assignee?.avatarPath)}
-            className="size-5"
-          />
-          <span className="truncate">{assignee?.name ?? "Uten ansvarlig"}</span>
-        </span>
       </div>
     </div>
   );
@@ -3344,7 +3008,7 @@ function CreateContact({
   return (
     <form className="mt-4 space-y-3" onSubmit={(e) => void submit(e)}>
       <label className="block text-sm">
-        Navn *<Input required value={name} onChange={(e) => setName(e.target.value)} />
+        Navn *<Input autoFocus required value={name} onChange={(e) => setName(e.target.value)} />
       </label>
       {nameSuggestion && !name && (
         <button
@@ -3553,202 +3217,101 @@ function ContactList({
   highlightId: string | null;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const assignees = assigneeOptions(data.members);
+  const tagNames = new Map(data.personTags.map((tag) => [tag.id, tag.name]));
   return (
     <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-card shadow-card">
-      <table className="w-full min-w-[1200px] text-left text-sm">
+      <table className="w-full min-w-[850px] text-left text-sm">
         <thead className="border-b bg-muted/50 text-xs text-muted-foreground">
           <tr>
-            {[
-              "Navn",
-              "Organisasjon",
-              "Avdeling",
-              "Stilling",
-              "E-post",
-              "Telefon",
-              "Status",
-              "Ansvarlig",
-              "Stikkord / siste samtale",
-              "Tagger",
-              "",
-            ].map((x) => (
-              <th key={x} className="px-3 py-3 font-medium">
-                {x}
-              </th>
-            ))}
+            <th className="w-[28%] px-4 py-3 font-medium">Kontakt</th>
+            <th className="w-48 px-3 py-3 font-medium">Ansvarlig</th>
+            <th className="w-52 px-3 py-3 font-medium">Status</th>
+            <th className="w-[27%] px-3 py-3 font-medium">Stikkord / siste samtale</th>
+            <th className="w-44 px-3 py-3 font-medium">Tagger</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((c) => {
             const summary = c.stikkord || lastActivity(c.id)?.summary || "";
+            const tags = data.contactPersonTags
+              .filter((link) => link.contactId === c.id)
+              .flatMap((link) => {
+                const name = tagNames.get(link.tagId);
+                return name ? [{ id: link.tagId, name }] : [];
+              });
             return (
-              <Fragment key={c.id}>
-                <tr
-                  data-contact-item={c.id}
-                  className={`align-top hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
-                >
-                  <td className="w-36 px-2 pt-2">
-                    <InlineText
-                      value={c.name}
-                      disabled={c.status === "duplicate"}
-                      onSave={(name, old) =>
-                        void mutate(`/contacts/${c.id}`, { name, expected: { name: old } })
-                      }
-                    />
-                  </td>
-                  <td className="w-36 px-2 pt-2">
-                    <Select
-                      value={c.companyId}
-                      onValueChange={(companyId) => void mutate(`/contacts/${c.id}`, { companyId })}
-                      items={data.companies.map((x) => ({ value: x.id, label: x.name }))}
-                      disabled={c.status === "duplicate"}
-                    />
-                  </td>
-                  <td className="w-36 px-2 pt-2">
-                    <Select
-                      value={c.departmentId ?? ""}
-                      onValueChange={(departmentId) =>
-                        void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
-                      }
-                      items={[
-                        { value: "", label: "Ingen" },
-                        ...data.departments
-                          .filter((d) => d.companyId === c.companyId)
-                          .map((d) => ({ value: d.id, label: d.name })),
-                      ]}
-                      disabled={c.status === "duplicate"}
-                    />
-                  </td>
-                  <td rowSpan={2} className="w-24 px-2 py-2">
-                    <InlineText
-                      value={c.position}
-                      disabled={c.status === "duplicate"}
-                      onSave={(position, old) =>
-                        void mutate(`/contacts/${c.id}`, { position, expected: { position: old } })
-                      }
-                    />
-                  </td>
-                  <td rowSpan={2} className="w-40 px-2 py-2">
-                    <InlineText
-                      value={c.email}
-                      disabled={c.status === "duplicate"}
-                      onSave={(email, old) =>
-                        void mutate(`/contacts/${c.id}`, { email, expected: { email: old } })
-                      }
-                    />
-                  </td>
-                  <td rowSpan={2} className="w-28 px-2 py-2">
-                    <InlineText
-                      value={c.phone}
-                      disabled={c.status === "duplicate"}
-                      onSave={(phone, old) =>
-                        void mutate(`/contacts/${c.id}`, { phone, expected: { phone: old } })
-                      }
-                    />
-                  </td>
-                  <td rowSpan={2} className="w-12 px-2 py-2">
-                    {c.status === "duplicate" ? (
-                      <ContactStatusIcon status="duplicate" size={20} />
-                    ) : (
-                      <Select
-                        value={c.status}
-                        iconOnly
-                        aria-label="Status"
-                        onValueChange={(status) => void mutate(`/contacts/${c.id}`, { status })}
-                        items={statusOptions}
-                      />
+              <tr
+                key={c.id}
+                data-contact-item={c.id}
+                className={`border-b border-border/70 align-top last:border-b-0 hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
+              >
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    aria-label={`Åpne kontakt: ${c.name}`}
+                    className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    onClick={() => onOpen(c.id)}
+                  >
+                    <span className="block font-medium text-foreground">{c.name}</span>
+                    {c.description && (
+                      <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {c.description}
+                      </span>
                     )}
-                  </td>
-                  <td rowSpan={2} className="w-12 px-2 py-2">
+                  </button>
+                </td>
+                <td className="px-3 py-3">
+                  <Select
+                    value={c.assigneeId ?? ""}
+                    aria-label={`Ansvarlig for ${c.name}`}
+                    onValueChange={(assigneeId) =>
+                      void mutate(`/contacts/${c.id}`, { assigneeId: assigneeId || null })
+                    }
+                    items={assignees}
+                    disabled={c.status === "duplicate"}
+                  />
+                </td>
+                <td className="px-3 py-3">
+                  {c.status === "duplicate" ? (
+                    <ContactStatusBadge status="duplicate" />
+                  ) : (
                     <Select
-                      value={c.assigneeId ?? ""}
-                      iconOnly
-                      aria-label="Ansvarlig"
-                      onValueChange={(assigneeId) =>
-                        void mutate(`/contacts/${c.id}`, { assigneeId: assigneeId || null })
-                      }
-                      items={assigneeOptions(data.members)}
-                      disabled={c.status === "duplicate"}
+                      value={c.status}
+                      aria-label={`Status for ${c.name}`}
+                      onValueChange={(status) => void mutate(`/contacts/${c.id}`, { status })}
+                      items={statusOptions}
                     />
-                  </td>
-                  <td rowSpan={2} className="min-w-72 w-[28%] px-3 py-3">
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {summary ? (
                     <button
-                      className={`text-left ${expanded === c.id ? "" : "line-clamp-2"}`}
+                      type="button"
+                      aria-expanded={expanded === c.id}
+                      className={`w-full rounded-lg text-left leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${expanded === c.id ? "" : "line-clamp-2"}`}
                       onClick={() => setExpanded(expanded === c.id ? null : c.id)}
                     >
-                      {summary || "Ingen samtale registrert"}
+                      {summary}
                     </button>
-                  </td>
-                  <td rowSpan={2} className="w-28 px-2 py-2">
-                    <details>
-                      <summary className="cursor-pointer text-xs">
-                        {data.contactPersonTags
-                          .filter((x) => x.contactId === c.id)
-                          .map((x) => data.personTags.find((t) => t.id === x.tagId)?.name)
-                          .filter(Boolean)
-                          .join(", ") || "Ingen"}
-                      </summary>
-                      <div className="mt-2 space-y-1">
-                        {data.personTags.map((tag) => (
-                          <label
-                            key={tag.id}
-                            title={tag.description ?? "Ingen beskrivelse"}
-                            className="flex gap-1 text-xs"
-                          >
-                            <Checkbox
-                              disabled={c.status === "duplicate"}
-                              checked={data.contactPersonTags.some(
-                                (x) => x.contactId === c.id && x.tagId === tag.id,
-                              )}
-                              onCheckedChange={(checked) =>
-                                void mutate(`/contacts/${c.id}/tags`, {
-                                  tagIds: checked
-                                    ? [
-                                        ...data.contactPersonTags
-                                          .filter((x) => x.contactId === c.id)
-                                          .map((x) => x.tagId),
-                                        tag.id,
-                                      ]
-                                    : data.contactPersonTags
-                                        .filter((x) => x.contactId === c.id && x.tagId !== tag.id)
-                                        .map((x) => x.tagId),
-                                })
-                              }
-                              aria-label={tag.name}
-                            />
-                            {tag.name}
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                  </td>
-                  <td rowSpan={2} className="px-2 py-2">
-                    <Button variant="ghost" size="sm" onClick={() => onOpen(c.id)}>
-                      Åpne
-                    </Button>
-                  </td>
-                </tr>
-                <tr
-                  className={`border-b border-border/70 hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
-                >
-                  <td colSpan={3} className="px-2 pb-2 pt-0">
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <AlignLeft size={13} className="shrink-0" aria-hidden />
-                      <InlineText
-                        value={c.description}
-                        disabled={c.status === "duplicate"}
-                        ariaLabel="Kort beskrivelse"
-                        className="h-7 min-w-0 flex-1 text-xs"
-                        onSave={(description, old) =>
-                          void mutate(`/contacts/${c.id}`, {
-                            description,
-                            expected: { description: old },
-                          })
-                        }
-                      />
-                    </div>
-                  </td>
-                </tr>
-              </Fragment>
+                  ) : (
+                    <span className="text-muted-foreground">Ingen samtale registrert</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {tags.length ? (
+                    <ul className="flex flex-wrap gap-1.5" aria-label={`Tagger for ${c.name}`}>
+                      {tags.map((tag) => (
+                        <li key={tag.id} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                          {tag.name}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-muted-foreground">Ingen</span>
+                  )}
+                </td>
+              </tr>
             );
           })}
         </tbody>
@@ -4361,6 +3924,7 @@ function ContactDetail({
   const [departmentError, setDepartmentError] = useState("");
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [expandedActivityIds, setExpandedActivityIds] = useState<string[]>([]);
   const [showFullLog, setShowFullLog] = useState(false);
   const [exportError, setExportError] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<{ activityId: string; quote: string } | null>(
@@ -4785,6 +4349,11 @@ function ContactDetail({
             <div className="mt-4 space-y-3">
               {timeline.map((a) => {
                 const editing = editingActivityId === a.id;
+                const longActivity =
+                  a.summary.length + a.transcript.length > 600 ||
+                  `${a.summary}\n${a.transcript}`.split("\n").length > 12;
+                const expanded =
+                  editing || focusedActivityId === a.id || expandedActivityIds.includes(a.id);
                 const presentation = activityPresentation(a);
                 const ActivityIcon = presentation.icon;
                 return (
@@ -4860,153 +4429,182 @@ function ContactDetail({
                           </p>
                         ) : null;
                       })()}
-                    <div
-                      onMouseUp={(event) =>
-                        !editing && captureActivityQuote(event.currentTarget, a.id)
-                      }
-                      onTouchEnd={(event) =>
-                        !editing && captureActivityQuote(event.currentTarget, a.id)
-                      }
-                    >
-                      <LiveText
-                        kind="summary"
-                        id={a.id}
-                        initialText={a.summary}
-                        highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
-                        highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
-                        disabled={c.status === "duplicate"}
-                        readOnly={!editing}
-                        className={
-                          editing
-                            ? "mt-3 min-h-20"
-                            : "mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
-                        }
-                        onSelect={(event) => {
-                          const field = event.currentTarget;
-                          const quote = field.value
-                            .slice(field.selectionStart, field.selectionEnd)
-                            .trim();
-                          setSelectedQuote(quote ? { activityId: a.id, quote } : null);
-                        }}
-                      />
-                    </div>
-                    {selectedQuote?.activityId === a.id && (
+                    {longActivity && !expanded && (
+                      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                        {[a.summary, a.transcript]
+                          .filter(Boolean)
+                          .join("\n\n")
+                          .slice(0, 220)
+                          .trimEnd()}
+                        …
+                      </p>
+                    )}
+                    {longActivity && !editing && focusedActivityId !== a.id && (
                       <Button
-                        className="mt-2"
+                        variant="ghost"
                         size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          try {
-                            await mutate("/library", {
-                              sourceKind: "activity",
-                              contactId: c.id,
-                              activityId: a.id,
-                              quote: selectedQuote.quote,
-                            });
-                            setSelectedQuote(null);
-                          } catch {
-                            // The page-level mutation displays the error.
-                          }
-                        }}
+                        className="mt-2"
+                        aria-expanded={expanded}
+                        aria-controls={`activity-content-${a.id}`}
+                        onClick={() =>
+                          setExpandedActivityIds((current) =>
+                            expanded ? current.filter((id) => id !== a.id) : [...current, a.id],
+                          )
+                        }
                       >
-                        <BookOpen size={14} /> Legg til i biblioteket
+                        <ChevronDown size={15} className={expanded ? "rotate-180" : ""} />
+                        {expanded ? "Vis mindre" : "Vis hele aktiviteten"}
                       </Button>
                     )}
-                    {a.kind !== "missed_phone" && (editing || !!a.transcript) && (
-                      <section className="mt-3">
-                        <h4 className="text-sm font-medium">Transkripsjon</h4>
-                        <div
-                          onMouseUp={(event) =>
-                            !editing && captureActivityQuote(event.currentTarget, a.id)
+                    <div id={`activity-content-${a.id}`} hidden={longActivity && !expanded}>
+                      <div
+                        onMouseUp={(event) =>
+                          !editing && captureActivityQuote(event.currentTarget, a.id)
+                        }
+                        onTouchEnd={(event) =>
+                          !editing && captureActivityQuote(event.currentTarget, a.id)
+                        }
+                      >
+                        <LiveText
+                          kind="summary"
+                          id={a.id}
+                          initialText={a.summary}
+                          highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
+                          highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
+                          disabled={c.status === "duplicate"}
+                          readOnly={!editing}
+                          className={
+                            editing
+                              ? "mt-3 min-h-20"
+                              : "mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
                           }
-                          onTouchEnd={(event) =>
-                            !editing && captureActivityQuote(event.currentTarget, a.id)
-                          }
+                          onSelect={(event) => {
+                            const field = event.currentTarget;
+                            const quote = field.value
+                              .slice(field.selectionStart, field.selectionEnd)
+                              .trim();
+                            setSelectedQuote(quote ? { activityId: a.id, quote } : null);
+                          }}
+                        />
+                      </div>
+                      {selectedQuote?.activityId === a.id && (
+                        <Button
+                          className="mt-2"
+                          size="sm"
+                          variant="secondary"
+                          onClick={async () => {
+                            try {
+                              await mutate("/library", {
+                                sourceKind: "activity",
+                                contactId: c.id,
+                                activityId: a.id,
+                                quote: selectedQuote.quote,
+                              });
+                              setSelectedQuote(null);
+                            } catch {
+                              // The page-level mutation displays the error.
+                            }
+                          }}
                         >
-                          <LiveText
-                            kind="transcript"
-                            id={a.id}
-                            initialText={a.transcript}
-                            highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
-                            highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
-                            disabled={c.status === "duplicate"}
-                            readOnly={!editing}
-                            className={
-                              editing
-                                ? "mt-2 min-h-40"
-                                : "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+                          <BookOpen size={14} /> Legg til i sitater
+                        </Button>
+                      )}
+                      {a.kind !== "missed_phone" && (editing || !!a.transcript) && (
+                        <section className="mt-3">
+                          <h4 className="text-sm font-medium">Transkripsjon</h4>
+                          <div
+                            onMouseUp={(event) =>
+                              !editing && captureActivityQuote(event.currentTarget, a.id)
                             }
-                            onSelect={(event) => {
-                              const field = event.currentTarget;
-                              const quote = field.value
-                                .slice(field.selectionStart, field.selectionEnd)
-                                .trim();
-                              setSelectedQuote(quote ? { activityId: a.id, quote } : null);
-                            }}
-                          />
-                        </div>
-                      </section>
-                    )}
-                    <ActivityAttachments
-                      activity={a}
-                      files={data.activityFiles.filter((file) => file.activityId === a.id)}
-                      mutate={mutate}
-                      disabled={c.status === "duplicate" || !editing}
-                    />
-                    {editing &&
-                      data.activityContacts.filter((link) => link.activityId === a.id).length >
-                        1 && (
+                            onTouchEnd={(event) =>
+                              !editing && captureActivityQuote(event.currentTarget, a.id)
+                            }
+                          >
+                            <LiveText
+                              kind="transcript"
+                              id={a.id}
+                              initialText={a.transcript}
+                              highlightPassage={focusedActivityId === a.id ? focusedPassage : null}
+                              highlightQuery={focusedActivityId === a.id ? focusedQuery : null}
+                              disabled={c.status === "duplicate"}
+                              readOnly={!editing}
+                              className={
+                                editing
+                                  ? "mt-2 min-h-40"
+                                  : "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+                              }
+                              onSelect={(event) => {
+                                const field = event.currentTarget;
+                                const quote = field.value
+                                  .slice(field.selectionStart, field.selectionEnd)
+                                  .trim();
+                                setSelectedQuote(quote ? { activityId: a.id, quote } : null);
+                              }}
+                            />
+                          </div>
+                        </section>
+                      )}
+                      <ActivityAttachments
+                        activity={a}
+                        files={data.activityFiles.filter((file) => file.activityId === a.id)}
+                        mutate={mutate}
+                        disabled={c.status === "duplicate" || !editing}
+                      />
+                      {editing &&
+                        data.activityContacts.filter((link) => link.activityId === a.id).length >
+                          1 && (
+                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                            <FileText size={14} /> Eksporteres under
+                            <Select
+                              className="w-48"
+                              value={a.exportOwnerContactId ?? c.id}
+                              onValueChange={(contactId) =>
+                                void mutate(`/activities/${a.id}/export-owner`, { contactId })
+                              }
+                              items={data.activityContacts
+                                .filter((link) => link.activityId === a.id)
+                                .map((link) =>
+                                  data.contacts.find((person) => person.id === link.contactId),
+                                )
+                                .filter(
+                                  (person): person is Contact =>
+                                    !!person && person.status !== "duplicate",
+                                )
+                                .map((person) => ({ value: person.id, label: person.name }))}
+                              aria-label="Eksporteier for delt aktivitet"
+                              disabled={busy || c.status === "duplicate"}
+                            />
+                          </div>
+                        )}
+                      {editing && (
                         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                          <FileText size={14} /> Eksporteres under
+                          <ShieldCheck size={14} /> Ekstern AI
                           <Select
-                            className="w-48"
-                            value={a.exportOwnerContactId ?? c.id}
-                            onValueChange={(contactId) =>
-                              void mutate(`/activities/${a.id}/export-owner`, { contactId })
+                            className="w-44"
+                            value={
+                              a.allowExternalAiOverride === null
+                                ? "inherit"
+                                : a.allowExternalAiOverride
+                                  ? "allow"
+                                  : "block"
                             }
-                            items={data.activityContacts
-                              .filter((link) => link.activityId === a.id)
-                              .map((link) =>
-                                data.contacts.find((person) => person.id === link.contactId),
-                              )
-                              .filter(
-                                (person): person is Contact =>
-                                  !!person && person.status !== "duplicate",
-                              )
-                              .map((person) => ({ value: person.id, label: person.name }))}
-                            aria-label="Eksporteier for delt aktivitet"
-                            disabled={busy || c.status === "duplicate"}
+                            onValueChange={(value) =>
+                              void mutate(`/activities/${a.id}`, {
+                                allowExternalAiOverride:
+                                  value === "inherit" ? null : value === "allow",
+                              })
+                            }
+                            items={[
+                              { value: "inherit", label: "Arv fra kontakter" },
+                              { value: "allow", label: "Tillat for aktivitet" },
+                              { value: "block", label: "Blokker for aktivitet" },
+                            ]}
+                            aria-label="Ekstern AI for aktivitet"
+                            disabled={c.status === "duplicate"}
                           />
                         </div>
                       )}
-                    {editing && (
-                      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                        <ShieldCheck size={14} /> Ekstern AI
-                        <Select
-                          className="w-44"
-                          value={
-                            a.allowExternalAiOverride === null
-                              ? "inherit"
-                              : a.allowExternalAiOverride
-                                ? "allow"
-                                : "block"
-                          }
-                          onValueChange={(value) =>
-                            void mutate(`/activities/${a.id}`, {
-                              allowExternalAiOverride:
-                                value === "inherit" ? null : value === "allow",
-                            })
-                          }
-                          items={[
-                            { value: "inherit", label: "Arv fra kontakter" },
-                            { value: "allow", label: "Tillat for aktivitet" },
-                            { value: "block", label: "Blokker for aktivitet" },
-                          ]}
-                          aria-label="Ekstern AI for aktivitet"
-                          disabled={c.status === "duplicate"}
-                        />
-                      </div>
-                    )}
+                    </div>
                   </div>
                 );
               })}
@@ -5060,7 +4658,7 @@ function ContactDetail({
           {contactLibrary.length > 0 && (
             <Card className="p-4">
               <h2 className="flex items-center gap-2 font-semibold">
-                <BookOpen size={16} className="text-primary" /> Bibliotek ({contactLibrary.length})
+                <BookOpen size={16} className="text-primary" /> Sitater ({contactLibrary.length})
               </h2>
               <div className="mt-3 space-y-2">
                 {contactLibrary.map((item) => (
@@ -5442,7 +5040,7 @@ function SharedNote({
               }
             }}
           >
-            <BookOpen size={14} /> Legg til i biblioteket
+            <BookOpen size={14} /> Legg til i sitater
           </Button>
         )}
       </Card>
@@ -5532,7 +5130,7 @@ function SharedNote({
             }
           }}
         >
-          <BookOpen size={14} /> Legg til i biblioteket
+          <BookOpen size={14} /> Legg til i sitater
         </Button>
       )}
     </Card>
@@ -6299,13 +5897,8 @@ function OrganizationMap({
 
   return (
     <div className="flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Organisasjoner</h1>
-          <p className="text-sm text-muted-foreground">
-            Domene → organisasjon → avdeling → kontakt
-          </p>
-        </div>
+      <h1 className="sr-only">Organisasjoner</h1>
+      <div className="flex flex-wrap items-center justify-end gap-4">
         <nav aria-label="Filtrer organisasjonsgrafen" className="flex flex-wrap items-center gap-2">
           <Popover
             open={domainOpen}
@@ -6503,7 +6096,7 @@ function OrganizationMap({
             </Button>
           )}
         </nav>
-      </header>
+      </div>
       <section
         ref={graphRef}
         className="relative min-h-[560px] min-w-0 flex-1 overflow-auto rounded-2xl border border-border bg-card shadow-card"
@@ -6958,6 +6551,52 @@ function TagDescription({
   );
 }
 
+function TeamSessionSettings() {
+  const { org } = useOrg();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const settings = useQuery({
+    queryKey: ["session-settings", org?.id],
+    queryFn: () => request<{ enabled: boolean }>("/org/session-settings", org!.id),
+    enabled: !!org,
+  });
+  async function setEnabled(enabled: boolean) {
+    if (!org) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request("/org/session-settings", org.id, { enabled });
+      await qc.invalidateQueries({ queryKey: ["session-settings", org.id] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke lagre øktinnstillingen.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card className="p-5">
+      <h2 className="font-semibold">Økter</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Slå på økter for teamet når dere vil samle aktiviteter i en felles gjennomgang.
+      </p>
+      <label className="mt-4 flex items-center gap-2 text-sm">
+        <Checkbox
+          aria-label="Aktiver økter for teamet"
+          checked={settings.data?.enabled ?? false}
+          disabled={busy || !settings.data}
+          onCheckedChange={(checked) => void setEnabled(checked === true)}
+        />
+        Aktiver økter for teamet
+      </label>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-risk">
+          {error}
+        </p>
+      )}
+    </Card>
+  );
+}
 function Settings({
   section,
   state,
@@ -6998,7 +6637,7 @@ function Settings({
   }
   return (
     <div className="max-w-3xl space-y-5">
-      <h1 className="text-2xl font-semibold">
+      <h1 className="sr-only">
         {section === "profile"
           ? "Profil"
           : section === "team_settings"
@@ -7032,6 +6671,7 @@ function Settings({
           )}
         </Card>
       )}
+      {section === "team_settings" && state.org?.role !== "member" && <TeamSessionSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamAiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}

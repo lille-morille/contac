@@ -35,7 +35,7 @@ note still requires its first explicit Save. Disconnected or conflicting local
 text is held locally and shown beside the server text; applying it again is an
 explicit user action. A socket update never replaces an unsaved local edit.
 
-Scalar contact, activity, organization, tag relationship, LOI, and saved-view
+Scalar contact, activity, organization, tag relationship, and LOI
 edits use server-enforced expected values or a revision. A stale write receives
 409 and the latest value. Valid edits to different contact fields can proceed
 independently. Dragging a board card remains optimistic and rolls back if the

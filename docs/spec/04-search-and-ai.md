@@ -13,7 +13,9 @@ Search should work well for Norwegian phrasing and near-matches in meaning, such
 
 Show result cards with the relevant passage highlighted. A click opens the contact page, scrolls to the matched activity (or shared note), and highlights the passage there. Preserve enough link state, such as a query parameter, for the highlight/scroll to survive navigation. For a semantic result, highlight the retrieved relevant passage; an exact substring match is not required. Shared activities should link to the appropriate contact view of their one underlying record.
 
-The global search entry is an icon-only button to the right of **Contac** in the sidebar header, and ⌘K or Ctrl+K opens the same command dialog from anywhere in the signed-in workspace. The dialog has animated entry and exit, keyboard navigation, Enter to open, and Escape to close. It searches pages, actions, current-team contacts and organizations, saved views, and team switching immediately. After a short debounce it also shows results from the existing local semantic index, including conversations, accepted emails, and shared research notes. Selecting a result opens its contact and matched source; a granted cross-team result opens the read-only log. **Vis alle søkeresultater** opens the full search page with the query prefilled. The old sidebar **Søk** destination is removed; the full search page remains reachable through the command dialog.
+The global search entry is an icon-only button to the right of **Contac** in the sidebar header, and ⌘K or Ctrl+K opens the same command dialog from anywhere in the signed-in workspace. The dialog has animated entry and exit, keyboard navigation, Enter to open, and Escape to close. It searches pages, actions, current-team contacts and organizations, and team switching immediately. After a short debounce it also shows results from the existing local semantic index, including conversations, accepted emails, and shared research notes. Selecting a result opens its contact and matched source; a granted cross-team result opens the read-only log. **Vis alle søkeresultater** opens the full search page with the query prefilled. The old sidebar **Søk** destination is removed; the full search page remains reachable through the command dialog.
+
+Contact phone numbers in the command dialog support partial digit searches regardless of spaces or punctuation in either the query or saved number. A matching contact result shows the phone number with the matched digits highlighted.
 
 ## AI configuration and safeguards
 
@@ -33,7 +35,7 @@ The team configures exactly two model roles: **low** for field extraction and hi
 
 For a shared activity, the strictest linked contact AI control applies by default. A user may explicitly override the activity-level decision. An activity blocked from external AI cannot enter contact or organization summaries, check-in summaries, field suggestions, email drafting context, or other OpenRouter requests. Local semantic search may still index and find it. Research notes never enter external-AI context even when a contact allows AI. Transcription is performed outside this application; the team decides whether a transcript may be imported before upload. There is no separate transcript-consent workflow in Contac.
 
-Every automatically **applied** AI change appears in a visible edit log with the before snapshot and a restore action. Restore replaces the record with the saved snapshot immediately before that AI edit; if there were later edits, clearly warn that restoring also replaces those later changes. Keep this simple snapshot behavior rather than building a merge engine.
+Every automatically **applied** AI change is recorded in an edit log visible only to the class admin, with the before snapshot and a restore action. Restore replaces the record with the saved snapshot immediately before that AI edit; if there were later edits, clearly warn that restoring also replaces those later changes. Keep this simple snapshot behavior rather than building a merge engine.
 
 ## Features
 
@@ -54,7 +56,7 @@ The full contact-log representation is code-generated, chronological, structured
 1. All AI feature modes are Off on a new team, so creating a contact or activity makes no OpenRouter call.
 2. A contact blocked from third-party AI remains findable by local semantic search but is omitted from an organization AI summary.
 3. A shared meeting linked to one blocked contact is blocked by default for both linked contacts; a member can explicitly override the activity decision.
-4. Dangerous mode replaces a filled description. The edit log shows the prior snapshot and allows restoring it.
+4. Dangerous mode replaces a filled description. The class admin can see the prior snapshot in the edit log and restore it; team members cannot access that log.
 
 ## Decisions and scope
 

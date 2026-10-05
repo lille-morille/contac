@@ -54,13 +54,7 @@ export function SemanticSearch({
   });
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold">Søk</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Finn samtaler, personer og notater med norsk semantisk søk. Søket kjøres lokalt på
-          serveren.
-        </p>
-      </div>
+      <h1 className="sr-only">Søk</h1>
       <form
         className="flex gap-2"
         onSubmit={(event) => {

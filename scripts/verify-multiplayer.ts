@@ -214,28 +214,6 @@ try {
   });
   assert.equal(staleTags.status, 409);
   assert.deepEqual((staleTags.body.current as Record<string, unknown>).tagIds, [tag.body.id]);
-  const view = await call(a.token, teams[0], "/saved-views", {
-    name: "Shared test view",
-    layout: "board",
-    filters: {},
-    sortKey: "updated",
-  });
-  assert.equal(view.status, 201);
-  const changedView = await call(b.token, teams[0], `/saved-views/${view.body.id}`, {
-    layout: "list",
-    filters: {},
-    sortKey: "updated",
-    expectedRevision: view.body.revision,
-  });
-  assert.equal(changedView.status, 200);
-  const staleView = await call(a.token, teams[0], `/saved-views/${view.body.id}`, {
-    layout: "board",
-    filters: {},
-    sortKey: "name",
-    expectedRevision: view.body.revision,
-  });
-  assert.equal(staleView.status, 409);
-  assert.equal((staleView.body.current as Record<string, unknown>).layout, "list");
   assert.equal(
     await bChannel.channel.track({ userId: b.id, contactId, editingId: "note:" + contactId }),
     "ok",

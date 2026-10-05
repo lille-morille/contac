@@ -17,7 +17,6 @@ import {
   profiles,
   organizations,
   aiEditLog,
-  savedContactViews,
 } from "@contac/core/db";
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -101,18 +100,6 @@ const contactScalarColumns = {
   assigneeId: contacts.assigneeId,
   allowExternalAi: contacts.allowExternalAi,
 } as const;
-const viewSettings = z.object({
-  layout: z.enum(["board", "list"]),
-  filters: z.object({
-    status: z.array(status).optional(),
-    assigneeId: z.array(z.union([id, z.literal("unassigned")])).optional(),
-    companyId: z.array(id).optional(),
-    domainId: z.array(id).optional(),
-    tagId: z.array(id).optional(),
-    search: z.string().max(200).optional(),
-  }),
-  sortKey: z.enum(["updated", "name", "last_contacted", "created"]),
-});
 const parse = async <T extends z.ZodTypeAny>(
   c: { req: { json: () => Promise<unknown> } },
   schema: T,
@@ -160,7 +147,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         contactRows,
         contactTagRows,
         memberRows,
-        viewRows,
       ] = await Promise.all([
         deps.db
           .select()
@@ -199,11 +185,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(memberships)
           .leftJoin(profiles, eq(profiles.id, memberships.userId))
           .where(eq(memberships.orgId, orgId)),
-        deps.db
-          .select()
-          .from(savedContactViews)
-          .where(eq(savedContactViews.orgId, orgId))
-          .orderBy(asc(savedContactViews.name)),
       ]);
       return c.json({
         companies: companyRows,
@@ -214,7 +195,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         contacts: contactRows,
         contactPersonTags: contactTagRows,
         members: memberRows,
-        savedViews: viewRows,
       });
     }
     if (part === "activities") {
@@ -283,7 +263,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       activityFileRows,
       emailRows,
       memberRows,
-      viewRows,
       favoriteRows,
       reminderRows,
     ] = await Promise.all([
@@ -343,11 +322,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .leftJoin(profiles, eq(profiles.id, memberships.userId))
         .where(eq(memberships.orgId, orgId)),
       deps.db
-        .select()
-        .from(savedContactViews)
-        .where(eq(savedContactViews.orgId, orgId))
-        .orderBy(asc(savedContactViews.name)),
-      deps.db
         .select({ contactId: favoriteContacts.contactId })
         .from(favoriteContacts)
         .where(and(eq(favoriteContacts.orgId, orgId), eq(favoriteContacts.userId, userId)))
@@ -377,7 +351,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       activityFiles: activityFileRows,
       emailActivities: emailRows,
       members: memberRows,
-      savedViews: viewRows,
       favoriteContactIds: favoriteRows.map((row) => row.contactId),
       reminders: reminderRows,
     });
@@ -1379,71 +1352,5 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         void runContactAutomations(deps, orgId, [primary.id]);
       });
     return c.json({ primaryId: primary.id, duplicateId: duplicate.id });
-  });
-
-  app.post("/v1/org/saved-views", async (c) => {
-    const data = await parse(c, viewSettings.extend({ name: z.string().trim().min(1).max(80) }));
-    if (!data) return c.json({ error: "Invalid view" }, 400);
-    const [row] = await deps.db
-      .insert(savedContactViews)
-      .values({ orgId: c.get("org").id, userId: c.get("user").id, ...data })
-      .onConflictDoNothing()
-      .returning();
-    return row ? c.json(row, 201) : c.json({ error: "A view with this name already exists" }, 409);
-  });
-  app.post("/v1/org/saved-views/:id", async (c) => {
-    const viewId = id.safeParse(c.req.param("id"));
-    const data = await parse(
-      c,
-      viewSettings.extend({ expectedRevision: z.number().int().positive() }),
-    );
-    if (!viewId.success || !data) return c.json({ error: "Invalid view" }, 400);
-    const { expectedRevision, ...changes } = data;
-    const [row] = await deps.db
-      .update(savedContactViews)
-      .set({ ...changes, revision: sql`${savedContactViews.revision} + 1`, updatedAt: new Date() })
-      .where(
-        and(
-          eq(savedContactViews.id, viewId.data),
-          eq(savedContactViews.orgId, c.get("org").id),
-          eq(savedContactViews.revision, expectedRevision),
-        ),
-      )
-      .returning();
-    if (row) return c.json(row);
-    const [latest] = await deps.db
-      .select()
-      .from(savedContactViews)
-      .where(
-        and(eq(savedContactViews.id, viewId.data), eq(savedContactViews.orgId, c.get("org").id)),
-      );
-    return latest
-      ? c.json({ error: "View changed while you were editing", current: latest }, 409)
-      : c.json({ error: "View not found" }, 404);
-  });
-  app.post("/v1/org/saved-views/:id/delete", async (c) => {
-    const viewId = id.safeParse(c.req.param("id"));
-    const data = await parse(c, z.object({ expectedRevision: z.number().int().positive() }));
-    if (!viewId.success || !data) return c.json({ error: "Invalid view" }, 400);
-    const [row] = await deps.db
-      .delete(savedContactViews)
-      .where(
-        and(
-          eq(savedContactViews.id, viewId.data),
-          eq(savedContactViews.orgId, c.get("org").id),
-          eq(savedContactViews.revision, data.expectedRevision),
-        ),
-      )
-      .returning();
-    if (row) return c.json({ ok: true });
-    const [latest] = await deps.db
-      .select()
-      .from(savedContactViews)
-      .where(
-        and(eq(savedContactViews.id, viewId.data), eq(savedContactViews.orgId, c.get("org").id)),
-      );
-    return latest
-      ? c.json({ error: "View changed before deletion", current: latest }, 409)
-      : c.json({ error: "View not found" }, 404);
   });
 }

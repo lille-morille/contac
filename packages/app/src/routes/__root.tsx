@@ -11,9 +11,15 @@ export const Route = createRootRoute({
     ],
   }),
   component: () => (
-    <html lang="en">
+    <html lang="nb" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{document.documentElement.dataset.theme=localStorage.getItem('contac:theme')==='dark'?'dark':'light'}catch{document.documentElement.dataset.theme='light'}",
+          }}
+        />
       </head>
       <body>
         <Providers>

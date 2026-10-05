@@ -152,7 +152,7 @@ function OAuthConsent() {
                 </p>
                 <p className="mt-1 text-muted-foreground">Du er logget inn som {details.email}.</p>
                 <p className="mt-3">
-                  Agenten kan lese teamets kontakter, organisasjoner, aktiviteter og bibliotek, samt
+                  Agenten kan lese teamets kontakter, organisasjoner, aktiviteter og sitater, samt
                   opprette kontakter og aktiviteter. Den kan ikke endre eller slette eksisterende
                   data.
                 </p>

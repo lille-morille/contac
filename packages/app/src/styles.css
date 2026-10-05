@@ -5,7 +5,8 @@
  * Shared theme — "Glass & pastel" .
  * Light, airy, playful-professional: violet primary, pastel gradient canvas,
  * solid white cards, glass reserved for sidebar/dialogs/popovers/AI cards.
- * Light mode only. Never hardcode hex in components — use these tokens.
+ * Light tokens remain the default. Dark mode overrides the same tokens below.
+ * Never hardcode hex in components — use these tokens.
  */
 :root {
   --radius: 1rem;
@@ -71,6 +72,91 @@
   --chart-3: #3b82f6;
   --chart-4: #f59e0b;
   --chart-5: #ec4899;
+
+  --canvas-glow-violet: rgb(124 92 250 / 0.1);
+  --canvas-glow-mint: rgb(45 212 191 / 0.1);
+  --canvas-glow-blue: rgb(96 165 250 / 0.1);
+  --glass-bg: rgb(255 255 255 / 0.82);
+  --glass-border: rgb(255 255 255 / 0.78);
+  --glass-shadow: 0 8px 32px rgb(60 50 120 / 0.08);
+  --glass-strong-bg: rgb(255 255 255 / 0.94);
+  --glass-strong-border: rgb(255 255 255 / 0.9);
+  --glass-strong-shadow: 0 12px 40px rgb(60 50 120 / 0.14);
+  --glow-card-bg: rgb(255 255 255 / 0.62);
+  --card-shadow: 0 1px 2px rgb(28 27 46 / 0.04), 0 12px 32px -16px rgb(60 50 120 / 0.1);
+  --card-shadow-hover: 0 2px 4px rgb(28 27 46 / 0.05), 0 18px 44px -16px rgb(60 50 120 / 0.18);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #11121d;
+  --foreground: #f2f1fa;
+  --card: #1d1f2d;
+  --card-foreground: #f2f1fa;
+  --popover: #252738;
+  --popover-foreground: #f2f1fa;
+
+  --primary: #ad98ff;
+  --primary-foreground: #181327;
+  --primary-hover: #c2b2ff;
+  --primary-soft: #352d50;
+  --secondary: #352d50;
+  --secondary-foreground: #dfd5ff;
+  --muted: #292b3b;
+  --muted-foreground: #b2b1c7;
+  --accent: #352d50;
+  --accent-foreground: #dfd5ff;
+  --destructive: #ff7584;
+  --destructive-foreground: #241116;
+  --border: #3b3d53;
+  --input: #484a62;
+  --ring: #ad98ff;
+
+  --ok: #5de0aa;
+  --ok-foreground: #10221a;
+  --ok-soft: #214438;
+  --warn: #ffc26f;
+  --warn-foreground: #271b0d;
+  --warn-soft: #483726;
+  --risk: #ff7584;
+  --risk-foreground: #241116;
+  --risk-soft: #492b37;
+  --info: #80b5ff;
+  --info-foreground: #111a2b;
+  --info-soft: #273c59;
+
+  --mint: #58d8c7;
+  --mint-soft: #24463f;
+  --blue: #80b5ff;
+  --blue-soft: #273c59;
+  --orange: #ffbd60;
+  --orange-soft: #4b3926;
+  --pink: #ff84c2;
+  --pink-soft: #4b2b42;
+  --coral: #ff897f;
+  --yellow: #e9c96b;
+  --lime: #9fdc6a;
+  --cyan: #67cfe8;
+  --slate: #a5aec1;
+
+  --chart-1: #ad98ff;
+  --chart-2: #58d8c7;
+  --chart-3: #80b5ff;
+  --chart-4: #ffbd60;
+  --chart-5: #ff84c2;
+
+  --canvas-glow-violet: rgb(109 76 240 / 0.16);
+  --canvas-glow-mint: rgb(20 184 166 / 0.09);
+  --canvas-glow-blue: rgb(59 130 246 / 0.1);
+  --glass-bg: rgb(29 31 45 / 0.88);
+  --glass-border: rgb(173 158 218 / 0.18);
+  --glass-shadow: 0 12px 36px rgb(0 0 0 / 0.28);
+  --glass-strong-bg: rgb(37 39 56 / 0.96);
+  --glass-strong-border: rgb(173 158 218 / 0.23);
+  --glass-strong-shadow: 0 16px 48px rgb(0 0 0 / 0.38);
+  --glow-card-bg: rgb(37 39 56 / 0.9);
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 0.16), 0 12px 32px -16px rgb(0 0 0 / 0.4);
+  --card-shadow-hover: 0 2px 5px rgb(0 0 0 / 0.22), 0 18px 44px -16px rgb(0 0 0 / 0.52);
 }
 
 @theme inline {
@@ -136,8 +222,8 @@
   --radius-lg: calc(var(--radius) - 0.25rem);
 
   /* Card shadows (contract recipe) — usable as shadow-card / shadow-card-hover */
-  --shadow-card: 0 1px 2px rgb(28 27 46 / 0.04), 0 12px 32px -16px rgb(60 50 120 / 0.1);
-  --shadow-card-hover: 0 2px 4px rgb(28 27 46 / 0.05), 0 18px 44px -16px rgb(60 50 120 / 0.18);
+  --shadow-card: var(--card-shadow);
+  --shadow-card-hover: var(--card-shadow-hover);
 
   --font-sans: "Geist Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -150,14 +236,18 @@
   html {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    color-scheme: light;
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
   }
   body {
     color: var(--foreground);
-    background-color: #f4f4fc;
+    background-color: var(--background);
     background-image:
-      radial-gradient(60rem 40rem at 85% -10%, rgb(124 92 250 / 0.1), transparent 60%),
-      radial-gradient(50rem 36rem at -10% 30%, rgb(45 212 191 / 0.1), transparent 60%),
-      radial-gradient(46rem 40rem at 60% 110%, rgb(96 165 250 / 0.1), transparent 60%);
+      radial-gradient(60rem 40rem at 85% -10%, var(--canvas-glow-violet), transparent 60%),
+      radial-gradient(50rem 36rem at -10% 30%, var(--canvas-glow-mint), transparent 60%),
+      radial-gradient(46rem 40rem at 60% 110%, var(--canvas-glow-blue), transparent 60%);
     background-attachment: fixed;
   }
   /* Every clickable element shows a pointer (contract: Interaction). */
@@ -182,14 +272,14 @@
 
 /*
  * The glass recipe — used ONLY for: the sidebar, dialogs, popovers/menus and
- * special AI cards. Ordinary content cards stay solid white (bg-card).
+ * special AI cards. Ordinary content cards use the solid bg-card token.
  */
 .glass {
-  background: rgb(255 255 255 / 0.82);
+  background: var(--glass-bg);
   backdrop-filter: blur(28px) saturate(1.6);
   -webkit-backdrop-filter: blur(28px) saturate(1.6);
-  border: 1px solid rgb(255 255 255 / 0.78);
-  box-shadow: 0 8px 32px rgb(60 50 120 / 0.08);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 /*
@@ -199,11 +289,11 @@
  * live page content, so they need higher opacity to stay legible.
  */
 .glass-strong {
-  background: rgb(255 255 255 / 0.94);
+  background: var(--glass-strong-bg);
   backdrop-filter: blur(32px) saturate(1.7);
   -webkit-backdrop-filter: blur(32px) saturate(1.7);
-  border: 1px solid rgb(255 255 255 / 0.9);
-  box-shadow: 0 12px 40px rgb(60 50 120 / 0.14);
+  border: 1px solid var(--glass-strong-border);
+  box-shadow: var(--glass-strong-shadow);
 }
 
 @keyframes new-contact-card-blink {

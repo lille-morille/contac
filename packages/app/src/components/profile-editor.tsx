@@ -41,6 +41,10 @@ export function ProfileEditor({ onboarding = false }: { onboarding?: boolean }) 
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (onboarding && !/^\S+\s+\S+/.test(name.trim())) {
+      setError("Skriv inn fullt navn, med både fornavn og etternavn.");
+      return;
+    }
     if (onboarding && !avatarPath) {
       setError("Legg til et profilbilde før du fortsetter.");
       return;
@@ -67,7 +71,7 @@ export function ProfileEditor({ onboarding = false }: { onboarding?: boolean }) 
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
         {onboarding
-          ? "Navn, e-post og profilbilde må være på plass før du kan åpne arbeidsområdet."
+          ? "Full navn, e-post og profilbilde må være på plass før du kan åpne arbeidsområdet."
           : "Disse opplysningene vises til andre i klassen der du deltar."}
       </p>
       <div className="mt-5 flex items-center gap-4">
@@ -98,7 +102,7 @@ export function ProfileEditor({ onboarding = false }: { onboarding?: boolean }) 
       <p className="mt-2 text-xs text-muted-foreground">PNG, JPEG eller WebP · maks 5 MiB</p>
       <form className="mt-5 space-y-4" onSubmit={(event) => void save(event)}>
         <label className="block space-y-1 text-sm">
-          <span>Navn *</span>
+          <span>{onboarding ? "Full navn *" : "Navn *"}</span>
           <Input
             required
             minLength={2}
@@ -110,6 +114,9 @@ export function ProfileEditor({ onboarding = false }: { onboarding?: boolean }) 
               setSaved(false);
             }}
           />
+          {onboarding && (
+            <span className="block text-xs text-muted-foreground">Skriv fornavn og etternavn.</span>
+          )}
         </label>
         <label className="block space-y-1 text-sm">
           <span>E-post *</span>

@@ -5,12 +5,12 @@
 ## Images for this chunk
 
 - [Organization hierarchy wireframe](../wireframes/organization-map.png) — top-down layout with separate, color-matched domain links.
-- [Linear board and saved-view reference](../references/linear-board-views.png) and [full status-board reference](../references/linear-board-all-statuses.png) — interaction and density references; their labels are not additional product statuses.
+- [Linear board reference](../references/linear-board-views.png) and [full status-board reference](../references/linear-board-all-statuses.png) — interaction and density references; their labels are not additional product statuses.
 - [Linear contact-detail reference](../references/linear-contact-detail.png) — main activity area and right-hand Related layout.
 
 ## Purpose and roles
 
-The class is the outer workspace. A class admin creates teams, sends the initial invite links, and has full permission to read, edit, and change settings across the class. Each team has an admin and members. Once a team exists, its admin can invite other members with secret join links. Team members can read and edit all of their team's contacts, organizations, public notes, and activities. Assignment denotes follow-up responsibility, not edit ownership. Invited people create accounts through a secret link and receive a recovery code. On first sign-in they must provide their name, a unique profile email address, and a profile photo before using the workspace. Existing accounts without photos show a default person icon until updated. Onboarding tells users to enter the address they send email to contacts from; it will match sent emails to their account and is not used for login. Recovery-code login remains in place. See spec 03 for sender attribution.
+The class is the outer workspace. A class admin creates teams, sends the initial invite links, and has full permission to read, edit, and change settings across the class. Each team has an admin and members. Once a team exists, its admin can invite other members with secret join links. Team members can read and edit all of their team's contacts, organizations, public notes, and activities. Assignment denotes follow-up responsibility, not edit ownership. Invited people create accounts through a secret link and receive a recovery code. On first sign-in they must provide their full name (first and last name), a unique profile email address, and a profile photo before using the workspace. Existing accounts without photos show a default person icon until updated. Onboarding tells users to enter the address they send email to contacts from; it will match sent emails to their account and is not used for login. Recovery-code login remains in place. See spec 03 for sender attribution.
 
 An account's recovery code must remain available for copying in profile settings. Losing a browser/device without the code may mean losing access. Class admin authority is intentionally broad for technical help to teams.
 
@@ -54,20 +54,22 @@ Duplicate contacts are kept for inspection in a dedicated navbar view but exclud
 
 ## Views and interaction
 
-- **Board:** seven normal status columns, counts, compact cards, assignee and tags. Filtering and sorting follow the interaction style of the supplied Linear reference. The supplied screenshots' `Lead` column is not a product status.
-- **List:** spreadsheet-style rows with inline editing of contact fields, a short contact description, and `stikkord` when available. Without `stikkord`, show the latest meeting/call summary or notes. Overflow expands on click. An action opens the full contact page.
+- **Board:** seven normal status columns, counts, compact cards, assignee avatar at the top right, and tags. Cards omit the date footer. Filtering and sorting follow the interaction style of the supplied Linear reference. The supplied screenshots' `Lead` column is not a product status.
+- **List:** one row per contact. Name and short description are stacked in a clickable area that opens the contact. Show assignee and status as labeled controls that can be changed in place, followed by `stikkord` and a read-only list of tags. Without `stikkord`, show the latest meeting/call summary or notes. Overflow expands on click. Omit contact-info fields and the separate open button.
 - **Contact detail:** full fields, editable activity timeline, shared note, related organization contacts, duplicate relation, and applicable quick actions. The deterministic full contact log can be read here; see spec 05.
-- **Mine kontakter:** contacts assigned to the current member **or** unassigned.
 - **Sist endret:** a sort option in the main board/list view, rather than a separate navigation destination. It orders normal-status contacts by last change, including field/status/assignee changes, new or edited linked activities, and shared-note edits.
 - **Sist kontaktet:** a chronological feed of meeting and phone activities that shows their content directly. It defaults to completed conversations; a checkbox can include missed calls. Filter by the linked contact's assignee: the current member, another member, unassigned, or all. A shared activity appears once, lists every linked contact, and can open the selected contact at that activity. Emails are added to this feed when email activities are implemented in spec 03.
-- Filter, search, sorting, and board/list changes are kept as a local browser draft for the current member and team. **Lagre visning** opens a naming dialog and publishes the view to every member of that team. When editing a published view, its name is prefilled; publishing with the same name updates it, while a different name creates a new team view. A member may also select another existing team view to overwrite. Unpublished edits remain local until published. The normal views above serve as built-in views.
+- The home view has no contact search bar or page title/subtitle. Filters and sorting are hidden behind a **Filtre og sortering** button that expands their controls. A two-option toggle immediately to its right switches between Kanban and list layouts. Filter, sorting, and layout choices are stored locally for the current member and team. Team-published saved views are no longer offered.
+- **Fjern alle filtre** on the home view clears the current filter selections.
+- Workspace destination pages omit redundant page titles and introductory subtitles; their controls and content start at the top of the page.
+- A dark mode switch sits to the right of **Logg ut** in the sidebar footer. The personal choice persists in the browser and themes the workspace, dialogs, and sign-in pages.
 
 ## Acceptance examples
 
 1. A new `Ikke kontaktet` contact has no assignee. Member A moves it to `Skal ringe`; A becomes assignee. Member B edits the phone and logs a call; the call saves and B is asked whether to take over. A remains assignee if B declines.
 2. Two contacts under the same organization record appear together in Related, even if neither has a department.
 3. A confirmed duplicate disappears from ordinary views and search, but remains in the dedicated duplicates view, linked to its primary.
-4. A member's Mine kontakter view includes their assigned contacts and the unassigned backlog.
+4. A member can filter the home view by assignee and clear the selection with **Fjern alle filtre**.
 
 ## Decisions made for chunk 01
 

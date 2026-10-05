@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { request } from "../lib/api.ts";
 import type { SearchResult } from "./semantic-search.tsx";
 
-export type PaletteGroup = "actions" | "pages" | "contacts" | "organizations" | "views" | "teams";
+export type PaletteGroup = "actions" | "pages" | "contacts" | "organizations" | "teams";
 
 export type PaletteItem = {
   id: string;
@@ -22,6 +22,7 @@ export type PaletteItem = {
   title: string;
   detail?: string;
   searchText?: string;
+  phone?: string | null;
   icon: LucideIcon;
   recent?: boolean;
   run: () => void;
@@ -32,7 +33,6 @@ const groups: { id: PaletteGroup; label: string }[] = [
   { id: "pages", label: "Sider" },
   { id: "contacts", label: "Kontakter" },
   { id: "organizations", label: "Organisasjoner" },
-  { id: "views", label: "Teamvisninger" },
   { id: "teams", label: "Team" },
 ];
 
@@ -46,14 +46,35 @@ function normalized(value: string) {
     .trim();
 }
 
+export function findPhoneMatch(phone: string, query: string): [number, number] | null {
+  const queryDigits = query.replace(/\D/g, "");
+  if (!queryDigits) return null;
+  const positions: number[] = [];
+  let digits = "";
+  for (let index = 0; index < phone.length; index++) {
+    const char = phone[index]!;
+    if (!/[0-9]/.test(char)) continue;
+    digits += char;
+    positions.push(index);
+  }
+  const start = digits.indexOf(queryDigits);
+  if (start < 0) return null;
+  return [positions[start]!, positions[start + queryDigits.length - 1]! + 1];
+}
+
 export function matchesPaletteItem(
-  item: Pick<PaletteItem, "title" | "detail" | "searchText">,
+  item: Pick<PaletteItem, "title" | "detail" | "searchText" | "phone">,
   query: string,
 ) {
   const terms = normalized(query).split(/\s+/).filter(Boolean);
   if (!terms.length) return true;
   const content = normalized(`${item.title} ${item.detail ?? ""} ${item.searchText ?? ""}`);
-  return terms.every((term) => content.includes(term));
+  if (terms.every((term) => content.includes(term))) return true;
+  if (!item.phone || !findPhoneMatch(item.phone, query)) return false;
+  const textTerms = normalized(query.replace(/[\d+().\-/]/g, " "))
+    .split(/\s+/)
+    .filter(Boolean);
+  return textTerms.every((term) => content.includes(term));
 }
 
 export function CommandPalette({
@@ -146,6 +167,7 @@ export function CommandPalette({
                   >
                     {groupItems.map((item) => {
                       const Icon = item.icon;
+                      const phoneMatch = item.phone ? findPhoneMatch(item.phone, term) : null;
                       return (
                         <Command.Item
                           key={item.id}
@@ -159,6 +181,15 @@ export function CommandPalette({
                             {item.detail && (
                               <span className="block truncate text-xs text-muted-foreground">
                                 {item.detail}
+                              </span>
+                            )}
+                            {item.phone && phoneMatch && (
+                              <span className="block truncate text-xs text-muted-foreground">
+                                Telefon: {item.phone.slice(0, phoneMatch[0])}
+                                <mark className="rounded bg-primary/20 font-medium text-foreground">
+                                  {item.phone.slice(...phoneMatch)}
+                                </mark>
+                                {item.phone.slice(phoneMatch[1])}
                               </span>
                             )}
                           </span>
