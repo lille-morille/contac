@@ -27,7 +27,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | `6d325e2` |
 | A5 and A7: conditional duplicates navigation, Kontaktlogg label, simpler sidebar | Done | `8b99a62` |
 | A3: viewport-height Kanban with independent column scrolling | Done | `75a2a13` |
-| A6: responsive masonry quote library | Done | This commit |
+| A6: responsive masonry quote library | Done | `b5102ee` |
+| A4: aligned Sist kontaktet header controls | Done | This commit |
 
 ## A. Navigation and daily work
 

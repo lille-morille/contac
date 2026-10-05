@@ -2474,10 +2474,11 @@ function ActivityFeed({
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="sr-only">Sist kontaktet</h1>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="min-w-52 flex-1 space-y-1 text-xs font-medium text-muted-foreground sm:flex-none">
+      <div className="grid gap-3 sm:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_auto] sm:items-end">
+        <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
           Ansvarlig for kontakten
           <Select
+            className="w-full"
             value={assigneeId}
             onValueChange={setAssigneeId}
             aria-label="Filtrer aktiviteter etter kontaktansvarlig"
@@ -2505,14 +2506,16 @@ function ActivityFeed({
             ]}
           />
         </label>
-        <Input
-          className="max-w-sm flex-1"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Søk i samtaler, kontakter og organisasjoner …"
-          aria-label="Søk i aktiviteter"
-        />
-        <label className="flex items-center gap-2 pb-2 text-sm">
+        <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+          Søk
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Søk i samtaler, kontakter og organisasjoner …"
+            aria-label="Søk i aktiviteter"
+          />
+        </label>
+        <label className="flex h-9 items-center gap-2 whitespace-nowrap text-sm">
           <Checkbox
             checked={conversationsOnly}
             onCheckedChange={setConversationsOnly}
