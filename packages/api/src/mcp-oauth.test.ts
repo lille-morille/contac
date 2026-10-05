@@ -1,52 +1,58 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { classMemberships, mcpOauthGrants, memberships, teamMcpTokens } from "@contac/core/db";
-import { mcpOauthChallenge, registerMcpOauthRoutes } from "./mcp-oauth.ts";
+import { mcpUserConnections, memberships, profiles } from "@contac/core/db";
+import { mcpOauthChallenge, registerMcpOauthRoutes, resolveAgentTeam } from "./mcp-oauth.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const orgId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const teamA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const teamB = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const clientId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const teamToken = `ctc_${"a".repeat(43)}`;
 
-function makeApp(options: { token?: boolean; member?: boolean; detailsUser?: string } = {}) {
+function makeDeps(options: { teamId?: string | null; member?: boolean; connected?: boolean } = {}) {
+  const state = {
+    teamId: options.teamId === undefined ? teamA : options.teamId,
+    member: options.member ?? true,
+    connected: options.connected ?? true,
+  };
   const inserted: unknown[] = [];
   const db = {
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
-          limit: async () => {
-            if (table === teamMcpTokens)
-              return options.token
-                ? [{ id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", orgId, createdBy: userId }]
-                : [];
-            if (table === memberships) return options.member ? [{ userId }] : [];
-            return [];
-          },
+          limit: async () =>
+            table === profiles
+              ? [{ orgId: state.teamId }]
+              : table === memberships && state.member
+                ? [{ userId }]
+                : [],
         }),
         innerJoin: () => ({
-          where: () => ({ limit: async () => (table === classMemberships ? [] : []) }),
+          where: () => ({
+            limit: async () =>
+              table === mcpUserConnections && state.connected ? [{ orgId: state.teamId }] : [],
+          }),
         }),
       }),
     }),
     insert: (table: unknown) => ({
       values: (row: unknown) => {
-        if (table === mcpOauthGrants) inserted.push(row);
-        return { onConflictDoUpdate: async () => undefined };
+        if (table === mcpUserConnections) inserted.push(row);
+        return { onConflictDoNothing: async () => undefined };
       },
     }),
   };
+  return { deps: { db, supabase: {} } as unknown as ApiDeps, inserted, state };
+}
+
+function makeApp(deps: ApiDeps) {
   const app = new Hono<ApiEnv>();
   app.use("/v1/*", async (c, next) => {
     c.set("user", { id: userId, email: "person@accounts.contac.invalid" });
     await next();
   });
-  registerMcpOauthRoutes(
-    app,
-    { db, supabase: {} } as unknown as ApiDeps,
-    "https://contac.plingapp.no",
-  );
-  return { app, inserted };
+  registerMcpOauthRoutes(app, deps, "https://contac.plingapp.no");
+  return app;
 }
 
 afterEach(() => {
@@ -54,29 +60,44 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("MCP OAuth consent boundary", () => {
-  it("advertises the fixed resource URL and an OAuth challenge", async () => {
-    const { app } = makeApp();
+describe("personal MCP OAuth consent", () => {
+  it("advertises the fixed resource URL and OAuth challenge", async () => {
+    const app = makeApp(makeDeps().deps);
     const metadata = await app.request("/.well-known/oauth-protected-resource/mcp");
     expect(metadata.status).toBe(200);
     expect((await metadata.json()).resource).toBe("https://api.contac.plingapp.no/mcp");
     expect(mcpOauthChallenge("https://contac.plingapp.no")).toContain(
-      'resource_metadata="https://api.contac.plingapp.no/.well-known/oauth-protected-resource/mcp"',
+      "oauth-protected-resource/mcp",
     );
   });
 
-  it("rejects invalid keys and people outside the token's team", async () => {
+  it("resolves the currently selected team and blocks revoked or lost access", async () => {
+    const { deps, state } = makeDeps();
+    expect(await resolveAgentTeam(deps, userId, clientId)).toEqual({
+      orgId: teamA,
+      createdBy: userId,
+    });
+    state.teamId = teamB;
+    expect(await resolveAgentTeam(deps, userId, clientId)).toEqual({
+      orgId: teamB,
+      createdBy: userId,
+    });
+    state.member = false;
+    expect(await resolveAgentTeam(deps, userId, clientId)).toBeNull();
+    state.member = true;
+    state.connected = false;
+    expect(await resolveAgentTeam(deps, userId, clientId)).toBeNull();
+  });
+
+  it("requires a selected team and current membership before consent", async () => {
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
-    for (const options of [
-      { token: false, member: true },
-      { token: true, member: false },
-    ]) {
-      const { app, inserted } = makeApp(options);
-      const response = await app.request("/v1/mcp/oauth/authorize", {
+    for (const options of [{ teamId: null }, { member: false }]) {
+      const { deps, inserted } = makeDeps(options);
+      const response = await makeApp(deps).request("/v1/mcp/oauth/authorize", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer user-session" },
-        body: JSON.stringify({ authorizationId: "request-id", teamToken }),
+        body: JSON.stringify({ authorizationId: "request-id" }),
       });
       expect(response.status).toBe(403);
       expect(inserted).toHaveLength(0);
@@ -84,7 +105,7 @@ describe("MCP OAuth consent boundary", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("binds a valid team's key to the signed-in OAuth client before approval", async () => {
+  it("binds the signed-in user and OAuth client without a team token", async () => {
     vi.stubEnv("SUPABASE_URL", "https://supabase.example.test");
     vi.stubEnv("SUPABASE_SECRET_KEY", "server-only-key");
     const calls: string[] = [];
@@ -95,34 +116,26 @@ describe("MCP OAuth consent boundary", () => {
         return new Response(
           JSON.stringify(
             calls.length === 1
-              ? {
-                  authorization_id: "request-id",
-                  client: { id: clientId },
-                  user: { id: userId },
-                }
-              : { redirect_url: "https://chatgpt.com/connector/oauth/callback?code=abc" },
+              ? { authorization_id: "request-id", client: { id: clientId }, user: { id: userId } }
+              : { redirect_url: "https://claude.ai/oauth/callback?code=abc" },
           ),
-          {
-            headers: { "Content-Type": "application/json" },
-          },
+          { headers: { "Content-Type": "application/json" } },
         );
       }),
     );
-    const { app, inserted } = makeApp({ token: true, member: true });
-    const response = await app.request("/v1/mcp/oauth/authorize", {
+    const { deps, inserted } = makeDeps();
+    const response = await makeApp(deps).request("/v1/mcp/oauth/authorize", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer user-session" },
-      body: JSON.stringify({ authorizationId: "request-id", teamToken }),
+      body: JSON.stringify({ authorizationId: "request-id" }),
     });
     expect(response.status).toBe(200);
-    expect(inserted).toEqual([
-      { userId, clientId, tokenId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
-    ]);
+    expect(inserted).toEqual([{ userId, clientId }]);
     expect(calls).toHaveLength(2);
-    expect((await response.json()).redirectUrl).toContain("chatgpt.com/connector/oauth/callback");
+    expect((await response.json()).redirectUrl).toContain("claude.ai/oauth/callback");
   });
 
-  it("does not grant a request belonging to a different user", async () => {
+  it("does not grant a request owned by a different user", async () => {
     vi.stubEnv("SUPABASE_URL", "https://supabase.example.test");
     vi.stubEnv("SUPABASE_SECRET_KEY", "server-only-key");
     vi.stubGlobal(
@@ -133,16 +146,16 @@ describe("MCP OAuth consent boundary", () => {
             JSON.stringify({
               authorization_id: "request-id",
               client: { id: clientId },
-              user: { id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" },
+              user: { id: teamB },
             }),
           ),
       ),
     );
-    const { app, inserted } = makeApp({ token: true, member: true });
-    const response = await app.request("/v1/mcp/oauth/authorize", {
+    const { deps, inserted } = makeDeps();
+    const response = await makeApp(deps).request("/v1/mcp/oauth/authorize", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer user-session" },
-      body: JSON.stringify({ authorizationId: "request-id", teamToken }),
+      body: JSON.stringify({ authorizationId: "request-id" }),
     });
     expect(response.status).toBe(403);
     expect(inserted).toHaveLength(0);

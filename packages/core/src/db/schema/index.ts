@@ -48,6 +48,7 @@ export const profiles = pgTable("profiles", {
   profileEmail: text("profile_email"),
   avatarPath: text("avatar_path"),
   avatarUrl: text("avatar_url"),
+  agentTeamId: uuid("agent_team_id").references(() => organizations.id, { onDelete: "set null" }),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -117,38 +118,14 @@ export const invitations = pgTable(
   },
   (table) => [index("invitations_org_idx").on(table.orgId)],
 );
-export const teamMcpTokens = pgTable(
-  "team_mcp_tokens",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    tokenPrefix: text("token_prefix").notNull(),
-    tokenHash: text("token_hash").notNull().unique(),
-    createdBy: uuid("created_by").notNull(),
-    createdAt: createdAt(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  },
-  (table) => [index("team_mcp_tokens_org_idx").on(table.orgId)],
-);
-export const mcpOauthGrants = pgTable(
-  "mcp_oauth_grants",
+export const mcpUserConnections = pgTable(
+  "mcp_user_connections",
   {
     userId: uuid("user_id").notNull(),
     clientId: text("client_id").notNull(),
-    tokenId: uuid("token_id")
-      .notNull()
-      .references(() => teamMcpTokens.id, { onDelete: "cascade" }),
     createdAt: createdAt(),
-    updatedAt: updatedAt(),
   },
-  (table) => [
-    primaryKey({ columns: [table.userId, table.clientId] }),
-    index("mcp_oauth_grants_token_idx").on(table.tokenId),
-  ],
+  (table) => [primaryKey({ columns: [table.userId, table.clientId] })],
 );
 export const conversations = pgTable(
   "conversations",

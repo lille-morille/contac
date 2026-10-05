@@ -9,6 +9,7 @@ import { useAuth } from "../lib/auth.tsx";
 import { getSupabase } from "../lib/supabase.ts";
 
 type Details = { clientName: string; email: string; scope: string };
+type AgentAccess = { teamId: string | null; teamName: string | null; connectionCount: number };
 
 export const Route = createFileRoute("/oauth/consent")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -34,7 +35,7 @@ function OAuthConsent() {
   const { authorization_id: authorizationId } = Route.useSearch();
   const [details, setDetails] = useState<Details | null>(null);
   const [code, setCode] = useState("");
-  const [teamToken, setTeamToken] = useState("");
+  const [agentAccess, setAgentAccess] = useState<AgentAccess | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -65,6 +66,21 @@ function OAuthConsent() {
       live = false;
     };
   }, [authorizationId, loading, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    let live = true;
+    void request<AgentAccess>("/profile/agent-access")
+      .then((access) => {
+        if (live) setAgentAccess(access);
+      })
+      .catch((cause) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [session]);
 
   async function signIn(event: FormEvent) {
     event.preventDefault();
@@ -101,7 +117,6 @@ function OAuthConsent() {
       } else {
         const result = await request<{ redirectUrl: string }>("/mcp/oauth/authorize", undefined, {
           authorizationId,
-          teamToken: teamToken.trim(),
         });
         returnToClient(result.redirectUrl);
       }
@@ -118,7 +133,7 @@ function OAuthConsent() {
         <CardHeader>
           <CardTitle className="text-2xl">Koble en agent til Contac</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Godkjenn tilgangen med kontoen din og en MCP-nøkkel fra teaminnstillingene.
+            Godkjenn tilgangen med kontoen din og teamet du har valgt under Profil → Agenttilgang.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -157,23 +172,21 @@ function OAuthConsent() {
                   data.
                 </p>
               </div>
-              <label className="block space-y-2">
-                <Label>MCP-nøkkel for teamet</Label>
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  required
-                  value={teamToken}
-                  onChange={(event) => setTeamToken(event.target.value)}
-                  placeholder="ctc_…"
-                />
-              </label>
-              <p className="text-xs text-muted-foreground">
-                Nøkkelen sendes bare til Contac. Tilgangen stenges hvis teamadministratoren trekker
-                nøkkelen tilbake.
-              </p>
+              {agentAccess?.teamId ? (
+                <p className="rounded-xl bg-primary-soft p-3 text-sm">
+                  Valgt team: <strong>{agentAccess.teamName}</strong> ({agentAccess.teamId}).
+                  Endring av team i profilen gjelder også eksisterende tilkoblinger.
+                </p>
+              ) : (
+                <p role="alert" className="rounded-xl bg-warn-soft p-3 text-sm">
+                  Velg et team under Profil → Agenttilgang i Contac før du godkjenner.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
-                <Button disabled={busy || !teamToken.trim()} onClick={() => void decide("approve")}>
+                <Button
+                  disabled={busy || !agentAccess?.teamId}
+                  onClick={() => void decide("approve")}
+                >
                   Tillat tilgang
                 </Button>
                 <Button variant="outline" disabled={busy} onClick={() => void decide("deny")}>

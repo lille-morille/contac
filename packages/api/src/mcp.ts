@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import {
   activityContacts,
   activityFiles,
@@ -13,11 +12,13 @@ import {
   libraryItems,
   organizations,
   personTags,
-  teamMcpTokens,
+  mcpUserConnections,
+  memberships,
+  profiles,
   workspaceFiles,
 } from "@contac/core/db";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { runContactAutomations } from "./ai.ts";
@@ -26,11 +27,9 @@ import {
   mcpOauthChallenge,
   mcpOauthToolMeta,
   registerMcpOauthRoutes,
+  type McpIdentity,
 } from "./mcp-oauth.ts";
-import { authorizeMcpToken, tokenHash, type TokenIdentity } from "./mcp-token-auth.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
-
-export { authorizeMcpToken } from "./mcp-token-auth.ts";
 
 const uuid = z.uuid();
 const normalize = (value: string) =>
@@ -65,7 +64,7 @@ const failed = (message: string) => ({
   content: [{ type: "text" as const, text: message }],
 });
 
-function makeServer(deps: ApiDeps, identity: TokenIdentity) {
+export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
   const correctTeam = (expectedTeamId: string) => expectedTeamId === orgId;
@@ -660,77 +659,59 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
 export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: string) {
   registerMcpOauthRoutes(app, deps, appOrigin);
   app.all("/mcp", async (c) => {
-    const origin = c.req.header("origin");
-    const header = c.req.header("authorization");
-    const apiKey = header?.startsWith("Bearer ctc_") ?? false;
-    if (origin && origin !== appOrigin && apiKey)
-      return c.json({ error: "Origin not allowed" }, 403);
-    const identity = apiKey
-      ? await authorizeMcpToken(deps, header)
-      : await authorizeMcpOauth(deps, header);
+    const identity = await authorizeMcpOauth(deps, c.req.header("authorization"));
     if (!identity) {
-      return c.json({ error: "Invalid or revoked MCP authorization" }, 401, {
+      return c.json({ error: "Connect Contac with your account first" }, 401, {
         "WWW-Authenticate": mcpOauthChallenge(appOrigin),
       });
     }
-    await deps.db
-      .update(teamMcpTokens)
-      .set({ lastUsedAt: new Date() })
-      .where(eq(teamMcpTokens.id, identity.id));
     const handler = createMcpHandler(() => makeServer(deps, identity));
     const response = await handler.fetch(c.req.raw);
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
 
-  app.get("/v1/org/mcp-tokens", async (c) => {
-    const rows = await deps.db
-      .select({
-        id: teamMcpTokens.id,
-        name: teamMcpTokens.name,
-        tokenPrefix: teamMcpTokens.tokenPrefix,
-        createdBy: teamMcpTokens.createdBy,
-        createdAt: teamMcpTokens.createdAt,
-        lastUsedAt: teamMcpTokens.lastUsedAt,
-        revokedAt: teamMcpTokens.revokedAt,
-      })
-      .from(teamMcpTokens)
-      .where(eq(teamMcpTokens.orgId, c.get("org").id))
-      .orderBy(desc(teamMcpTokens.createdAt));
-    return c.json(rows);
+  app.get("/v1/profile/agent-access", async (c) => {
+    const userId = c.get("user").id;
+    const [[profile], connections] = await Promise.all([
+      deps.db
+        .select({ teamId: profiles.agentTeamId })
+        .from(profiles)
+        .where(eq(profiles.id, userId)),
+      deps.db
+        .select({ clientId: mcpUserConnections.clientId })
+        .from(mcpUserConnections)
+        .where(eq(mcpUserConnections.userId, userId)),
+    ]);
+    const [team] = profile?.teamId
+      ? await deps.db
+          .select({ name: organizations.name })
+          .from(organizations)
+          .where(eq(organizations.id, profile.teamId))
+      : [];
+    return c.json({
+      teamId: profile?.teamId ?? null,
+      teamName: team?.name ?? null,
+      connectionCount: connections.length,
+    });
   });
-  app.post("/v1/org/mcp-tokens", async (c) => {
-    const parsed = z
-      .object({ name: z.string().trim().min(1).max(100) })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "Enter a token name" }, 400);
-    const secret = `ctc_${randomBytes(32).toString("base64url")}`;
-    const [row] = await deps.db
-      .insert(teamMcpTokens)
-      .values({
-        orgId: c.get("org").id,
-        name: parsed.data.name,
-        tokenPrefix: secret.slice(0, 12),
-        tokenHash: tokenHash(secret),
-        createdBy: c.get("user").id,
-      })
-      .returning({ id: teamMcpTokens.id, name: teamMcpTokens.name });
-    return c.json({ ...row, token: secret }, 201, { "Cache-Control": "no-store" });
+  app.post("/v1/profile/agent-team", async (c) => {
+    const parsed = z.object({ teamId: uuid }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "Choose a team" }, 400);
+    const userId = c.get("user").id;
+    const [member] = await deps.db
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(and(eq(memberships.orgId, parsed.data.teamId), eq(memberships.userId, userId)));
+    if (!member) return c.json({ error: "You must be a member of this team" }, 403);
+    await deps.db
+      .update(profiles)
+      .set({ agentTeamId: parsed.data.teamId, updatedAt: new Date() })
+      .where(eq(profiles.id, userId));
+    return c.json({ teamId: parsed.data.teamId });
   });
-  app.post("/v1/org/mcp-tokens/:id/revoke", async (c) => {
-    const parsed = uuid.safeParse(c.req.param("id"));
-    if (!parsed.success) return c.json({ error: "Invalid token" }, 400);
-    const [row] = await deps.db
-      .update(teamMcpTokens)
-      .set({ revokedAt: new Date() })
-      .where(
-        and(
-          eq(teamMcpTokens.id, parsed.data),
-          eq(teamMcpTokens.orgId, c.get("org").id),
-          isNull(teamMcpTokens.revokedAt),
-        ),
-      )
-      .returning({ id: teamMcpTokens.id });
-    return row ? c.json({ revoked: true }) : c.json({ error: "Token not found" }, 404);
+  app.post("/v1/profile/agent-revoke", async (c) => {
+    await deps.db.delete(mcpUserConnections).where(eq(mcpUserConnections.userId, c.get("user").id));
+    return c.json({ revoked: true });
   });
 }

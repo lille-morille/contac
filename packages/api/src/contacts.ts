@@ -15,7 +15,6 @@ import {
   memberships,
   personTags,
   profiles,
-  organizations,
   aiEditLog,
 } from "@contac/core/db";
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";

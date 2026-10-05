@@ -52,7 +52,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | F1: create and edit person tags on contacts, edit domains on map, remove tag CRUD settings | Done | `8f76fa1` |
 | B6 and E6: separate Markdown information on contacts and MCP creation, local search, MCP reads | Done; database migration not run here | `ebf205b` |
 | E5: batch MCP creation with per-item validation, duplicate candidates, and partial success | Done; live MCP integration not run here | `d30ae2f` |
-| E3: identity tool and required team-ID guard on every MCP data tool | Done; personal OAuth connection still pending | This commit |
+| E3: identity tool and required team-ID guard on every MCP data tool | Done | `037b153` |
+| E1, E2 and E4: profile team selection, personal OAuth connections, copied agent instructions, old token retirement | Done; live OAuth connection not verified here | This commit |
 
 ## A. Navigation and daily work
 

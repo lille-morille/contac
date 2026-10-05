@@ -1,16 +1,11 @@
-import {
-  classMemberships,
-  mcpOauthGrants,
-  memberships,
-  organizations,
-  teamMcpTokens,
-} from "@contac/core/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { mcpUserConnections, memberships, profiles } from "@contac/core/db";
+import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
-import { authorizeMcpToken, type TokenIdentity } from "./mcp-token-auth.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
+
+export type McpIdentity = { orgId: string; createdBy: string };
 
 const uuid = z.uuid();
 const authorizationId = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/);
@@ -63,26 +58,28 @@ async function hasTeamAccess(deps: ApiDeps, userId: string, orgId: string) {
     .from(memberships)
     .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)))
     .limit(1);
-  if (member) return true;
-  const [admin] = await deps.db
-    .select({ userId: classMemberships.userId })
-    .from(classMemberships)
-    .innerJoin(organizations, eq(organizations.classId, classMemberships.classId))
-    .where(
-      and(
-        eq(organizations.id, orgId),
-        eq(classMemberships.userId, userId),
-        eq(classMemberships.role, "admin"),
-      ),
-    )
+  return !!member;
+}
+
+export async function resolveAgentTeam(
+  deps: ApiDeps,
+  userId: string,
+  clientId: string,
+): Promise<McpIdentity | null> {
+  const [connection] = await deps.db
+    .select({ orgId: profiles.agentTeamId })
+    .from(mcpUserConnections)
+    .innerJoin(profiles, eq(profiles.id, mcpUserConnections.userId))
+    .where(and(eq(mcpUserConnections.userId, userId), eq(mcpUserConnections.clientId, clientId)))
     .limit(1);
-  return !!admin;
+  if (!connection?.orgId || !(await hasTeamAccess(deps, userId, connection.orgId))) return null;
+  return { orgId: connection.orgId, createdBy: userId };
 }
 
 export async function authorizeMcpOauth(
   deps: ApiDeps,
   authorization: string | undefined,
-): Promise<TokenIdentity | null> {
+): Promise<McpIdentity | null> {
   const bearer = /^Bearer ([A-Za-z0-9_.-]+)$/.exec(authorization ?? "")?.[1];
   if (!bearer || bearer.split(".").length !== 3 || !jwks) return null;
   try {
@@ -96,23 +93,7 @@ export async function authorizeMcpOauth(
       payload.role !== "authenticated"
     )
       return null;
-    const [grant] = await deps.db
-      .select({
-        id: teamMcpTokens.id,
-        orgId: teamMcpTokens.orgId,
-      })
-      .from(mcpOauthGrants)
-      .innerJoin(teamMcpTokens, eq(teamMcpTokens.id, mcpOauthGrants.tokenId))
-      .where(
-        and(
-          eq(mcpOauthGrants.userId, payload.sub!),
-          eq(mcpOauthGrants.clientId, payload.client_id as string),
-          isNull(teamMcpTokens.revokedAt),
-        ),
-      )
-      .limit(1);
-    if (!grant || !(await hasTeamAccess(deps, payload.sub!, grant.orgId))) return null;
-    return { ...grant, createdBy: payload.sub! };
+    return resolveAgentTeam(deps, payload.sub!, payload.client_id as string);
   } catch {
     return null;
   }
@@ -155,21 +136,19 @@ export function registerMcpOauthRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrig
 
   // requireAuth protects /v1/* before this route is registered in createApp.
   app.post("/v1/mcp/oauth/authorize", async (c) => {
-    const parsed = z
-      .object({
-        authorizationId,
-        teamToken: z.string().regex(/^ctc_[A-Za-z0-9_-]{40,}$/),
-      })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success)
-      return c.json({ error: "Ugyldig OAuth-forespørsel eller teamnøkkel" }, 400);
+    const parsed = z.object({ authorizationId }).safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "Ugyldig OAuth-forespørsel" }, 400);
     const user = c.get("user");
     const accessToken = c.req.header("authorization")?.replace(/^Bearer /, "");
     if (!accessToken) return c.json({ error: "Logg inn først" }, 401);
-    const identity = await authorizeMcpToken(deps, `Bearer ${parsed.data.teamToken}`);
-    if (!identity || !(await hasTeamAccess(deps, user.id, identity.orgId)))
+    const [profile] = await deps.db
+      .select({ orgId: profiles.agentTeamId })
+      .from(profiles)
+      .where(eq(profiles.id, user.id))
+      .limit(1);
+    if (!profile?.orgId || !(await hasTeamAccess(deps, user.id, profile.orgId)))
       return c.json(
-        { error: "Nøkkelen er ugyldig, tilbakekalt eller tilhører et annet team" },
+        { error: "Velg et team du er medlem av under Profil → Agenttilgang først" },
         403,
       );
 
@@ -190,16 +169,12 @@ export function registerMcpOauthRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrig
         return c.json({ error: "OAuth-forespørselen tilhører ikke denne kontoen" }, 403);
 
       await deps.db
-        .insert(mcpOauthGrants)
+        .insert(mcpUserConnections)
         .values({
           userId: user.id,
           clientId: client!.id as string,
-          tokenId: identity.id,
         })
-        .onConflictDoUpdate({
-          target: [mcpOauthGrants.userId, mcpOauthGrants.clientId],
-          set: { tokenId: identity.id, updatedAt: new Date() },
-        });
+        .onConflictDoNothing();
       const approved = await supabaseOAuthRequest(
         `/oauth/authorizations/${parsed.data.authorizationId}/consent`,
         accessToken,

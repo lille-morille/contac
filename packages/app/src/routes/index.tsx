@@ -65,7 +65,7 @@ import { EmailComposer } from "../components/email-composer.tsx";
 import { SemanticSearch } from "../components/semantic-search.tsx";
 import type { SearchResult } from "../components/semantic-search.tsx";
 import { CommandPalette, type PaletteItem } from "../components/command-palette.tsx";
-import { TeamAiSettings, TeamAiUsage } from "../components/team-ai-settings.tsx";
+import { TeamAiSettings } from "../components/team-ai-settings.tsx";
 import { ContactAiPanel } from "../components/contact-ai-panel.tsx";
 import { GroupAiSummary } from "../components/group-ai-summary.tsx";
 import { LoiPanel } from "../components/loi-panel.tsx";
@@ -73,7 +73,7 @@ import { TeamLoiSettings } from "../components/team-loi-settings.tsx";
 import { LiveText } from "../components/live-text.tsx";
 import { CrossTeamOverlap } from "../components/cross-team-overlap.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../components/inbox-items.tsx";
-import { TeamMcpSettings } from "../components/team-mcp-settings.tsx";
+import { ProfileAgentAccess } from "../components/profile-agent-access.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card } from "../components/ui/card.tsx";
@@ -1561,7 +1561,7 @@ function Home() {
             }}
           />
         ) : page === "profile" || page === "team_settings" || page === "class_settings" ? (
-          <Settings section={page} state={state} data={data} mutate={mutate} busy={busy} />
+          <Settings section={page} state={state} mutate={mutate} busy={busy} />
         ) : page === "organizations" ? (
           <OrganizationMap
             key={organizationTarget.nonce}
@@ -6317,13 +6317,11 @@ function TagDescription({
 function Settings({
   section,
   state,
-  data,
   mutate,
   busy,
 }: {
   section: "profile" | "team_settings" | "class_settings";
   state: ReturnType<typeof useOrg>;
-  data: Data;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
 }) {
@@ -6382,6 +6380,7 @@ function Settings({
             : "Klasseinnstillinger"}
       </h1>
       {section === "profile" && <ProfileEditor />}
+      {section === "profile" && <ProfileAgentAccess />}
       {section === "profile" && (
         <Card className="p-5">
           <h2 className="font-semibold">Profil</h2>
@@ -6465,7 +6464,6 @@ function Settings({
         </Card>
       )}
       {section === "team_settings" && state.org && <TeamAiSettings />}
-      {section === "team_settings" && state.org && <TeamMcpSettings orgId={state.org.id} />}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>

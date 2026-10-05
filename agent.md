@@ -18,10 +18,11 @@ table and complete each change before committing it.
 The Økter workflow from chunk 02 has since been retired by spec 06. The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.
-The team-scoped MCP endpoint provides read access to contact data and only two
-write operations: creating a contact and adding an activity. Team admins manage
-named API tokens; Claude uses the token as a Bearer header, while ChatGPT uses
-OAuth consent bound to a team token. See [docs/mcp.md](docs/mcp.md).
+The MCP endpoint provides team-scoped reads and only two write categories:
+creating contacts (including batches) and adding activities. Each user selects
+one agent team in their profile and connects via OAuth. Every data tool requires
+the expected team ID; `get_team_identity` verifies the live connection. Old
+named team tokens have been retired. See [docs/mcp.md](docs/mcp.md).
 
 The `docs/wireframes/` images are layout references, and each specification links its relevant images. The supplied Linear screenshots are stored in `docs/references/` and linked from the relevant specs. Existing design tokens and generic UI components in `packages/app` provide styling; the wireframes do not define a new visual system. The organization map uses restrained, consistent domain colors at the user's request. Linear screenshots are interaction/layout inspiration, not a source of additional statuses or product data.
 
