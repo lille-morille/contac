@@ -1503,7 +1503,9 @@ function Home() {
         className={
           page === "organizations" && !selectedId
             ? "flex min-w-0 flex-1 flex-col p-4 md:p-6 lg:h-screen lg:overflow-hidden"
-            : "min-w-0 flex-1 p-4 md:p-6"
+            : page === "contacts" && layout === "board" && !selectedId
+              ? "flex min-w-0 flex-1 flex-col p-4 md:p-6 lg:h-screen lg:overflow-hidden"
+              : "min-w-0 flex-1 p-4 md:p-6"
         }
       >
         {error && (
@@ -2699,6 +2701,19 @@ function ContactBoard({
         if (target !== current.target) setDrag({ ...current, target });
       }
     }
+    const column = document
+      .elementFromPoint(current.x, current.y)
+      ?.closest<HTMLElement>("[data-status-column]");
+    const cards = column?.querySelector<HTMLElement>("[data-column-scroll]");
+    if (cards) {
+      const cardRect = cards.getBoundingClientRect();
+      if (current.x >= cardRect.left && current.x <= cardRect.right) {
+        const edge = 64;
+        const top = Math.max(0, (cardRect.top + edge - current.y) / edge);
+        const bottom = Math.max(0, (current.y - (cardRect.bottom - edge)) / edge);
+        cards.scrollTop += Math.min(1, bottom) * 13 - Math.min(1, top) * 13;
+      }
+    }
     frameRef.current = requestAnimationFrame(scrollWhileDragging);
   }
   function onPointerDown(e: PointerEvent<HTMLButtonElement>, contact: Contact) {
@@ -2805,7 +2820,10 @@ function ContactBoard({
 
   return (
     <LayoutGroup id="contact-board">
-      <div ref={boardRef} className="mt-6 flex gap-3 overflow-x-auto pb-4">
+      <div
+        ref={boardRef}
+        className="mt-6 flex min-h-[65vh] gap-3 overflow-x-auto overflow-y-hidden pb-4 lg:min-h-0 lg:flex-1"
+      >
         {statuses
           .filter(([key]) => !visibleStatuses?.length || visibleStatuses.includes(key))
           .map(([key, label]) => {
@@ -2818,7 +2836,7 @@ function ContactBoard({
               <section
                 key={key}
                 data-status-column={key}
-                className="min-h-[65vh] w-80 shrink-0 rounded-2xl border-t-2 bg-muted/50 p-2 transition-colors duration-200"
+                className="flex h-[72dvh] w-80 shrink-0 flex-col rounded-2xl border-t-2 bg-muted/50 p-2 transition-colors duration-200 lg:h-full"
                 style={{
                   borderTopColor: statusColor,
                   backgroundColor: preview
@@ -2826,14 +2844,17 @@ function ContactBoard({
                     : undefined,
                 }}
               >
-                <h2 className="flex items-center justify-between px-2 py-2 text-sm font-semibold">
+                <h2 className="flex shrink-0 items-center justify-between px-2 py-2 text-sm font-semibold">
                   <span className="flex items-center gap-2">
                     <ContactStatusIcon status={key} size={18} />
                     {label}
                   </span>
                   <span className="text-muted-foreground">{cards.length}</span>
                 </h2>
-                <div className="space-y-2">
+                <div
+                  data-column-scroll
+                  className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pb-1 pr-1"
+                >
                   {cards.map((contact) => (
                     <motion.div
                       key={contact.id}
