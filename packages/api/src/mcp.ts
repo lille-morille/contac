@@ -5,6 +5,7 @@ import {
   companies,
   companyDomains,
   contactActivities,
+  contactAdditionalInfo,
   contactPersonTags,
   contacts,
   domainTags,
@@ -90,7 +91,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     "get_contact",
     {
       description:
-        "Get a contact with its organization, tags, shared note, summaries, linked activities, transcripts, email details, and attachment metadata.",
+        "Get a contact with its organization, tags, shared note, separate agent/referral Markdown information, linked activities, transcripts, email details, and attachment metadata.",
       inputSchema: z.object({ contactId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
@@ -107,7 +108,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           ),
         );
       if (!contact) return failed("Contact not found in this team");
-      const [[company], tags, activityRows] = await Promise.all([
+      const [[company], tags, activityRows, additionalInfo] = await Promise.all([
         deps.db
           .select()
           .from(companies)
@@ -134,6 +135,16 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           )
           .where(and(eq(activityContacts.orgId, orgId), eq(activityContacts.contactId, contactId)))
           .orderBy(desc(contactActivities.occurredAt)),
+        deps.db
+          .select()
+          .from(contactAdditionalInfo)
+          .where(
+            and(
+              eq(contactAdditionalInfo.orgId, orgId),
+              eq(contactAdditionalInfo.contactId, contactId),
+            ),
+          )
+          .orderBy(asc(contactAdditionalInfo.createdAt)),
       ]);
       const ids = activityRows.map((row) => row.activity.id);
       const [emails, files, participants] = ids.length
@@ -173,6 +184,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         contact,
         company,
         tags,
+        additionalInfo,
         activities: activityRows.map(({ activity }) => ({
           ...activity,
           email: emails.find((row) => row.activityId === activity.id) ?? null,
@@ -336,7 +348,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     "create_contact",
     {
       description:
-        "Create a contact in this team. Supply an existing companyId or a companyName to create or reuse its organization. Does not modify existing contacts.",
+        "Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep fields evidence-based; additionalInfo is Markdown context shown separately from the shared note. Does not modify existing contacts.",
       inputSchema: z
         .object({
           name: z.string().trim().min(1).max(200),
@@ -345,6 +357,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           email: z.email().optional(),
           phone: z.string().trim().max(200).optional(),
           description: z.string().max(5000).optional(),
+          additionalInfo: z.string().trim().min(1).max(20000).optional(),
           tagIds: z.array(uuid).max(30).optional(),
         })
         .refine(
@@ -404,6 +417,13 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           await tx
             .insert(contactPersonTags)
             .values(ids.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
+        if (input.additionalInfo)
+          await tx.insert(contactAdditionalInfo).values({
+            orgId,
+            contactId: contact.id,
+            source: "agent",
+            markdown: input.additionalInfo,
+          });
         return contact;
       });
       if (!row) return failed("Organization not found in this team");

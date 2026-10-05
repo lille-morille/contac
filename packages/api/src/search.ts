@@ -4,6 +4,7 @@ import {
   companies,
   companyDomains,
   contactActivities,
+  contactAdditionalInfo,
   contactPersonTags,
   contacts,
   domainTags,
@@ -21,7 +22,7 @@ type SearchDocument = {
   orgId: string;
   contactId: string;
   activityId: string | null;
-  kind: "contact" | "activity" | "note";
+  kind: "contact" | "activity" | "note" | "additional_info";
   body: string;
   version: string;
 };
@@ -65,7 +66,7 @@ function cosine(a: number[], b: number[]) {
 const normal = (value: string) => value.toLocaleLowerCase("nb-NO").normalize("NFKC");
 
 async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]> {
-  const [people, links, tagRows, domainRows, emailRows] = await Promise.all([
+  const [people, links, tagRows, domainRows, emailRows, additionalInfoRows] = await Promise.all([
     deps.db
       .select({ contact: contacts, company: companies.name })
       .from(contacts)
@@ -96,6 +97,7 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
       })
       .from(emailActivities)
       .where(eq(emailActivities.orgId, orgId)),
+    deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
   ]);
   const active = new Set(people.map((row) => row.contact.id));
   const result: SearchDocument[] = [];
@@ -139,6 +141,8 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
         .join(" · "),
     );
     if (contact.sharedNote.trim()) add(contact.id, null, "note", contact.sharedNote);
+    for (const entry of additionalInfoRows.filter((entry) => entry.contactId === contact.id))
+      add(contact.id, null, "additional_info", entry.markdown);
   }
   for (const { contactId, activity } of links) {
     if (!active.has(contactId)) continue;
@@ -248,7 +252,11 @@ export function registerSearchRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .filter((word) => word.length > 2);
     const results = rows
       .filter(
-        (row) => row.orgId === orgId || (approved.has(row.contactId) && row.sourceKind !== "note"),
+        (row) =>
+          row.orgId === orgId ||
+          (approved.has(row.contactId) &&
+            row.sourceKind !== "note" &&
+            row.sourceKind !== "additional_info"),
       )
       .filter((row) => byId.get(row.contactId)?.status !== "duplicate")
       .map((row) => {

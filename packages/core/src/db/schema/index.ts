@@ -415,6 +415,26 @@ export const contacts = pgTable(
     uniqueIndex("contacts_org_contact_number_unique").on(table.orgId, table.contactNumber),
   ],
 );
+export const contactAdditionalInfo = pgTable(
+  "contact_additional_info",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    source: text("source").$type<"agent" | "referral">().notNull(),
+    sourceContactId: uuid("source_contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    markdown: text("markdown").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index("contact_additional_info_contact_idx").on(table.orgId, table.contactId)],
+);
 export const favoriteContacts = pgTable(
   "favorite_contacts",
   {
@@ -633,7 +653,9 @@ export const searchChunks = pgTable(
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
     activityId: uuid("activity_id").references(() => contactActivities.id, { onDelete: "cascade" }),
-    sourceKind: text("source_kind").$type<"contact" | "activity" | "note">().notNull(),
+    sourceKind: text("source_kind")
+      .$type<"contact" | "activity" | "note" | "additional_info">()
+      .notNull(),
     sourceKey: text("source_key").notNull(),
     sourceVersion: text("source_version").notNull(),
     body: text("body").notNull(),

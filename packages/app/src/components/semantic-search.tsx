@@ -11,7 +11,7 @@ import { Input } from "./ui/input.tsx";
 export type SearchResult = {
   contactId: string;
   activityId: string | null;
-  kind: "contact" | "activity" | "note";
+  kind: "contact" | "activity" | "note" | "additional_info";
   passage: string;
   contactName: string;
   companyName: string;
@@ -96,7 +96,9 @@ export function SemanticSearch({
                     ? "Aktivitet"
                     : result.kind === "note"
                       ? "Notat"
-                      : "Kontaktinfo"}
+                      : result.kind === "additional_info"
+                        ? "Tilleggsinformasjon"
+                        : "Kontaktinfo"}
                   {result.ownerOrgId !== org?.id ? " · delt fra annet team" : ""}
                 </p>
               </div>
@@ -107,7 +109,12 @@ export function SemanticSearch({
                   result.ownerOrgId === org?.id
                     ? onOpen(
                         result.contactId,
-                        result.activityId ?? (result.kind === "note" ? "note" : null),
+                        result.activityId ??
+                          (result.kind === "note"
+                            ? "note"
+                            : result.kind === "additional_info"
+                              ? "additional_info"
+                              : null),
                         result.passage,
                         submitted,
                       )

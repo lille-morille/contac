@@ -4,6 +4,7 @@ import {
   companies,
   companyDomains,
   contactActivities,
+  contactAdditionalInfo,
   contactPersonTags,
   contactReminders,
   contacts,
@@ -133,6 +134,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         tagRows,
         contactRows,
         contactTagRows,
+        additionalInfoRows,
         memberRows,
       ] = await Promise.all([
         deps.db
@@ -157,6 +159,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .where(eq(contacts.orgId, orgId))
           .orderBy(desc(contacts.updatedAt)),
         deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
+        deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
         deps.db
           .select({
             userId: memberships.userId,
@@ -175,6 +178,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         personTags: tagRows,
         contacts: contactRows,
         contactPersonTags: contactTagRows,
+        additionalInfo: additionalInfoRows,
         members: memberRows,
       });
     }
@@ -542,6 +546,46 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .where(and(eq(personTags.orgId, orgId), eq(personTags.id, tagId.data)));
     if (!current) return c.json({ error: "Tag not found" }, 404);
     return c.json({ error: "Tag changed while you were editing", current }, 409);
+  });
+
+  app.post("/v1/org/contacts/:id/additional-info/:entryId", async (c) => {
+    const contactId = id.safeParse(c.req.param("id"));
+    const entryId = id.safeParse(c.req.param("entryId"));
+    const data = await parse(
+      c,
+      z.object({
+        markdown: z.string().trim().min(1).max(20000),
+        expected: z.object({ markdown: z.string() }),
+      }),
+    );
+    if (!contactId.success || !entryId.success || !data)
+      return c.json({ error: "Invalid information change" }, 400);
+    const [row] = await deps.db
+      .update(contactAdditionalInfo)
+      .set({ markdown: data.markdown, updatedAt: new Date() })
+      .where(
+        and(
+          eq(contactAdditionalInfo.orgId, c.get("org").id),
+          eq(contactAdditionalInfo.contactId, contactId.data),
+          eq(contactAdditionalInfo.id, entryId.data),
+          sql`${contactAdditionalInfo.markdown} IS NOT DISTINCT FROM ${data.expected.markdown}`,
+        ),
+      )
+      .returning();
+    if (row) return c.json(row);
+    const [current] = await deps.db
+      .select({ markdown: contactAdditionalInfo.markdown })
+      .from(contactAdditionalInfo)
+      .where(
+        and(
+          eq(contactAdditionalInfo.orgId, c.get("org").id),
+          eq(contactAdditionalInfo.contactId, contactId.data),
+          eq(contactAdditionalInfo.id, entryId.data),
+        ),
+      );
+    return current
+      ? c.json({ error: "Information changed while editing", current }, 409)
+      : c.json({ error: "Information not found" }, 404);
   });
 
   app.post("/v1/org/contacts", async (c) => {

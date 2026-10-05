@@ -51,6 +51,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import ReactMarkdown from "react-markdown";
 import {
   ContactStatusBadge,
   ContactStatusIcon,
@@ -322,6 +323,7 @@ type Data = {
   companyDomains: { companyId: string; domainId: string }[];
   personTags: Tag[];
   contactPersonTags: { contactId: string; tagId: string }[];
+  additionalInfo: AdditionalInfo[];
   contacts: Contact[];
   activities: Activity[];
   activityContacts: { activityId: string; contactId: string }[];
@@ -330,6 +332,15 @@ type Data = {
   members: { userId: string; role: string; name: string | null; avatarPath: string | null }[];
   favoriteContactIds: string[];
   reminders: Reminder[];
+};
+type AdditionalInfo = {
+  id: string;
+  contactId: string;
+  source: "agent" | "referral";
+  sourceContactId: string | null;
+  markdown: string;
+  createdAt: string;
+  updatedAt: string;
 };
 function assigneeOptions(members: Data["members"]) {
   return [
@@ -363,6 +374,7 @@ const emptyData: Data = {
   companyDomains: [],
   personTags: [],
   contactPersonTags: [],
+  additionalInfo: [],
   contacts: [],
   activities: [],
   activityContacts: [],
@@ -619,6 +631,7 @@ function Home() {
           | "companyDomains"
           | "personTags"
           | "contactPersonTags"
+          | "additionalInfo"
           | "contacts"
           | "members"
         >
@@ -973,7 +986,14 @@ function Home() {
     }
     openFullSearch(query);
     setSelectedId(result.contactId);
-    setFocusedActivityId(result.activityId ?? (result.kind === "note" ? "note" : null));
+    setFocusedActivityId(
+      result.activityId ??
+        (result.kind === "note"
+          ? "note"
+          : result.kind === "additional_info"
+            ? "additional_info"
+            : null),
+    );
     setFocusedPassage(result.passage);
     setFocusedQuery(query);
     const params = new URLSearchParams();
@@ -3804,7 +3824,9 @@ function ContactDetail({
       const target = document.querySelector<HTMLElement>(
         focusedActivityId === "note"
           ? "[data-note-source]"
-          : `[data-activity-id="${focusedActivityId}"]`,
+          : focusedActivityId === "additional_info"
+            ? "[data-additional-info]"
+            : `[data-activity-id="${focusedActivityId}"]`,
       );
       (target?.querySelector<HTMLElement>("[data-search-match]") ?? target)?.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
@@ -4048,6 +4070,16 @@ function ContactDetail({
             focused={focusedActivityId === "note"}
             focusedPassage={focusedActivityId === "note" ? focusedPassage : null}
             focusedQuery={focusedQuery}
+          />
+          <AdditionalInformation
+            contactId={c.id}
+            entries={data.additionalInfo.filter((entry) => entry.contactId === c.id)}
+            contacts={data.contacts}
+            onOpen={onOpen}
+            mutate={mutate}
+            busy={busy}
+            disabled={c.status === "duplicate"}
+            focusedPassage={focusedActivityId === "additional_info" ? focusedPassage : null}
           />
           <StikkordEditor contact={c} mutate={mutate} busy={busy} />
           {c.status !== "duplicate" && (
@@ -4533,6 +4565,127 @@ function ContactDetail({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+function AdditionalInformation({
+  contactId,
+  entries,
+  contacts,
+  onOpen,
+  mutate,
+  busy,
+  disabled,
+  focusedPassage,
+}: {
+  contactId: string;
+  entries: AdditionalInfo[];
+  contacts: Contact[];
+  onOpen: (id: string) => void;
+  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
+  busy: boolean;
+  disabled: boolean;
+  focusedPassage: string | null;
+}) {
+  const [editing, setEditing] = useState<{ id: string; draft: string; expected: string } | null>(
+    null,
+  );
+  async function save(entryId: string) {
+    if (!editing || editing.id !== entryId || !editing.draft.trim()) return;
+    try {
+      await mutate(`/contacts/${contactId}/additional-info/${entryId}`, {
+        markdown: editing.draft.trim(),
+        expected: { markdown: editing.expected },
+      });
+      setEditing(null);
+    } catch {
+      // Keep the draft visible; the page-level banner explains the failure.
+    }
+  }
+  return (
+    <Card className="p-5" data-additional-info>
+      <h2 className="font-semibold">Tilleggsinformasjon</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Informasjon lagt til av en agent eller fra en henvisning. Teamets notat er separat.
+      </p>
+      {focusedPassage && (
+        <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm">
+          <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
+        </p>
+      )}
+      {entries.length === 0 && (
+        <p className="mt-3 text-sm text-muted-foreground">Ingen tilleggsinformasjon ennå.</p>
+      )}
+      <div className="mt-3 space-y-3">
+        {entries.map((entry) => {
+          const source = contacts.find((item) => item.id === entry.sourceContactId);
+          const active = editing?.id === entry.id;
+          return (
+            <section key={entry.id} className="rounded-xl border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {entry.source === "agent" ? "Lagt til av agent" : "Henvisning fra kontakt"}
+                  {entry.source === "referral" && source && (
+                    <button
+                      type="button"
+                      className="ml-1 text-primary underline"
+                      onClick={() => onOpen(source.id)}
+                    >
+                      {source.name}
+                    </button>
+                  )}
+                  {entry.source === "referral" && !source && " · kildekontakt utilgjengelig"}
+                </div>
+                {!active && !disabled && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      setEditing({ id: entry.id, draft: entry.markdown, expected: entry.markdown })
+                    }
+                  >
+                    <Pencil size={14} /> Rediger
+                  </Button>
+                )}
+              </div>
+              {active ? (
+                <div className="mt-2 space-y-2">
+                  {entry.markdown !== editing.expected && (
+                    <p className="rounded-lg bg-warn-soft p-2 text-xs">
+                      Oppdatert av et annet teammedlem. Avbryt eller kopier utkastet før du prøver
+                      igjen.
+                    </p>
+                  )}
+                  <Textarea
+                    autoFocus
+                    value={editing.draft}
+                    onChange={(event) => setEditing({ ...editing, draft: event.target.value })}
+                    maxLength={20000}
+                    aria-label="Rediger tilleggsinformasjon som Markdown"
+                    className="min-h-32"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={busy || !editing.draft.trim()}
+                      onClick={() => void save(entry.id)}
+                    >
+                      Lagre
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(null)}>
+                      Avbryt
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 break-words text-sm leading-6 [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_h1]:font-semibold [&_h2]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_ul]:list-disc">
+                  <ReactMarkdown skipHtml>{entry.markdown}</ReactMarkdown>
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 function StikkordEditor({

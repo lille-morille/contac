@@ -13,12 +13,12 @@ The token can call these tools:
 | Tool | Access |
 | --- | --- |
 | `list_contacts` | Paginated active contacts and their fields |
-| `get_contact` | Full contact, organization, tags, note, activities, email records, transcripts, participants, and attachment metadata |
+| `get_contact` | Full contact, organization, tags, shared note, separate additional Markdown information, activities, email records, transcripts, participants, and attachment metadata |
 | `list_team_reference` | Organizations, domains, and person tags |
 | `list_library_items` | Paginated library quotes |
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | 60-second download URL for a team activity attachment |
-| `create_contact` | Create a contact, optionally creating/reusing an organization |
+| `create_contact` | Create a contact, optionally creating/reusing an organization and attaching separate agent Markdown information |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
 
 The MCP token cannot edit or delete existing contacts, activities, or files; it
@@ -27,6 +27,13 @@ personal reminders, private sender address settings, inbound inbox suggestions,
 AI credentials, or another team's data. Duplicate contacts are excluded from
 the contact tools. The token's creator is recorded as the creator of records
 written through the token, and the token's last-use time is shown in settings.
+
+`create_contact.additionalInfo` accepts evidence-grounded Markdown up to 20,000
+characters. It appears under **Tilleggsinformasjon** on the contact, separate
+from the shared team note. Team members can edit it there. It is searchable in
+the owning team and returned by `get_contact`, but is excluded from built-in AI
+summaries and deterministic YAML export. Search for an existing person before
+creating a contact.
 
 Example generic MCP client configuration (client syntax varies):
 
