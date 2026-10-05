@@ -3049,10 +3049,6 @@ function CreateContact({
   const [companyId, setCompanyId] = useState("");
   const [email, setEmail] = useState(initial.email);
   const [phone, setPhone] = useState(initial.phone);
-  const [position, setPosition] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
-  const [description, setDescription] = useState("");
-  const [tagIds, setTagIds] = useState<string[]>([]);
   const nameSuggestion = remainingSuggestion(initial.suggestion, companyText);
   const companySuggestion = remainingSuggestion(initial.suggestion, name);
   const companies = data.companies
@@ -3068,12 +3064,8 @@ function CreateContact({
       name,
       companyId: companyId || undefined,
       companyName: companyId ? undefined : companyText,
-      departmentId: departmentId || null,
       email: email || null,
       phone: phone || null,
-      position: position || null,
-      description: description || null,
-      tagIds,
     });
     onCreated(row.id, openDetail);
   }
@@ -3132,21 +3124,6 @@ function CreateContact({
           </p>
         </div>
       )}
-      {companyId && (
-        <label className="block text-sm">
-          Avdeling
-          <Select
-            value={departmentId}
-            onValueChange={setDepartmentId}
-            items={[
-              { value: "", label: "Ingen avdeling" },
-              ...data.departments
-                .filter((d) => d.companyId === companyId)
-                .map((d) => ({ value: d.id, label: d.name })),
-            ]}
-          />
-        </label>
-      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">
           E-post
@@ -3157,37 +3134,6 @@ function CreateContact({
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
         </label>
       </div>
-      <label className="block text-sm">
-        Stilling/avdeling
-        <Input value={position} onChange={(e) => setPosition(e.target.value)} />
-      </label>
-      <label className="block text-sm">
-        Kort beskrivelse
-        <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
-      {data.personTags.length > 0 && (
-        <div>
-          <p className="text-sm">Persontagger</p>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {data.personTags.map((tag) => (
-              <label
-                key={tag.id}
-                title={tag.description ?? "Ingen beskrivelse"}
-                className="flex items-center gap-1 rounded-lg bg-muted px-2 py-1 text-xs"
-              >
-                <Checkbox
-                  checked={tagIds.includes(tag.id)}
-                  onCheckedChange={(checked) =>
-                    setTagIds(checked ? [...tagIds, tag.id] : tagIds.filter((x) => x !== tag.id))
-                  }
-                  aria-label={tag.name}
-                />
-                {tag.name}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="grid gap-2 sm:grid-cols-2">
         <Button
           type="submit"

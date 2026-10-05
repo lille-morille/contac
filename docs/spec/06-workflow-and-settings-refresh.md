@@ -37,7 +37,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | F3: remove team AI default toggle; new contacts default to allowed | Done | `17b8ee5` |
 | F1: move AI model and feature controls into advanced settings | Done | `f84cec7` |
 | D5 and F1: built-in LOI template and product/team name card | Done | `44a8637` |
-| F6 and F1: flat team permissions and invitation directly below product name | Done | This commit |
+| F6 and F1: flat team permissions and invitation directly below product name | Done | `911626e` |
+| B2: reduce new-contact form to name, organization, email, and phone | Done | This commit |
 
 ## A. Navigation and daily work
 
