@@ -127,43 +127,6 @@ export function TeamAiSettings() {
         aktiverer. Forespørsler krever null datalagring hos modelltilbyderen og nekter
         datainnsamling; de feiler hvis ingen slik rute finnes.
       </p>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm">
-          Lav modell · uttrekk og klassifisering
-          <Input
-            className="mt-1"
-            value={lowModel ?? settings.data?.lowModel ?? recommended.low}
-            onChange={(event) => setLowModel(event.target.value)}
-          />
-        </label>
-        <label className="text-sm">
-          Middels modell · utkast og sammendrag
-          <Input
-            className="mt-1"
-            value={mediumModel ?? settings.data?.model ?? recommended.medium}
-            onChange={(event) => setMediumModel(event.target.value)}
-          />
-        </label>
-      </div>
-      <div className="mt-3 rounded-xl border border-border bg-muted/50 p-3 text-sm">
-        <p className="font-medium">Anbefalt rimelig standard</p>
-        <p className="mt-1 text-muted-foreground">
-          GPT-4.1 Nano er laget for lette uttrekk og klassifiseringer; GPT-4.1 Mini gir mer
-          kapasitet til tekstutkast og sammendrag. Vi krever OpenRouters ZDR-rute og
-          «data_collection: deny» uansett modell.
-        </p>
-        <Button
-          className="mt-2"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setLowModel(recommended.low);
-            setMediumModel(recommended.medium);
-          }}
-        >
-          Bruk anbefalte modeller
-        </Button>
-      </div>
       <label className="mt-4 block text-sm">
         OpenRouter-token
         <Input
@@ -177,28 +140,68 @@ export function TeamAiSettings() {
           onChange={(event) => setToken(event.target.value)}
         />
       </label>
-      <div className="mt-5 space-y-3">
-        {features.map((feature) => (
-          <div
-            key={feature.key}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3"
-          >
-            <div className="min-w-48 flex-1">
-              <p className="text-sm font-medium">{feature.label}</p>
-              <p className="text-xs text-muted-foreground">{feature.description}</p>
-            </div>
-            <Select
-              value={modes[feature.key] ?? "off"}
-              onValueChange={(value) =>
-                setDraftModes((prev) => ({ ...prev, [feature.key]: value as Mode }))
-              }
-              items={feature.manualOnly ? modeItems.slice(0, 2) : modeItems}
-              aria-label={`AI-modus for ${feature.label}`}
-              className="min-w-48"
+      <details className="mt-5 rounded-xl border border-border bg-card p-4">
+        <summary className="cursor-pointer text-sm font-medium">Avanserte innstillinger</summary>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm">
+            Lav modell · uttrekk og klassifisering
+            <Input
+              className="mt-1"
+              value={lowModel ?? settings.data?.lowModel ?? recommended.low}
+              onChange={(event) => setLowModel(event.target.value)}
             />
-          </div>
-        ))}
-      </div>
+          </label>
+          <label className="text-sm">
+            Middels modell · utkast og sammendrag
+            <Input
+              className="mt-1"
+              value={mediumModel ?? settings.data?.model ?? recommended.medium}
+              onChange={(event) => setMediumModel(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="mt-3 rounded-xl border border-border bg-muted/50 p-3 text-sm">
+          <p className="font-medium">Anbefalt rimelig standard</p>
+          <p className="mt-1 text-muted-foreground">
+            GPT-4.1 Nano er laget for lette uttrekk og klassifiseringer; GPT-4.1 Mini gir mer
+            kapasitet til tekstutkast og sammendrag. Vi krever OpenRouters ZDR-rute og
+            «data_collection: deny» uansett modell.
+          </p>
+          <Button
+            className="mt-2"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setLowModel(recommended.low);
+              setMediumModel(recommended.medium);
+            }}
+          >
+            Bruk anbefalte modeller
+          </Button>
+        </div>
+        <div className="mt-5 space-y-3">
+          {features.map((feature) => (
+            <div
+              key={feature.key}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3"
+            >
+              <div className="min-w-48 flex-1">
+                <p className="text-sm font-medium">{feature.label}</p>
+                <p className="text-xs text-muted-foreground">{feature.description}</p>
+              </div>
+              <Select
+                value={modes[feature.key] ?? "off"}
+                onValueChange={(value) =>
+                  setDraftModes((prev) => ({ ...prev, [feature.key]: value as Mode }))
+                }
+                items={feature.manualOnly ? modeItems.slice(0, 2) : modeItems}
+                aria-label={`AI-modus for ${feature.label}`}
+                className="min-w-48"
+              />
+            </div>
+          ))}
+        </div>
+      </details>
       <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
         <ShieldCheck size={13} /> Nye kontakter tillater ekstern AI. Dette kan overstyres per
         kontakt og per aktivitet. Notater sendes aldri til AI.
