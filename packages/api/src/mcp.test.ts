@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { contacts, teamMcpTokens } from "@contac/core/db";
+import { contacts, organizations, teamMcpTokens } from "@contac/core/db";
 import { authorizeMcpToken, registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
@@ -56,6 +56,7 @@ describe("team MCP boundary", () => {
     expect(response.status).toBe(200);
     const body = await response.text();
     for (const name of [
+      "get_team_identity",
       "list_contacts",
       "get_contact",
       "list_team_reference",
@@ -63,6 +64,7 @@ describe("team MCP boundary", () => {
       "list_activities",
       "get_attachment_link",
       "create_contact",
+      "batch_create_contacts",
       "add_activity",
     ])
       expect(body).toContain(`"name":"${name}"`);
@@ -105,12 +107,10 @@ describe("team MCP boundary", () => {
             : table === contacts
               ? {
                   innerJoin: () => ({
-                    leftJoin: () => ({
-                      where: (condition: Parameters<PgDialect["sqlToQuery"]>[0]) => {
-                        conditions.push(dialect.sqlToQuery(condition));
-                        return { orderBy: () => ({ limit: async () => [] }) };
-                      },
-                    }),
+                    where: (condition: Parameters<PgDialect["sqlToQuery"]>[0]) => {
+                      conditions.push(dialect.sqlToQuery(condition));
+                      return { orderBy: () => ({ limit: async () => [] }) };
+                    },
                   }),
                 }
               : {},
@@ -135,7 +135,7 @@ describe("team MCP boundary", () => {
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "list_contacts", arguments: {} },
+        params: { name: "list_contacts", arguments: { expectedTeamId: teamId } },
       }),
     });
     expect(response.status).toBe(200);
@@ -146,19 +146,92 @@ describe("team MCP boundary", () => {
     expect(conditions[1]?.params).not.toContain("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
   });
 
-  it("lets team admins manage keys but blocks ordinary members", async () => {
+  it("rejects a wrong expected team before querying contact data", async () => {
+    const queried: unknown[] = [];
+    const db = {
+      select: () => ({
+        from: (table: unknown) => {
+          queried.push(table);
+          return {
+            where: () => ({
+              limit: async () => [
+                { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", orgId: teamId, createdBy: userId },
+              ],
+            }),
+          };
+        },
+      }),
+      update: () => ({ set: () => ({ where: async () => [] }) }),
+    };
     const app = new Hono<ApiEnv>();
-    app.use("/v1/org/*", async (c, next) => {
-      c.set("org", { id: teamId, role: "member" });
-      c.set("user", { id: userId, email: "member@example.test" });
-      await next();
-    });
-    registerMcpRoutes(app, fakeDeps(), "https://contac.example.test");
-    const response = await app.request("/v1/org/mcp-tokens", {
+    registerMcpRoutes(
+      app,
+      { db, supabase: {} } as unknown as ApiDeps,
+      "https://contac.example.test",
+    );
+    const response = await app.request("/mcp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "bot" }),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "list_contacts",
+          arguments: { expectedTeamId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
+        },
+      }),
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("team ID does not match");
+    expect(queried).toEqual([teamMcpTokens]);
+  });
+
+  it("reports the authenticated team's immutable ID and current name", async () => {
+    const db = {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => ({
+            limit: async () =>
+              table === teamMcpTokens
+                ? [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", orgId: teamId, createdBy: userId }]
+                : [],
+            then: (resolve: (value: unknown) => void) =>
+              resolve(table === organizations ? [{ id: teamId, name: "Arbeidsgruppe Alfa" }] : []),
+          }),
+        }),
+      }),
+      update: () => ({ set: () => ({ where: async () => [] }) }),
+    };
+    const app = new Hono<ApiEnv>();
+    registerMcpRoutes(
+      app,
+      { db, supabase: {} } as unknown as ApiDeps,
+      "https://contac.example.test",
+    );
+    const response = await app.request("/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2025-11-25",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "get_team_identity", arguments: {} },
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain(teamId);
+    expect(body).toContain("Arbeidsgruppe Alfa");
   });
 });

@@ -51,7 +51,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | C4: independent organization categories, palette colors, neutral default, LOI separation | Done; database migration not run here | `97b3ff0` |
 | F1: create and edit person tags on contacts, edit domains on map, remove tag CRUD settings | Done | `8f76fa1` |
 | B6 and E6: separate Markdown information on contacts and MCP creation, local search, MCP reads | Done; database migration not run here | `ebf205b` |
-| E5: batch MCP creation with per-item validation, duplicate candidates, and partial success | Done; live MCP integration not run here | This commit |
+| E5: batch MCP creation with per-item validation, duplicate candidates, and partial success | Done; live MCP integration not run here | `d30ae2f` |
+| E3: identity tool and required team-ID guard on every MCP data tool | Done; personal OAuth connection still pending | This commit |
 
 ## A. Navigation and daily work
 

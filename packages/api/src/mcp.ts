@@ -40,11 +40,13 @@ const phoneKey = (value: string | null | undefined) => {
   return (digits.length === 10 && digits.startsWith("47") ? digits.slice(2) : digits) || null;
 };
 const page = z.object({
+  expectedTeamId: uuid,
   cursor: uuid.optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
 const contactCreateInput = z
   .object({
+    expectedTeamId: uuid,
     name: z.string().trim().min(1).max(200),
     companyId: uuid.optional(),
     companyName: z.string().trim().min(1).max(200).optional(),
@@ -66,6 +68,25 @@ const failed = (message: string) => ({
 function makeServer(deps: ApiDeps, identity: TokenIdentity) {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
+  const correctTeam = (expectedTeamId: string) => expectedTeamId === orgId;
+
+  server.registerTool(
+    "get_team_identity",
+    {
+      description:
+        "Verify which Contac team this authenticated connection currently uses. Call before any other Contac tool in each new conversation and compare the returned immutable team ID with your expected team ID. Stop if it differs or verification fails.",
+      inputSchema: z.object({}),
+      annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
+    },
+    async () => {
+      const [team] = await deps.db
+        .select({ id: organizations.id, name: organizations.name })
+        .from(organizations)
+        .where(eq(organizations.id, orgId));
+      return team ? result({ teamId: team.id, teamName: team.name }) : failed("Team not found");
+    },
+  );
 
   async function createOne(input: z.infer<typeof contactCreateInput>) {
     return deps.db.transaction(async (tx) => {
@@ -192,7 +213,9 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ cursor, limit }) => {
+    async ({ expectedTeamId, cursor, limit }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const rows = await deps.db
         .select({
           contact: contacts,
@@ -220,11 +243,13 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     {
       description:
         "Get a contact with its organization, tags, shared note, separate agent/referral Markdown information, linked activities, transcripts, email details, and attachment metadata.",
-      inputSchema: z.object({ contactId: uuid }),
+      inputSchema: z.object({ expectedTeamId: uuid, contactId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ contactId }) => {
+    async ({ expectedTeamId, contactId }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const [contact] = await deps.db
         .select()
         .from(contacts)
@@ -330,11 +355,13 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     {
       description:
         "List organizations, domains, domain links, and person tags for this team. Use IDs when creating contacts.",
-      inputSchema: z.object({}),
+      inputSchema: z.object({ expectedTeamId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async () => {
+    async ({ expectedTeamId }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const [companyRows, domainRows, companyDomainRows, tagRows] = await Promise.all([
         deps.db
           .select()
@@ -371,7 +398,9 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ cursor, limit }) => {
+    async ({ expectedTeamId, cursor, limit }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const rows = await deps.db
         .select()
         .from(libraryItems)
@@ -391,13 +420,16 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       description:
         "List team activities, including summaries and transcripts, newest first. Use get_contact for email headers, participant links, and attachment metadata.",
       inputSchema: z.object({
+        expectedTeamId: uuid,
         cursor: z.string().max(100).optional(),
         limit: z.number().int().min(1).max(100).default(50),
       }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ cursor, limit }) => {
+    async ({ expectedTeamId, cursor, limit }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const [dateText, idText] = cursor?.split("|") ?? [];
       if (
         cursor &&
@@ -440,11 +472,13 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     "get_attachment_link",
     {
       description: "Get a short-lived download URL for an activity attachment in this team.",
-      inputSchema: z.object({ fileId: uuid }),
+      inputSchema: z.object({ expectedTeamId: uuid, fileId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ fileId }) => {
+    async ({ expectedTeamId, fileId }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const [file] = await deps.db
         .select({ file: workspaceFiles })
         .from(activityFiles)
@@ -482,6 +516,8 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       _meta: mcpOauthToolMeta(),
     },
     async (input) => {
+      if (!correctTeam(input.expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const outcome = await createOne(input);
       if (outcome.status === "error") return failed(outcome.error);
       if (outcome.status === "duplicate") return result(outcome);
@@ -498,15 +534,20 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     {
       description:
         "Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields, including separate additionalInfo Markdown. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.",
-      inputSchema: z.object({ contacts: z.array(z.unknown()).min(1).max(100) }),
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        contacts: z.array(z.unknown()).min(1).max(100),
+      }),
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
     },
-    async ({ contacts: inputs }) => {
+    async ({ expectedTeamId, contacts: inputs }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const results = [];
       const createdIds: string[] = [];
       for (const [index, raw] of inputs.entries()) {
-        const parsed = contactCreateInput.safeParse(raw);
+        const parsed = contactCreateInput.omit({ expectedTeamId: true }).safeParse(raw);
         if (!parsed.success) {
           results.push({
             index,
@@ -516,7 +557,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           continue;
         }
         try {
-          const outcome = await createOne(parsed.data);
+          const outcome = await createOne({ ...parsed.data, expectedTeamId });
           if (outcome.status === "created") {
             createdIds.push(outcome.contact.id);
             results.push({
@@ -552,6 +593,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       description:
         "Add a phone call, missed call, or meeting to one or more active contacts in this team. Does not change contact status or create personal reminders.",
       inputSchema: z.object({
+        expectedTeamId: uuid,
         contactIds: z.array(uuid).min(1).max(30),
         kind: z.enum(["phone", "missed_phone", "meeting"]),
         summary: z.string().max(20000).default(""),
@@ -565,6 +607,8 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       _meta: mcpOauthToolMeta(),
     },
     async (input) => {
+      if (!correctTeam(input.expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
       if (input.missedOutcome && input.kind !== "missed_phone")
         return failed("Missed-call outcome requires a missed call");
       const ids = [...new Set(input.contactIds)];

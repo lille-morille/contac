@@ -12,6 +12,7 @@ The token can call these tools:
 
 | Tool | Access |
 | --- | --- |
+| `get_team_identity` | Authenticated connection's immutable team ID and current workspace name |
 | `list_contacts` | Paginated active contacts and their fields |
 | `get_contact` | Full contact, organization, tags, shared note, separate additional Markdown information, activities, email records, transcripts, participants, and attachment metadata |
 | `list_team_reference` | Organizations, domains, and person tags |
@@ -43,6 +44,14 @@ when another item fails. Results include the input index and either the new
 contact ID and number, duplicate candidates for review, or a validation/write
 error. The single-contact tool also returns duplicate candidates instead of
 creating an obvious duplicate.
+
+Call `get_team_identity` before other Contac tools in each new conversation.
+Compare its `teamId` to the expected immutable team ID, and stop and notify the
+user if it differs or the call fails. Every data tool now requires
+`expectedTeamId`; the server checks it before reading or writing. Existing MCP
+clients must update their tool calls to pass this argument. A team rename does
+not change its ID. The returned name is the workspace team name, not the
+optional product name used for the LOI.
 
 Example generic MCP client configuration (client syntax varies):
 
