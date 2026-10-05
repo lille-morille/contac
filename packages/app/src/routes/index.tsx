@@ -6134,7 +6134,8 @@ function OrganizationMap({
                 )
               }
             >
-              <Sparkles size={15} /> Viktigste funn
+              <Sparkles size={15} /> Oppsummer samtaler fra{" "}
+              {selectedCompany?.name ?? selectedDomain?.name}
             </Button>
           )}
         </nav>
@@ -6255,7 +6256,7 @@ function OrganizationMap({
                     })
                   }
                 >
-                  <Sparkles size={14} /> Viktigste funn
+                  <Sparkles size={14} /> Oppsummer samtaler fra {popupCompany.name}
                 </Button>
                 <Button
                   size="sm"
@@ -6351,7 +6352,7 @@ function OrganizationMap({
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           {summaryScope && (
             <>
-              <DialogTitle>Viktigste funn</DialogTitle>
+              <DialogTitle>Oppsummer samtaler</DialogTitle>
               <div className="mt-4">
                 <GroupAiSummary key={`${summaryScope.kind}:${summaryScope.id}`} {...summaryScope} />
               </div>

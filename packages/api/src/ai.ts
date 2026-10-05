@@ -946,11 +946,31 @@ async function groupContext(
   const included = contexts
     .map((context) => ({ name: context.person.contact.name, conversations: context.conversations }))
     .filter((item) => item.conversations.length);
+  const activities = new Map<
+    string,
+    { contactNames: string[]; conversation: (typeof contexts)[number]["conversations"][number] }
+  >();
+  for (const person of included) {
+    for (const conversation of person.conversations) {
+      const existing = activities.get(conversation.id);
+      if (existing) existing.contactNames.push(person.name);
+      else activities.set(conversation.id, { contactNames: [person.name], conversation });
+    }
+  }
   const version = hash({
     people: people.map((person) => [person.id, person.allow]),
     contexts: contexts.map((context) => context.version),
   });
-  return { included, excludedCount: people.length - included.length, version };
+  return {
+    included,
+    linkedCount: people.length,
+    conversations: [...activities.values()].map(({ contactNames, conversation }) => ({
+      contactNames,
+      ...conversation,
+    })),
+    excludedCount: people.length - included.length,
+    version,
+  };
 }
 
 export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
@@ -1262,6 +1282,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       summary: saved ?? null,
       stale: !!saved && saved.sourceVersion !== context.version,
       excludedCount: context.excludedCount,
+      linkedCount: context.linkedCount,
       includedCount: context.included.length,
     });
   });
@@ -1294,7 +1315,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         settings,
         "group_findings",
         "Skriv et kort norsk sammendrag av viktigste funn på tvers av kontakter. Skill fakta, problemer og åpne spørsmål. Ikke finn på fakta. Returner ren tekst.",
-        context.included,
+        context.conversations,
       );
       const [row] = await deps.db
         .insert(groupAiSummaries)

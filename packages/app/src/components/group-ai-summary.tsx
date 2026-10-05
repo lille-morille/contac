@@ -34,6 +34,7 @@ export function GroupAiSummary({
         summary: Summary | null;
         stale: boolean;
         excludedCount: number;
+        linkedCount: number;
         includedCount: number;
       }>(`/org/ai/groups/${kind}/${id}`, org!.id),
     enabled: !!org,
@@ -59,11 +60,11 @@ export function GroupAiSummary({
     <Card className="p-4">
       <div className="flex items-center gap-2">
         <Sparkles size={16} className="text-primary" />
-        <h2 className="font-semibold">Viktigste funn · {name}</h2>
+        <h2 className="font-semibold">Oppsummer samtaler fra {name}</h2>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        {summary.data?.includedCount ?? 0} kontakter med tillatte samtaler ·{" "}
-        {summary.data?.excludedCount ?? 0} utelatt
+        {summary.data?.linkedCount ?? 0} tilknyttede kontakter · {summary.data?.includedCount ?? 0}{" "}
+        med tillatte samtaler
       </p>
       {summary.data?.summary && (
         <>
@@ -75,7 +76,11 @@ export function GroupAiSummary({
         </>
       )}
       {!summary.data?.summary && (
-        <p className="mt-3 text-sm text-muted-foreground">Ingen oppsummering ennå.</p>
+        <p className="mt-3 text-sm text-muted-foreground">
+          {summary.data?.includedCount
+            ? "Ingen oppsummering ennå."
+            : "Ingen samtaler kan brukes til oppsummering ennå."}
+        </p>
       )}
       {settings.data?.modes.group_findings === "manual" && (
         <Button
