@@ -28,7 +28,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | A5 and A7: conditional duplicates navigation, Kontaktlogg label, simpler sidebar | Done | `8b99a62` |
 | A3: viewport-height Kanban with independent column scrolling | Done | `75a2a13` |
 | A6: responsive masonry quote library | Done | `b5102ee` |
-| A4: aligned Sist kontaktet header controls | Done | This commit |
+| A4: aligned Sist kontaktet header controls | Done | `f3ea2c7` |
+| A2: phone number copy and optional missed-call reminder | Done | This commit |
 
 ## A. Navigation and daily work
 

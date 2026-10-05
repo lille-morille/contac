@@ -3544,9 +3544,10 @@ function ActivityComposer({
   const [transcript, setTranscript] = useState("");
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [nextStatus, setNextStatus] = useState<Status | null>(null);
-  const [reminderChoice, setReminderChoice] = useState<"ask" | "set" | "skip">("ask");
+  const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderAt, setReminderAt] = useState(nextReminderTime);
   const [reminderMessage, setReminderMessage] = useState("");
+  const [phoneCopyMessage, setPhoneCopyMessage] = useState("");
   const [fileError, setFileError] = useState("");
 
   function start(nextMode: "phone" | "meeting") {
@@ -3557,9 +3558,10 @@ function ActivityComposer({
     setTranscript("");
     setExtraIds([]);
     setNextStatus(null);
-    setReminderChoice("ask");
+    setReminderEnabled(false);
     setReminderAt(nextReminderTime());
     setReminderMessage("");
+    setPhoneCopyMessage("");
     setFileError("");
   }
   async function importTranscript(file: File | undefined) {
@@ -3577,7 +3579,7 @@ function ActivityComposer({
     setFileError("");
   }
   async function saveActivity(status?: Status) {
-    if (!mode || (outcome && reminderChoice === "ask")) return;
+    if (!mode) return;
     try {
       await mutate("/activities", {
         contactIds: [contact.id, ...(outcome ? [] : extraIds)],
@@ -3588,7 +3590,7 @@ function ActivityComposer({
         occurredAt: startedAt,
         nextStatus: status,
         reminder:
-          outcome && reminderChoice === "set"
+          outcome && reminderEnabled
             ? { dueAt: reminderAt, message: reminderMessage.trim() }
             : undefined,
       });
@@ -3663,6 +3665,35 @@ function ActivityComposer({
               </Button>
             </div>
             {mode === "phone" && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-soft p-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Telefonnummer</p>
+                  <p className="break-all text-xl font-semibold tabular-nums">
+                    {contact.phone?.trim() || "Telefonnummer mangler"}
+                  </p>
+                  {phoneCopyMessage && (
+                    <p role="status" className="mt-1 text-xs text-muted-foreground">
+                      {phoneCopyMessage}
+                    </p>
+                  )}
+                </div>
+                {contact.phone?.trim() && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void copyText(contact.phone!.trim()).then(
+                        () => setPhoneCopyMessage("Nummer kopiert"),
+                        () => setPhoneCopyMessage("Kunne ikke kopiere nummeret"),
+                      )
+                    }
+                  >
+                    <Copy size={15} /> Kopier nummer
+                  </Button>
+                )}
+              </div>
+            )}
+            {mode === "phone" && (
               <div>
                 <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Fikk du ikke snakket med personen?
@@ -3682,7 +3713,7 @@ function ActivityComposer({
                         className={`rounded-xl border px-3 py-1.5 text-sm transition-colors ${outcome === value ? "border-primary bg-primary-soft font-medium text-primary" : "border-border bg-card hover:border-primary/30"}`}
                         onClick={() => {
                           setOutcome(value);
-                          setReminderChoice("ask");
+                          setReminderEnabled(false);
                         }}
                       >
                         {label}
@@ -3789,22 +3820,16 @@ function ActivityComposer({
                   <p className="text-sm font-medium">Vil du bli påminnet om å prøve igjen?</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button
-                      variant={reminderChoice === "set" ? "secondary" : "outline"}
+                      variant={reminderEnabled ? "secondary" : "outline"}
                       size="sm"
-                      onClick={() => setReminderChoice("set")}
+                      onClick={() => setReminderEnabled((enabled) => !enabled)}
+                      aria-pressed={reminderEnabled}
                     >
-                      Velg tidspunkt
-                    </Button>
-                    <Button
-                      variant={reminderChoice === "skip" ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() => setReminderChoice("skip")}
-                    >
-                      Hopp over
+                      {reminderEnabled ? "Fjern påminnelse" : "Legg til påminnelse"}
                     </Button>
                   </div>
                   <AnimatePresence initial={false}>
-                    {reminderChoice === "set" && (
+                    {reminderEnabled && (
                       <motion.div
                         key="reminder-fields"
                         initial={{ opacity: 0, height: 0, y: -6 }}
@@ -3833,36 +3858,35 @@ function ActivityComposer({
                 </motion.div>
               )}
             </AnimatePresence>
-            <AnimatePresence initial={false}>
-              {(completed || reminderChoice !== "ask") && (
-                <motion.div
-                  key="activity-actions"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="flex flex-wrap gap-2 border-t border-border pt-3"
+            <div className="grid gap-2 border-t border-border pt-3 md:grid-cols-2">
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-xl border border-primary bg-primary-soft p-3 text-left text-sm font-medium text-primary transition-colors hover:bg-primary-soft/70 disabled:opacity-50"
+                onClick={() =>
+                  void saveActivity(completed ? (nextStatus ?? undefined) : "follow_up")
+                }
+              >
+                <span className="flex items-center gap-2">
+                  {chosenStatus && <ContactStatusIcon status={chosenStatus.value} size={16} />}
+                  {completed
+                    ? chosenStatus
+                      ? `Legg til aktivitet og flytt til ${chosenStatus.title}`
+                      : "Legg til aktivitet"
+                    : "Flytt til Follow up / Ring igjen og legg til aktivitet"}
+                </span>
+              </button>
+              {(outcome || nextStatus) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-xl border border-border bg-card p-3 text-left text-sm font-medium transition-colors hover:border-primary/30 disabled:opacity-50"
+                  onClick={() => void saveActivity()}
                 >
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void saveActivity(completed ? (nextStatus ?? undefined) : "follow_up")
-                    }
-                  >
-                    {completed
-                      ? chosenStatus
-                        ? `Legg til aktivitet og flytt til ${chosenStatus.title}`
-                        : "Legg til aktivitet"
-                      : "Flytt til Follow up / Ring igjen og legg til aktivitet"}
-                  </Button>
-                  {(outcome || nextStatus) && (
-                    <Button variant="outline" disabled={busy} onClick={() => void saveActivity()}>
-                      Legg til aktivitet uten statusendring
-                    </Button>
-                  )}
-                </motion.div>
+                  Legg til aktivitet uten statusendring
+                </button>
               )}
-            </AnimatePresence>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
