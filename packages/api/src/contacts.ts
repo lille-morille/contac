@@ -454,7 +454,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json(row, 201);
   });
   app.post("/v1/org/domains/:id", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const domainId = id.safeParse(c.req.param("id"));
     const data = await parse(
       c,
@@ -544,7 +543,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({ ok: true });
   });
   app.post("/v1/org/person-tags", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const data = await parse(
       c,
       z.object({
@@ -569,7 +567,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json(row, 201);
   });
   app.post("/v1/org/person-tags/:id", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const tagId = id.safeParse(c.req.param("id"));
     const data = await parse(
       c,

@@ -22,8 +22,7 @@ function Invite() {
       : (new URLSearchParams(window.location.search).get("token") ?? "");
   const info = useQuery({
     queryKey: ["invite", token],
-    queryFn: () =>
-      request<{ teamName: string; role: string }>(`/invitations/${encodeURIComponent(token)}`),
+    queryFn: () => request<{ teamName: string }>(`/invitations/${encodeURIComponent(token)}`),
     enabled: !!token,
   });
   const [name, setName] = useState("");
@@ -70,10 +69,7 @@ function Invite() {
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Bli med i {info.data?.teamName ?? "teamet"}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Hemmelig invitasjonslenke ·{" "}
-            {info.data?.role === "admin" ? "teamadministrator" : "medlem"}
-          </p>
+          <p className="text-sm text-muted-foreground">Hemmelig invitasjonslenke</p>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={(e) => void submit(e)}>

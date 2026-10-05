@@ -546,7 +546,6 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
   });
 
   app.get("/v1/org/mcp-tokens", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const rows = await deps.db
       .select({
         id: teamMcpTokens.id,
@@ -563,7 +562,6 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
     return c.json(rows);
   });
   app.post("/v1/org/mcp-tokens", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const parsed = z
       .object({ name: z.string().trim().min(1).max(100) })
       .safeParse(await c.req.json().catch(() => null));
@@ -582,7 +580,6 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
     return c.json({ ...row, token: secret }, 201, { "Cache-Control": "no-store" });
   });
   app.post("/v1/org/mcp-tokens/:id/revoke", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin required" }, 403);
     const parsed = uuid.safeParse(c.req.param("id"));
     if (!parsed.success) return c.json({ error: "Invalid token" }, 400);
     const [row] = await deps.db

@@ -93,7 +93,7 @@ export const memberships = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull(),
-    role: membershipRole("role").notNull().default("member"),
+    role: membershipRole("role").notNull().default("admin"),
     createdAt: createdAt(),
   },
   (table) => [
@@ -109,7 +109,7 @@ export const invitations = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     email: text("email"),
-    role: membershipRole("role").notNull().default("member"),
+    role: membershipRole("role").notNull().default("admin"),
     tokenHash: text("token_hash").notNull().unique(),
     invitedBy: uuid("invited_by").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

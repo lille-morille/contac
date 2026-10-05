@@ -75,7 +75,6 @@ export function registerLoiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     });
   });
   app.post("/v1/org/loi-settings", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Admin access required" }, 403);
     const parsed = z
       .object({
         businessName: z.string().trim().max(200),

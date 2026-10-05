@@ -311,8 +311,8 @@ export function EmailComposer({
                     </>
                   ) : (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Av som standard. Teamadministrator kan aktivere e-postforslag og legge inn
-                      OpenRouter-token under Teaminnstillinger.
+                      Av som standard. E-postforslag og OpenRouter-token kan aktiveres i
+                      Teaminnstillinger.
                     </p>
                   )
                 ) : (

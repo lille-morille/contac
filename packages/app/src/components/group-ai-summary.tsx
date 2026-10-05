@@ -89,7 +89,7 @@ export function GroupAiSummary({
       )}
       {settings.data?.modes.group_findings !== "manual" && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Teamadministrator kan slå på manuell gruppeoppsummering i Teaminnstillinger.
+          Manuell gruppeoppsummering kan slås på i Teaminnstillinger.
         </p>
       )}
       {error && (

@@ -1226,18 +1226,14 @@ function Home() {
       icon: UserRound,
       run: () => go("profile"),
     },
-    ...(org.role !== "member"
-      ? [
-          {
-            id: "page:team_settings",
-            group: "pages" as const,
-            title: "Teaminnstillinger",
-            searchText: "team admin AI LOI",
-            icon: Settings2,
-            run: () => go("team_settings"),
-          },
-        ]
-      : []),
+    {
+      id: "page:team_settings",
+      group: "pages" as const,
+      title: "Teaminnstillinger",
+      searchText: "team AI LOI",
+      icon: Settings2,
+      run: () => go("team_settings"),
+    },
     ...(state.classSpace?.role === "admin"
       ? [
           {
@@ -1461,15 +1457,13 @@ function Home() {
             items={state.organizations.map((o) => ({ value: o.id, label: o.name }))}
             aria-label="Team"
           />
-          {org.role !== "member" && (
-            <button
-              type="button"
-              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${page === "team_settings" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
-              onClick={() => go("team_settings")}
-            >
-              <Settings2 size={16} /> Teaminnstillinger
-            </button>
-          )}
+          <button
+            type="button"
+            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${page === "team_settings" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
+            onClick={() => go("team_settings")}
+          >
+            <Settings2 size={16} /> Teaminnstillinger
+          </button>
           {state.classSpace?.role === "admin" && (
             <button
               type="button"
@@ -2053,7 +2047,7 @@ function NoTeam() {
           <Button type="submit">Opprett team</Button>
         </form>
       ) : (
-        <p>Åpne invitasjonslenken fra teamadministratoren for å bli med i et team.</p>
+        <p>Åpne invitasjonslenken fra teamet for å bli med.</p>
       )}
       {error && (
         <p role="alert" className="text-destructive">
@@ -2385,7 +2379,7 @@ function SessionsPage({
               </p>
               {!ai.data?.enabled && (
                 <p className="mt-3 text-xs text-muted-foreground">
-                  AI-sammendrag er av. Teamadministrator kan slå det på i Teaminnstillinger.
+                  AI-sammendrag er av. Det kan slås på i Teaminnstillinger.
                 </p>
               )}
               {session.summary && (
@@ -6713,7 +6707,6 @@ function Settings({
   busy: boolean;
 }) {
   const [teamName, setTeamName] = useState("");
-  const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
@@ -6725,19 +6718,38 @@ function Settings({
       await state.refresh();
       state.select(row.id);
       setTeamName("");
-      setMessage("Team opprettet. Lag en invitasjon til den første teamadministratoren.");
+      setMessage("Team opprettet. Lag en invitasjon til teamet.");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : String(cause));
     }
   }
   async function invite() {
-    const result = await mutate<{ inviteUrl: string }>("/invitations", { role: inviteRole });
+    const result = await mutate<{ inviteUrl: string }>("/invitations", {});
     setInviteUrl(result.inviteUrl);
   }
   async function recovery() {
     const result = await request<{ recoveryCode: string }>("/profile/recovery-code", undefined, {});
     setCode(result.recoveryCode);
   }
+  const inviteCard = state.org && (
+    <Card className="p-5">
+      <h2 className="font-semibold">Inviter til {state.org.name}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Lenken kan brukes én gang og utløper om sju dager. Del den bare med den som skal bli med.
+      </p>
+      <Button className="mt-4" disabled={busy} onClick={() => void invite()}>
+        Lag invitasjonslenke
+      </Button>
+      {inviteUrl && (
+        <div className="mt-3 flex gap-2">
+          <Input readOnly value={inviteUrl} />
+          <Button variant="outline" onClick={() => void copyText(inviteUrl)}>
+            Kopier
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
   return (
     <div className="max-w-3xl space-y-5">
       <h1 className="sr-only">
@@ -6773,7 +6785,9 @@ function Settings({
           )}
         </Card>
       )}
-      {section === "team_settings" && state.org?.role !== "member" && <TeamSessionSettings />}
+      {section === "team_settings" && state.org && <TeamLoiSettings />}
+      {section === "team_settings" && inviteCard}
+      {section === "team_settings" && state.org && <TeamSessionSettings />}
       {section === "team_settings" && state.org && (
         <Card className="p-5">
           <h2 className="font-semibold">Rapportmal</h2>
@@ -6806,23 +6820,20 @@ function Settings({
           )}
         </Card>
       )}
-      {section === "team_settings" && state.org?.role !== "member" && <TeamAiSettings />}
-      {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
-      {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}
-      {section === "team_settings" && state.org?.role !== "member" && state.org && (
-        <TeamMcpSettings orgId={state.org.id} />
-      )}
-      {section === "team_settings" && state.org?.role !== "member" && (
+      {section === "team_settings" && state.org && <TeamAiSettings />}
+      {section === "team_settings" && state.org && <TeamEmailSettings />}
+      {section === "team_settings" && state.org && <TeamMcpSettings orgId={state.org.id} />}
+      {section === "team_settings" && state.org && (
         <DomainTagSettings tags={data.domains} mutate={mutate} busy={busy} />
       )}
-      {section === "team_settings" && state.org?.role !== "member" && (
+      {section === "team_settings" && state.org && (
         <PersonTagSettings tags={data.personTags} mutate={mutate} busy={busy} />
       )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Opprett team og send første hemmelige invitasjon som teamadministrator.
+            Opprett team og send den første hemmelige invitasjonen.
           </p>
           <form className="mt-4 flex gap-2" onSubmit={(e) => void createTeam(e)}>
             <Input
@@ -6844,39 +6855,6 @@ function Settings({
               </button>
             ))}
           </div>
-        </Card>
-      )}
-      {section === "team_settings" && state.org?.role !== "member" && (
-        <Card className="p-5">
-          <h2 className="font-semibold">Inviter til {state.org?.name}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Lenken kan brukes én gang og utløper om sju dager. Del den bare med den som skal bli
-            med.
-          </p>
-          <div className="mt-4 flex gap-2">
-            <Select
-              value={inviteRole}
-              onValueChange={(value) => setInviteRole(value as "admin" | "member")}
-              items={[
-                { value: "member", label: "Medlem" },
-                ...(state.classSpace?.role === "admin"
-                  ? [{ value: "admin", label: "Teamadministrator" }]
-                  : []),
-              ]}
-              className="max-w-52"
-            />
-            <Button disabled={busy} onClick={() => void invite()}>
-              Lag invitasjonslenke
-            </Button>
-          </div>
-          {inviteUrl && (
-            <div className="mt-3 flex gap-2">
-              <Input readOnly value={inviteUrl} />
-              <Button variant="outline" onClick={() => void copyText(inviteUrl)}>
-                Kopier
-              </Button>
-            </div>
-          )}
         </Card>
       )}
       {message && <p className="text-sm text-muted-foreground">{message}</p>}

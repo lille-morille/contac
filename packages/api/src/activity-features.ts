@@ -224,7 +224,6 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     return c.json({ enabled: team?.enabled ?? false });
   });
   app.post("/v1/org/session-settings", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin access required" }, 403);
     const data = await json(c, z.object({ enabled: z.boolean() }));
     if (!data) return c.json({ error: "Invalid session settings" }, 400);
     const [team] = await deps.db
@@ -312,7 +311,6 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     });
   });
   app.post("/v1/org/checkin-ai", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin access required" }, 403);
     const data = await json(
       c,
       z.object({

@@ -32,9 +32,7 @@ import { registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const uuid = z.uuid();
-const invitationInput = z.object({
-  role: z.enum(["admin", "member"]).default("member"),
-});
+const invitationInput = z.object({});
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const accountEmail = (id: string) => `${id}@accounts.contac.invalid`;
 const accountCode = (id: string, password: string) => `cc1.${id}.${password}`;
@@ -107,7 +105,6 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
     const [invite] = await deps.db
       .select({
         orgId: invitations.orgId,
-        role: invitations.role,
         acceptedAt: invitations.acceptedAt,
         expiresAt: invitations.expiresAt,
         teamName: organizations.name,
@@ -118,7 +115,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       .limit(1);
     if (!invite || invite.acceptedAt || invite.expiresAt < new Date())
       return c.json({ error: "Invitation is invalid or expired" }, 404);
-    return c.json({ teamName: invite.teamName, role: invite.role });
+    return c.json({ teamName: invite.teamName });
   });
   app.post("/v1/invitations/join", async (c) => {
     const body = z
@@ -151,7 +148,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
           .onConflictDoNothing();
         await tx
           .insert(memberships)
-          .values({ orgId: invite.orgId, userId: account.userId, role: invite.role });
+          .values({ orgId: invite.orgId, userId: account.userId, role: "admin" });
       });
     } catch (cause) {
       await deps.supabase.auth.admin.deleteUser(account.userId);
@@ -359,7 +356,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
           .insert(organizations)
           .values({ name, slug, classId: admin.classId })
           .returning();
-        await tx.insert(memberships).values({ orgId: created.id, userId: user.id, role: "owner" });
+        await tx.insert(memberships).values({ orgId: created.id, userId: user.id, role: "admin" });
         await tx.insert(personTags).values(
           ["Portvokter", "Ildsjel", "Bruker", "Beslutningstaker"].map((name) => ({
             orgId: created.id,
@@ -408,7 +405,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
           .onConflictDoNothing();
         await tx
           .insert(memberships)
-          .values({ orgId: invitation.orgId, userId: user.id, role: invitation.role })
+          .values({ orgId: invitation.orgId, userId: user.id, role: "admin" })
           .onConflictDoNothing();
       });
       return c.json({ orgId: invitation.orgId });
@@ -434,24 +431,11 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
   });
   app.post("/v1/org/invitations", zValidator("json", invitationInput), async (c) => {
     const org = c.get("org");
-    if (org.role === "member") return c.json({ error: "Admin access required" }, 403);
-    const { role } = c.req.valid("json");
-    if (role === "admin") {
-      const [classAdmin] = await deps.db
-        .select({ role: classMemberships.role })
-        .from(classMemberships)
-        .where(
-          and(eq(classMemberships.userId, c.get("user").id), eq(classMemberships.role, "admin")),
-        )
-        .limit(1);
-      if (!classAdmin)
-        return c.json({ error: "Only the class admin can appoint a team admin" }, 403);
-    }
     const token = randomBytes(32).toString("base64url");
     await deps.db.insert(invitations).values({
       orgId: org.id,
       email: null,
-      role,
+      role: "admin",
       tokenHash: hash(token),
       invitedBy: c.get("user").id,
       expiresAt: new Date(Date.now() + 7 * 86400_000),
