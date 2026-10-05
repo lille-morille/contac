@@ -26,13 +26,10 @@ type Settings = {
   modes: Record<Feature, Mode>;
 };
 type Usage = {
-  id: string;
-  feature: Feature;
-  model: string;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  costUsd: string | null;
-  createdAt: string;
+  tokens: string;
+  costUsd: string;
+  missingTokens: number;
+  missingCost: number;
 };
 const features: { key: Feature; label: string; description: string; manualOnly?: boolean }[] = [
   { key: "stikkord", label: "Stikkord", description: "Kort oppsummering av samtaler." },
@@ -255,43 +252,24 @@ export function TeamAiUsage({ embedded = false }: { embedded?: boolean }) {
   const { org } = useOrg();
   const usage = useQuery({
     queryKey: ["ai-usage", org?.id],
-    queryFn: () => request<Usage[]>("/org/ai/usage", org!.id),
+    queryFn: () => request<Usage>("/org/ai/usage", org!.id),
     enabled: !!org,
     refetchInterval: 60_000,
   });
-  const totalTokens =
-    usage.data?.reduce(
-      (sum, row) => sum + (row.promptTokens ?? 0) + (row.completionTokens ?? 0),
-      0,
-    ) ?? 0;
-  const knownCost =
-    usage.data
-      ?.filter((row) => row.costUsd !== null)
-      .reduce((sum, row) => sum + Number(row.costUsd), 0) ?? 0;
+  const totalTokens = Number(usage.data?.tokens ?? 0);
+  const knownCost = Number(usage.data?.costUsd ?? 0);
   const content = (
     <>
-      <h3 className="text-sm font-semibold">AI-bruk · siste 100 kall</h3>
+      <h3 className="text-sm font-semibold">AI-bruk · totalt for teamet</h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        {totalTokens.toLocaleString("nb-NO")} rapporterte tokens · {knownCost.toFixed(4)} USD
-        rapportert kostnad
-        {usage.data?.some((row) => row.costUsd === null) ? " (kostnad mangler for noen kall)" : ""}
+        {totalTokens.toLocaleString("nb-NO")} tokens, USD {knownCost.toFixed(2)} brukt
       </p>
-      <div className="mt-3 max-h-48 space-y-1 overflow-y-auto">
-        {usage.data?.map((row) => (
-          <div
-            key={row.id}
-            className="flex justify-between gap-3 border-b border-border py-1 text-xs"
-          >
-            <span>
-              {row.feature} · {row.model}
-            </span>
-            <span>
-              {(row.promptTokens ?? 0) + (row.completionTokens ?? 0)} tokens ·{" "}
-              {row.costUsd ? `${Number(row.costUsd).toFixed(5)} USD` : "ukjent kostnad"}
-            </span>
-          </div>
-        ))}
-      </div>
+      {!!usage.data && (usage.data.missingTokens > 0 || usage.data.missingCost > 0) && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Ufullstendig sum: tokenbruk mangler for {usage.data.missingTokens} kall og kostnad for{" "}
+          {usage.data.missingCost} kall.
+        </p>
+      )}
     </>
   );
   return embedded ? (

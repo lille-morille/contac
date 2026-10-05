@@ -6742,7 +6742,6 @@ function Settings({
             : "Klasseinnstillinger"}
       </h1>
       {section === "profile" && <ProfileEditor />}
-      {section === "profile" && <TeamAiUsage />}
       {section === "profile" && (
         <Card className="p-5">
           <h2 className="font-semibold">Profil</h2>

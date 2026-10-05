@@ -978,13 +978,16 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({ newContactsAllowExternalAi: row.newContactsAllowExternalAi });
   });
   app.get("/v1/org/ai/usage", async (c) => {
-    const rows = await deps.db
-      .select()
+    const [totals] = await deps.db
+      .select({
+        tokens: sql<string>`coalesce(sum(coalesce(${aiUsage.promptTokens}, 0) + coalesce(${aiUsage.completionTokens}, 0)), 0)::text`,
+        costUsd: sql<string>`coalesce(sum(${aiUsage.costUsd}::numeric), 0)::text`,
+        missingTokens: sql<number>`count(*) filter (where ${aiUsage.promptTokens} is null or ${aiUsage.completionTokens} is null)::int`,
+        missingCost: sql<number>`count(*) filter (where ${aiUsage.costUsd} is null)::int`,
+      })
       .from(aiUsage)
-      .where(eq(aiUsage.orgId, c.get("org").id))
-      .orderBy(desc(aiUsage.createdAt))
-      .limit(100);
-    return c.json(rows);
+      .where(eq(aiUsage.orgId, c.get("org").id));
+    return c.json(totals);
   });
   app.get("/v1/org/ai/contacts/:id", async (c) => {
     const contactId = id.safeParse(c.req.param("id"));
