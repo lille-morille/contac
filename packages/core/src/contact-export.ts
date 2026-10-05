@@ -5,9 +5,6 @@ export type ExportContact = {
   status: string;
   companyId: string;
   companyName: string;
-  departmentId: string | null;
-  departmentName: string | null;
-  position: string | null;
   email: string | null;
   phone: string | null;
   description: string | null;

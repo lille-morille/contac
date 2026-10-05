@@ -26,7 +26,6 @@ export type TeamPeer = { userId: string; contactId: string | null; editingId: st
 
 const core = new Set([
   "companies",
-  "departments",
   "domain_tags",
   "company_domains",
   "person_tags",

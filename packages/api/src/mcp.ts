@@ -7,7 +7,6 @@ import {
   contactActivities,
   contactPersonTags,
   contacts,
-  departments,
   domainTags,
   emailActivities,
   libraryItems,
@@ -69,14 +68,9 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
         .select({
           contact: contacts,
           companyName: companies.name,
-          departmentName: departments.name,
         })
         .from(contacts)
         .innerJoin(companies, and(eq(companies.id, contacts.companyId), eq(companies.orgId, orgId)))
-        .leftJoin(
-          departments,
-          and(eq(departments.id, contacts.departmentId), eq(departments.orgId, orgId)),
-        )
         .where(
           and(
             eq(contacts.orgId, orgId),
@@ -96,7 +90,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     "get_contact",
     {
       description:
-        "Get a contact with its organization, department, tags, shared note, summaries, linked activities, transcripts, email details, and attachment metadata.",
+        "Get a contact with its organization, tags, shared note, summaries, linked activities, transcripts, email details, and attachment metadata.",
       inputSchema: z.object({ contactId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
@@ -113,17 +107,11 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           ),
         );
       if (!contact) return failed("Contact not found in this team");
-      const [[company], departmentRows, tags, activityRows] = await Promise.all([
+      const [[company], tags, activityRows] = await Promise.all([
         deps.db
           .select()
           .from(companies)
           .where(and(eq(companies.orgId, orgId), eq(companies.id, contact.companyId))),
-        contact.departmentId
-          ? deps.db
-              .select()
-              .from(departments)
-              .where(and(eq(departments.orgId, orgId), eq(departments.id, contact.departmentId)))
-          : Promise.resolve([]),
         deps.db
           .select({ id: personTags.id, name: personTags.name, description: personTags.description })
           .from(contactPersonTags)
@@ -184,7 +172,6 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
       return result({
         contact,
         company,
-        department: departmentRows[0] ?? null,
         tags,
         activities: activityRows.map(({ activity }) => ({
           ...activity,
@@ -202,39 +189,32 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     "list_team_reference",
     {
       description:
-        "List organizations, departments, domains, domain links, and person tags for this team. Use IDs when creating contacts.",
+        "List organizations, domains, domain links, and person tags for this team. Use IDs when creating contacts.",
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
     async () => {
-      const [companyRows, departmentRows, domainRows, companyDomainRows, tagRows] =
-        await Promise.all([
-          deps.db
-            .select()
-            .from(companies)
-            .where(eq(companies.orgId, orgId))
-            .orderBy(asc(companies.name)),
-          deps.db
-            .select()
-            .from(departments)
-            .where(eq(departments.orgId, orgId))
-            .orderBy(asc(departments.name)),
-          deps.db
-            .select()
-            .from(domainTags)
-            .where(eq(domainTags.orgId, orgId))
-            .orderBy(asc(domainTags.name)),
-          deps.db.select().from(companyDomains).where(eq(companyDomains.orgId, orgId)),
-          deps.db
-            .select()
-            .from(personTags)
-            .where(eq(personTags.orgId, orgId))
-            .orderBy(asc(personTags.name)),
-        ]);
+      const [companyRows, domainRows, companyDomainRows, tagRows] = await Promise.all([
+        deps.db
+          .select()
+          .from(companies)
+          .where(eq(companies.orgId, orgId))
+          .orderBy(asc(companies.name)),
+        deps.db
+          .select()
+          .from(domainTags)
+          .where(eq(domainTags.orgId, orgId))
+          .orderBy(asc(domainTags.name)),
+        deps.db.select().from(companyDomains).where(eq(companyDomains.orgId, orgId)),
+        deps.db
+          .select()
+          .from(personTags)
+          .where(eq(personTags.orgId, orgId))
+          .orderBy(asc(personTags.name)),
+      ]);
       return result({
         companies: companyRows,
-        departments: departmentRows,
         domains: domainRows,
         companyDomains: companyDomainRows,
         personTags: tagRows,
@@ -362,10 +342,8 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           name: z.string().trim().min(1).max(200),
           companyId: uuid.optional(),
           companyName: z.string().trim().min(1).max(200).optional(),
-          departmentId: uuid.optional(),
           email: z.email().optional(),
           phone: z.string().trim().max(200).optional(),
-          position: z.string().trim().max(200).optional(),
           description: z.string().max(5000).optional(),
           tagIds: z.array(uuid).max(30).optional(),
         })
@@ -407,31 +385,16 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           .from(companies)
           .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId!)));
         if (!company) return null;
-        if (input.departmentId) {
-          const [department] = await tx
-            .select({ id: departments.id })
-            .from(departments)
-            .where(
-              and(
-                eq(departments.orgId, orgId),
-                eq(departments.companyId, companyId!),
-                eq(departments.id, input.departmentId),
-              ),
-            );
-          if (!department) return null;
-        }
         const [contact] = await tx
           .insert(contacts)
           .values({
             orgId,
             companyId: companyId!,
-            departmentId: input.departmentId ?? null,
             name: input.name,
             normalizedName: normalize(input.name),
             email: input.email?.toLowerCase() ?? null,
             phone: input.phone ?? null,
             phoneNormalized: phoneKey(input.phone),
-            position: input.position ?? null,
             description: input.description ?? null,
             createdBy,
             allowExternalAi: true,
@@ -443,7 +406,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
             .values(ids.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
         return contact;
       });
-      if (!row) return failed("Organization or department not found in this team");
+      if (!row) return failed("Organization not found in this team");
       if (row.allowExternalAi)
         queueMicrotask(() => {
           void runContactAutomations(deps, orgId, [row.id], ["hierarchy"]);

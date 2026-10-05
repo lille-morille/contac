@@ -7,7 +7,6 @@ import {
   contactPersonTags,
   contactReminders,
   contacts,
-  departments,
   emailActivities,
   domainTags,
   favoriteContacts,
@@ -64,20 +63,16 @@ const contactInput = z.object({
   name: z.string().trim().min(1).max(200),
   companyId: id.optional(),
   companyName: z.string().trim().min(1).max(200).optional(),
-  departmentId: id.nullable().optional(),
   email: z.email().nullable().optional(),
   phone: blank,
-  position: blank,
   description: z.string().max(5000).nullable().optional(),
   tagIds: z.array(id).optional(),
 });
 const contactPatch = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   companyId: id.optional(),
-  departmentId: id.nullable().optional(),
   email: z.union([z.email(), z.literal(""), z.null()]).optional(),
   phone: blank,
-  position: blank,
   description: z.string().max(5000).nullable().optional(),
   stikkord: z.string().trim().max(300).nullable().optional(),
   status: status.optional(),
@@ -90,10 +85,8 @@ const guardedContactPatch = contactPatch.extend({
 const contactScalarColumns = {
   name: contacts.name,
   companyId: contacts.companyId,
-  departmentId: contacts.departmentId,
   email: contacts.email,
   phone: contacts.phone,
-  position: contacts.position,
   description: contacts.description,
   stikkord: contacts.stikkord,
   status: contacts.status,
@@ -140,7 +133,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (part === "core") {
       const [
         companyRows,
-        departmentRows,
         domainRows,
         companyDomainRows,
         tagRows,
@@ -153,11 +145,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(companies)
           .where(eq(companies.orgId, orgId))
           .orderBy(asc(companies.name)),
-        deps.db
-          .select()
-          .from(departments)
-          .where(eq(departments.orgId, orgId))
-          .orderBy(asc(departments.name)),
         deps.db
           .select()
           .from(domainTags)
@@ -188,7 +175,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       ]);
       return c.json({
         companies: companyRows,
-        departments: departmentRows,
         domains: domainRows,
         companyDomains: companyDomainRows,
         personTags: tagRows,
@@ -252,7 +238,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (part) return c.json({ error: "Unknown contact-data part" }, 400);
     const [
       companyRows,
-      departmentRows,
       domainRows,
       companyDomainRows,
       tagRows,
@@ -271,11 +256,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .from(companies)
         .where(eq(companies.orgId, orgId))
         .orderBy(asc(companies.name)),
-      deps.db
-        .select()
-        .from(departments)
-        .where(eq(departments.orgId, orgId))
-        .orderBy(asc(departments.name)),
       deps.db
         .select()
         .from(domainTags)
@@ -340,7 +320,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     ]);
     return c.json({
       companies: companyRows,
-      departments: departmentRows,
       domains: domainRows,
       companyDomains: companyDomainRows,
       personTags: tagRows,
@@ -406,33 +385,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return latest
       ? c.json({ error: "Organization changed while you were editing", current: latest }, 409)
       : c.json({ error: "Organization not found" }, 404);
-  });
-  app.post("/v1/org/departments", async (c) => {
-    const data = await parse(
-      c,
-      z.object({ companyId: id, name: z.string().trim().min(1).max(200) }),
-    );
-    if (!data) return c.json({ error: "Invalid department" }, 400);
-    const orgId = c.get("org").id;
-    const [company] = await deps.db
-      .select({ id: companies.id })
-      .from(companies)
-      .where(and(eq(companies.id, data.companyId), eq(companies.orgId, orgId)));
-    if (!company) return c.json({ error: "Organization not found" }, 404);
-    const [row] = await deps.db
-      .insert(departments)
-      .values({
-        orgId,
-        companyId: data.companyId,
-        name: data.name,
-        normalizedName: norm(data.name),
-      })
-      .onConflictDoUpdate({
-        target: [departments.companyId, departments.normalizedName],
-        set: { name: data.name },
-      })
-      .returning();
-    return c.json(row, 201);
   });
   app.post("/v1/org/domains", async (c) => {
     const data = await parse(
@@ -628,31 +580,16 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .from(companies)
         .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId!)));
       if (!company) return null;
-      if (data.departmentId) {
-        const [dept] = await tx
-          .select({ id: departments.id })
-          .from(departments)
-          .where(
-            and(
-              eq(departments.orgId, orgId),
-              eq(departments.companyId, companyId!),
-              eq(departments.id, data.departmentId),
-            ),
-          );
-        if (!dept) return null;
-      }
       const [row] = await tx
         .insert(contacts)
         .values({
           orgId,
           companyId: companyId!,
-          departmentId: data.departmentId ?? null,
           name: data.name,
           normalizedName: norm(data.name),
           email: data.email?.toLowerCase() || null,
           phone: data.phone || null,
           phoneNormalized: phoneKey(data.phone),
-          position: data.position || null,
           description: data.description || null,
           createdBy: c.get("user").id,
           allowExternalAi: true,
@@ -704,25 +641,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId)));
       if (!company) return c.json({ error: "Organization not found" }, 404);
     }
-    const departmentId =
-      changes.departmentId === undefined
-        ? changes.companyId && changes.companyId !== current.companyId
-          ? null
-          : current.departmentId
-        : changes.departmentId;
-    if (departmentId) {
-      const [dept] = await deps.db
-        .select({ id: departments.id })
-        .from(departments)
-        .where(
-          and(
-            eq(departments.orgId, orgId),
-            eq(departments.companyId, companyId),
-            eq(departments.id, departmentId),
-          ),
-        );
-      if (!dept) return c.json({ error: "Department does not belong to organization" }, 400);
-    }
     const nextStatus = changes.status ?? current.status;
     const firstAssignment =
       current.status === "ikke_kontaktet" && nextStatus !== "ikke_kontaktet" && !current.assigneeId;
@@ -735,7 +653,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .update(contacts)
       .set({
         ...changes,
-        departmentId,
         assigneeId,
         ...(changes.name ? { normalizedName: norm(changes.name) } : {}),
         ...(changes.email !== undefined ? { email: changes.email?.toLowerCase() || null } : {}),
@@ -778,7 +695,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     else if (
       row &&
       row.allowExternalAi &&
-      ["name", "companyId", "departmentId", "position", "description"].some((key) => key in changes)
+      ["name", "companyId", "description"].some((key) => key in changes)
     )
       queueMicrotask(() => {
         void runContactAutomations(deps, orgId, [row.id], ["hierarchy"]);
@@ -1200,19 +1117,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       z.object({
         primaryId: id,
         duplicateId: id,
-        fields: z
-          .array(
-            z.enum([
-              "name",
-              "companyId",
-              "departmentId",
-              "email",
-              "phone",
-              "position",
-              "description",
-            ]),
-          )
-          .default([]),
+        fields: z.array(z.enum(["name", "companyId", "email", "phone", "description"])).default([]),
         activityIds: z.array(id).default([]),
       }),
     );
@@ -1263,30 +1168,10 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       (fieldPatch as Record<string, unknown>)[field] = duplicate[field];
     if (data.fields.includes("name")) fieldPatch.normalizedName = norm(duplicate.name);
     if (data.fields.includes("phone")) fieldPatch.phoneNormalized = phoneKey(duplicate.phone);
-    const nextCompanyId = fieldPatch.companyId ?? primary.companyId;
-    const nextDepartmentId = data.fields.includes("departmentId")
-      ? duplicate.departmentId
-      : nextCompanyId === primary.companyId
-        ? primary.departmentId
-        : null;
-    if (nextDepartmentId) {
-      const [dept] = await deps.db
-        .select({ id: departments.id })
-        .from(departments)
-        .where(
-          and(
-            eq(departments.orgId, orgId),
-            eq(departments.companyId, nextCompanyId),
-            eq(departments.id, nextDepartmentId),
-          ),
-        );
-      if (!dept)
-        return c.json({ error: "Department does not belong to selected organization" }, 400);
-    }
     await deps.db.transaction(async (tx) => {
       await tx
         .update(contacts)
-        .set({ ...fieldPatch, departmentId: nextDepartmentId, updatedAt: new Date() })
+        .set({ ...fieldPatch, updatedAt: new Date() })
         .where(eq(contacts.id, primary.id));
       const duplicateFavorites = await tx
         .select({ userId: favoriteContacts.userId })

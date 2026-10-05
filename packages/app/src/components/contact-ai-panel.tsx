@@ -30,10 +30,8 @@ type Contact = {
   allowExternalAi: boolean;
   email: string | null;
   phone: string | null;
-  position: string | null;
   description: string | null;
   companyId: string;
-  departmentId: string | null;
   stikkord: string | null;
   stikkordGeneratedAt?: string | null;
 };
@@ -44,11 +42,8 @@ const labels: Record<string, string> = {
   hierarchy: "Hierarki",
   email: "E-post",
   phone: "Telefon",
-  position: "Stilling",
   description: "Kort beskrivelse",
   companyId: "Organisasjon",
-  departmentId: "Avdeling",
-  departmentName: "Ny avdeling",
   domainIds: "Domener",
   newDomainName: "Nytt domene",
   personTagIds: "Persontagger",
@@ -56,18 +51,16 @@ const labels: Record<string, string> = {
 function display(
   value: unknown,
   key: string,
-  data: { companies: Item[]; departments: Item[]; domains: Item[]; tags: Item[] },
+  data: { companies: Item[]; domains: Item[]; tags: Item[] },
 ) {
   const list =
     key === "companyId"
       ? data.companies
-      : key === "departmentId"
-        ? data.departments
-        : key === "domainIds"
-          ? data.domains
-          : key === "personTagIds"
-            ? data.tags
-            : [];
+      : key === "domainIds"
+        ? data.domains
+        : key === "personTagIds"
+          ? data.tags
+          : [];
   if (Array.isArray(value))
     return (
       value.map((item) => list.find((row) => row.id === item)?.name ?? String(item)).join(", ") ||
@@ -80,7 +73,6 @@ function display(
 export function ContactAiPanel({
   contact,
   companies,
-  departments,
   domains,
   tags,
   personTagIds,
@@ -88,7 +80,6 @@ export function ContactAiPanel({
 }: {
   contact: Contact;
   companies: Item[];
-  departments: Item[];
   domains: Item[];
   tags: Item[];
   personTagIds: string[];
@@ -118,15 +109,13 @@ export function ContactAiPanel({
     enabled: !!org,
     refetchInterval: 30_000,
   });
-  const data = { companies, departments, domains, tags };
+  const data = { companies, domains, tags };
   const currentValue = (key: string) =>
-    key === "departmentName"
-      ? (departments.find((item) => item.id === contact.departmentId)?.name ?? null)
-      : key === "personTagIds"
-        ? personTagIds
-        : key === "domainIds"
-          ? domainIds
-          : contact[key as keyof Contact];
+    key === "personTagIds"
+      ? personTagIds
+      : key === "domainIds"
+        ? domainIds
+        : contact[key as keyof Contact];
   async function action(path: string, body: unknown) {
     if (!org) return;
     setBusy(true);

@@ -12,7 +12,6 @@ import {
   contactActivities,
   contactPersonTags,
   contacts,
-  departments,
   domainTags,
   groupAiSummaries,
   organizations,
@@ -22,7 +21,6 @@ import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { decrypt } from "./ai-token.ts";
-import { resolveDepartmentProposal } from "./ai-department.ts";
 import { normalizeDomainName, resolveDomainProposal } from "./ai-domain.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
@@ -139,10 +137,9 @@ function parseJson(output: string): Record<string, unknown> {
 
 async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
   const [person] = await deps.db
-    .select({ contact: contacts, companyName: companies.name, departmentName: departments.name })
+    .select({ contact: contacts, companyName: companies.name })
     .from(contacts)
     .innerJoin(companies, eq(companies.id, contacts.companyId))
-    .leftJoin(departments, eq(departments.id, contacts.departmentId))
     .where(
       and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), ne(contacts.status, "duplicate")),
     );
@@ -204,23 +201,13 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
       person.companyName,
       person.contact.allowExternalAi,
       person.contact.companyId,
-      person.contact.departmentId,
-      person.contact.position,
       person.contact.description,
     ],
   });
   return { person, conversations, version };
 }
 
-const editable = [
-  "email",
-  "phone",
-  "position",
-  "description",
-  "companyId",
-  "departmentId",
-  "stikkord",
-] as const;
+const editable = ["email", "phone", "description", "companyId", "stikkord"] as const;
 type Editable = (typeof editable)[number];
 const domainPalette = [
   "blue",
@@ -271,29 +258,6 @@ async function ensureDomain(
   if (!existing) throw new Error("Kunne ikke opprette domene");
   return existing.id;
 }
-async function ensureDepartment(deps: ApiDeps, orgId: string, companyId: string, rawName: string) {
-  const name = clean(rawName, 200);
-  const normalizedName = name.normalize("NFKC").toLocaleLowerCase("nb-NO").replace(/\s+/g, " ");
-  if (!normalizedName) throw new Error("Avdelingsnavn mangler");
-  const [created] = await deps.db
-    .insert(departments)
-    .values({ orgId, companyId, name, normalizedName })
-    .onConflictDoNothing({ target: [departments.companyId, departments.normalizedName] })
-    .returning({ id: departments.id });
-  if (created) return created.id;
-  const [existing] = await deps.db
-    .select({ id: departments.id })
-    .from(departments)
-    .where(
-      and(
-        eq(departments.orgId, orgId),
-        eq(departments.companyId, companyId),
-        eq(departments.normalizedName, normalizedName),
-      ),
-    );
-  if (!existing) throw new Error("Kunne ikke opprette avdeling");
-  return existing.id;
-}
 function snapshot(contact: typeof contacts.$inferSelect) {
   return {
     ...Object.fromEntries(editable.map((key) => [key, contact[key]])),
@@ -326,11 +290,11 @@ async function applyChange(
   if (!Object.keys(filtered).length) return null;
   const guards = safeOnly
     ? Object.keys(filtered).map((key) =>
-        key === "companyId" || key === "departmentId"
+        key === "companyId"
           ? isNull(contacts[key])
           : or(
-              isNull(contacts[key as "email" | "phone" | "position" | "description" | "stikkord"]),
-              eq(contacts[key as "email" | "phone" | "position" | "description" | "stikkord"], ""),
+              isNull(contacts[key as "email" | "phone" | "description" | "stikkord"]),
+              eq(contacts[key as "email" | "phone" | "description" | "stikkord"], ""),
             ),
       )
     : [];
@@ -478,10 +442,9 @@ async function generateContact(
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
   if (!conversations.length && feature !== "hierarchy")
     throw new Error("Ingen tillatte samtaler å bruke");
-  const missingFields: string[] = (["email", "phone", "position", "description"] as const).filter(
+  const missingFields: string[] = (["email", "phone", "description"] as const).filter(
     (key) => !person.contact[key]?.trim(),
   );
-  if (!person.contact.departmentId) missingFields.push("departmentId", "departmentName");
   if (
     trigger === "automatic" &&
     mode === "safe_auto" &&
@@ -507,7 +470,6 @@ async function generateContact(
         ),
     ]);
     missingHierarchyFields = [
-      ...(!person.contact.departmentId ? ["departmentId", "departmentName"] : []),
       ...(!existingTags.length ? ["personTagIds"] : []),
       ...(!existingDomains.length ? ["domainIds", "newDomainName", "newDomainDescription"] : []),
     ];
@@ -517,10 +479,8 @@ async function generateContact(
     contact: {
       name: person.contact.name,
       organization: person.companyName,
-      department: person.departmentName,
       email: person.contact.email,
       phone: person.contact.phone,
-      position: person.contact.position,
       description: person.contact.description,
     },
     conversations:
@@ -530,23 +490,13 @@ async function generateContact(
           ? conversations.slice(0, 5)
           : conversations,
   };
-  const companyDepartments =
-    feature === "contact_fields" || feature === "hierarchy"
-      ? await deps.db
-          .select({ id: departments.id, companyId: departments.companyId, name: departments.name })
-          .from(departments)
-          .where(
-            and(eq(departments.orgId, orgId), eq(departments.companyId, person.contact.companyId)),
-          )
-      : [];
   let system = "";
   let payload: unknown = base;
   if (feature === "stikkord")
     system =
       "Lag svært korte norske stikkord om viktigste funn for kontakten, maks 300 tegn. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields") {
-    payload = { ...base, options: { departments: companyDepartments } };
-    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, position, description, departmentId, departmentName"}, evidence. Ukjente felter utelates. options.departments inneholder alle eksisterende avdelinger i kontaktens organisasjon. Bruk departmentId hvis samtalen klart viser en av disse. Bruk departmentName bare hvis samtalen tydelig navngir en annen, konkret avdeling; ikke opprett en ny hvis navnet samsvarer med en eksisterende. Bruk aldri begge. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} Description skal være én kort setning på norsk.`;
+    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, description"}, evidence. Ukjente felter utelates. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
   }
   if (feature === "hierarchy") {
     const [companyRows, domainRows, tagRows] = await Promise.all([
@@ -577,12 +527,11 @@ async function generateContact(
       ...base,
       options: {
         companies: companyRows,
-        departments: companyDepartments,
         domains: domainRows,
         personTags: tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå avdeling, domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, departmentId, departmentName, domainIds, newDomainName, newDomainDescription, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. options.departments inneholder alle avdelinger i kontaktens nåværende organisasjon: bruk departmentId ved en klar match. Bruk departmentName bare hvis en konkret annen avdeling blir nevnt og ingen eksisterende avdeling matcher. Bruk aldri begge. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, domainIds, newDomainName, newDomainDescription, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -603,32 +552,21 @@ async function generateContact(
   };
   if (feature === "contact_fields") {
     const fields = Object.fromEntries(
-      ["email", "phone", "position", "description"]
+      ["email", "phone", "description"]
         .map((key) => [key, clean(raw[key], key === "description" ? 500 : 200)])
         .filter(([, value]) => !!value),
     );
-    const department = resolveDepartmentProposal(
-      raw.departmentId,
-      raw.departmentName,
-      person.contact.companyId,
-      person.contact.departmentId,
-      companyDepartments,
-    );
-    if (department.departmentId) fields.departmentId = department.departmentId;
-    if (department.departmentName) fields.departmentName = department.departmentName;
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;
     for (const key of Object.keys(fields)) {
       if (mode === "safe_auto" && !missingFields.includes(key)) delete fields[key];
-      else if (key === "departmentName" || key === "departmentId") continue;
       else if (
-        String(person.contact[key as "email" | "phone" | "position" | "description"] ?? "")
+        String(person.contact[key as "email" | "phone" | "description"] ?? "")
           .trim()
           .toLocaleLowerCase("nb-NO") === String(fields[key]).trim().toLocaleLowerCase("nb-NO")
       )
         delete fields[key];
     }
     suggestion.fields = fields;
-    suggestion.sourceCompanyId = person.contact.companyId;
   }
   if (feature === "hierarchy") {
     const [validCompanies, validDomains, validTags] = await Promise.all([
@@ -655,14 +593,6 @@ async function generateContact(
     const proposedCompany = validCompanies.some((item) => item.id === raw.companyId)
       ? (raw.companyId as string)
       : null;
-    const companyId = proposedCompany ?? person.contact.companyId;
-    const department = resolveDepartmentProposal(
-      raw.departmentId,
-      raw.departmentName,
-      companyId,
-      person.contact.departmentId,
-      companyDepartments,
-    );
     const proposedDomain = resolveDomainProposal(raw.newDomainName, validDomains);
     const proposedDomainDescription = clean(raw.newDomainDescription, 500);
     const chosenDomainIds = Array.isArray(raw.domainIds)
@@ -670,9 +600,6 @@ async function generateContact(
       : [];
     suggestion.hierarchy = {
       companyId: proposedCompany === person.contact.companyId ? null : proposedCompany,
-      departmentId: department.departmentId,
-      departmentName:
-        mode === "safe_auto" && person.contact.departmentId ? null : department.departmentName,
       domainIds: [
         ...chosenDomainIds,
         ...(proposedDomain.domainId ? [proposedDomain.domainId] : []),
@@ -731,8 +658,6 @@ async function generateContact(
       hierarchy.domainIds = [];
     if (
       !hierarchy.companyId &&
-      !hierarchy.departmentId &&
-      !hierarchy.departmentName &&
       !hierarchy.newDomainName &&
       !(hierarchy.personTagIds as string[]).length &&
       !(hierarchy.domainIds as string[]).length
@@ -769,16 +694,11 @@ async function generateContact(
     }
     if (feature === "contact_fields")
       for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>)) {
-        if (key === "departmentName") {
-          if (mode === "dangerous" || !fresh.departmentId)
-            patch.departmentId = await ensureDepartment(deps, orgId, fresh.companyId, value);
-        } else if (mode === "dangerous" || !fresh[key as Editable]) patch[key as Editable] = value;
+        if (mode === "dangerous" || !fresh[key as Editable]) patch[key as Editable] = value;
       }
     if (feature === "hierarchy") {
       const hierarchy = suggestion.hierarchy as {
         companyId: string | null;
-        departmentId: string | null;
-        departmentName: string | null;
         domainIds: string[];
         newDomainName: string | null;
         newDomainDescription: string | null;
@@ -786,19 +706,6 @@ async function generateContact(
       };
       if (hierarchy.companyId && (mode === "dangerous" || !fresh.companyId))
         patch.companyId = hierarchy.companyId;
-      if (hierarchy.departmentId && (mode === "dangerous" || !fresh.departmentId))
-        patch.departmentId = hierarchy.departmentId;
-      if (
-        !patch.departmentId &&
-        hierarchy.departmentName &&
-        (mode === "dangerous" || !fresh.departmentId)
-      )
-        patch.departmentId = await ensureDepartment(
-          deps,
-          orgId,
-          patch.companyId ?? fresh.companyId,
-          hierarchy.departmentName,
-        );
       const [existingTags, existingDomains] = await Promise.all([
         deps.db
           .select({ id: contactPersonTags.tagId })
@@ -847,8 +754,6 @@ async function generateContact(
         changedTags = true;
       }
     }
-    if (patch.companyId && patch.companyId !== fresh.companyId && !patch.departmentId)
-      patch.departmentId = null;
     if (Object.keys(patch).length || changedTags) {
       const applied = Object.keys(patch).length
         ? await applyChange(
@@ -1054,11 +959,8 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
               "stikkord",
               "email",
               "phone",
-              "position",
               "description",
               "companyId",
-              "departmentId",
-              "departmentName",
               "domainIds",
               "newDomainName",
               "personTagIds",
@@ -1074,13 +976,6 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(contacts)
       .where(and(eq(contacts.orgId, orgId), eq(contacts.id, suggestion.contactId)));
     if (!current) return c.json({ error: "Contact not found" }, 404);
-    if (
-      suggestion.feature === "contact_fields" &&
-      (selected.has("departmentId") || selected.has("departmentName")) &&
-      suggestion.payload.sourceCompanyId &&
-      suggestion.payload.sourceCompanyId !== current.companyId
-    )
-      return c.json({ error: "Organisasjonen er endret. Lag et nytt avdelingsforslag." }, 409);
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;
     if (suggestion.feature === "stikkord" && selected.has("stikkord"))
@@ -1089,17 +984,11 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       for (const [key, value] of Object.entries(
         (suggestion.payload.fields as Record<string, string>) ?? {},
       ))
-        if (selected.has(key as Editable)) {
-          if (key === "departmentName")
-            patch.departmentId = await ensureDepartment(deps, orgId, current.companyId, value);
-          else patch[key as Editable] = value;
-        }
+        if (selected.has(key as Editable)) patch[key as Editable] = value;
     if (suggestion.feature === "hierarchy") {
       const hierarchy = suggestion.payload.hierarchy as
         | {
             companyId?: string;
-            departmentId?: string;
-            departmentName?: string;
             domainIds?: string[];
             newDomainName?: string;
             newDomainDescription?: string;
@@ -1107,31 +996,6 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           }
         | undefined;
       if (hierarchy?.companyId && selected.has("companyId")) patch.companyId = hierarchy.companyId;
-      if (hierarchy?.departmentId && selected.has("departmentId"))
-        patch.departmentId = hierarchy.departmentId;
-      if (hierarchy?.departmentName && selected.has("departmentName") && !patch.departmentId) {
-        patch.departmentId = await ensureDepartment(
-          deps,
-          orgId,
-          patch.companyId ?? current.companyId,
-          hierarchy.departmentName,
-        );
-      }
-      if (patch.departmentId) {
-        const [matching] = await deps.db
-          .select({ id: departments.id })
-          .from(departments)
-          .where(
-            and(
-              eq(departments.orgId, orgId),
-              eq(departments.id, patch.departmentId),
-              eq(departments.companyId, patch.companyId ?? current.companyId),
-            ),
-          );
-        if (!matching) return c.json({ error: "Avdelingen tilhører en annen organisasjon" }, 400);
-      }
-      if (patch.companyId && patch.companyId !== current.companyId && !patch.departmentId)
-        patch.departmentId = null;
       if (hierarchy?.personTagIds && selected.has("personTagIds")) {
         await applyTagSet(
           deps,

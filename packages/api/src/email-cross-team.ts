@@ -429,7 +429,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       contact: {
         name: person.contact.name,
         organization: person.companyName,
-        position: person.contact.position,
         description: person.contact.description,
         email: person.contact.email,
       },

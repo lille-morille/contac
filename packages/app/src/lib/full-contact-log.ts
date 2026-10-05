@@ -1,8 +1,6 @@
 export type LogContact = {
   name: string;
   companyName: string;
-  departmentName?: string | null;
-  position?: string | null;
   email?: string | null;
   phone?: string | null;
   description?: string | null;
@@ -23,8 +21,6 @@ export function formatFullContactLog(contact: LogContact, activities: LogActivit
   const header = [
     `Kontakt: ${contact.name}`,
     `Organisasjon: ${contact.companyName}`,
-    contact.departmentName && `Avdeling: ${contact.departmentName}`,
-    contact.position && `Stilling: ${contact.position}`,
     contact.email && `E-post: ${contact.email}`,
     contact.phone && `Telefon: ${contact.phone}`,
     contact.description && `Kort beskrivelse: ${contact.description}`,

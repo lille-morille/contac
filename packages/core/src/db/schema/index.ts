@@ -322,24 +322,6 @@ export const loiVersions = pgTable(
   },
   (table) => [index("loi_versions_loi_idx").on(table.loiId, table.createdAt)],
 );
-export const departments = pgTable(
-  "departments",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    companyId: uuid("company_id")
-      .notNull()
-      .references(() => companies.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    normalizedName: text("normalized_name").notNull(),
-    createdAt: createdAt(),
-  },
-  (table) => [
-    uniqueIndex("departments_company_name_unique").on(table.companyId, table.normalizedName),
-  ],
-);
 export const domainTags = pgTable(
   "domain_tags",
   {
@@ -407,13 +389,11 @@ export const contacts = pgTable(
       .notNull()
       .references(() => companies.id),
     contactNumber: integer("contact_number").notNull().default(0),
-    departmentId: uuid("department_id").references(() => departments.id),
     name: text("name").notNull(),
     normalizedName: text("normalized_name").notNull(),
     email: text("email"),
     phone: text("phone"),
     phoneNormalized: text("phone_normalized"),
-    position: text("position"),
     description: text("description"),
     sharedNote: text("shared_note").notNull().default(""),
     sharedNoteSavedAt: timestamp("shared_note_saved_at", { withTimezone: true }),

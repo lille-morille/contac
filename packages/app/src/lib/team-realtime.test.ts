@@ -51,7 +51,6 @@ describe("team change invalidation", () => {
   it.each([
     ["company_domains", "core"],
     ["contact_person_tags", "core"],
-    ["departments", "core"],
     ["activity_files", "activities"],
     ["workspace_files", "activities"],
     ["email_activities", "activities"],

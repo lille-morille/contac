@@ -6,7 +6,6 @@ import {
   contactActivities,
   contactPersonTags,
   contacts,
-  departments,
   domainTags,
   emailActivities,
   logAccessRequests,
@@ -68,10 +67,9 @@ const normal = (value: string) => value.toLocaleLowerCase("nb-NO").normalize("NF
 async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]> {
   const [people, links, tagRows, domainRows, emailRows] = await Promise.all([
     deps.db
-      .select({ contact: contacts, company: companies.name, department: departments.name })
+      .select({ contact: contacts, company: companies.name })
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
-      .leftJoin(departments, eq(departments.id, contacts.departmentId))
       .where(and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"))),
     deps.db
       .select({ contactId: activityContacts.contactId, activity: contactActivities })
@@ -119,7 +117,7 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
       });
     });
   }
-  for (const { contact, company, department } of people) {
+  for (const { contact, company } of people) {
     const tags = tagRows.filter((row) => row.contactId === contact.id).map((row) => row.name);
     const domains = domainRows
       .filter((row) => row.companyId === contact.companyId)
@@ -131,8 +129,6 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
       [
         contact.name,
         company,
-        department,
-        contact.position,
         contact.email,
         contact.phone,
         contact.description,

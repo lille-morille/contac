@@ -13,8 +13,8 @@ The token can call these tools:
 | Tool | Access |
 | --- | --- |
 | `list_contacts` | Paginated active contacts and their fields |
-| `get_contact` | Full contact, organization, department, tags, note, activities, email records, transcripts, participants, and attachment metadata |
-| `list_team_reference` | Organizations, departments, domains, and person tags |
+| `get_contact` | Full contact, organization, tags, note, activities, email records, transcripts, participants, and attachment metadata |
+| `list_team_reference` | Organizations, domains, and person tags |
 | `list_library_items` | Paginated library quotes |
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | 60-second download URL for a team activity attachment |

@@ -4,7 +4,6 @@ import {
   AlignLeft,
   ArrowDownAZ,
   ArrowDownWideNarrow,
-  BriefcaseBusiness,
   Building2,
   CalendarPlus,
   CalendarDays,
@@ -22,7 +21,6 @@ import {
   Moon,
   BookOpen,
   FileText,
-  Network,
   Phone,
   PhoneCall,
   Pencil,
@@ -147,18 +145,15 @@ type Company = {
   loiLogoFileId: string | null;
   loiLogoUrl: string | null;
 };
-type Department = { id: string; companyId: string; name: string };
 type Domain = { id: string; name: string; description: string | null; color: Color };
 type Tag = { id: string; name: string; description: string | null };
 type Contact = {
   id: string;
   contactNumber: number;
   companyId: string;
-  departmentId: string | null;
   name: string;
   email: string | null;
   phone: string | null;
-  position: string | null;
   description: string | null;
   sharedNote: string;
   sharedNoteSavedAt: string | null;
@@ -317,7 +312,6 @@ function readViewDrafts(key: string): Record<string, ViewSettings> {
 }
 type Data = {
   companies: Company[];
-  departments: Department[];
   domains: Domain[];
   companyDomains: { companyId: string; domainId: string }[];
   personTags: Tag[];
@@ -359,7 +353,6 @@ type Page =
   | "class_settings";
 const emptyData: Data = {
   companies: [],
-  departments: [],
   domains: [],
   companyDomains: [],
   personTags: [],
@@ -616,7 +609,6 @@ function Home() {
         Pick<
           Data,
           | "companies"
-          | "departments"
           | "domains"
           | "companyDomains"
           | "personTags"
@@ -819,7 +811,6 @@ function Home() {
       if (
         contactId ||
         path.startsWith("/companies") ||
-        path.startsWith("/departments") ||
         path.startsWith("/domains") ||
         path.startsWith("/person-tags") ||
         path.endsWith("/tags")
@@ -1204,9 +1195,6 @@ function Home() {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map((contact, index): PaletteItem => {
         const company = data.companies.find((candidate) => candidate.id === contact.companyId);
-        const department = data.departments.find(
-          (candidate) => candidate.id === contact.departmentId,
-        );
         return {
           id: `contact:${contact.id}`,
           group: "contacts",
@@ -1216,10 +1204,8 @@ function Home() {
           searchText: [
             contact.email,
             contact.phone ? "telefon tlf" : null,
-            contact.position,
             contact.description,
             contact.stikkord,
-            department?.name,
           ]
             .filter(Boolean)
             .join(" "),
@@ -1337,12 +1323,7 @@ function Home() {
                 {favorites.map((contact) => {
                   const active = activeSidebarItem === `favorite:${contact.id}`;
                   const company = data.companies.find((item) => item.id === contact.companyId);
-                  const department = data.departments.find(
-                    (item) => item.id === contact.departmentId,
-                  );
-                  const detail =
-                    contact.description?.trim() ||
-                    (department ? `Avdeling: ${department.name}` : "");
+                  const detail = contact.description?.trim() || "";
                   return (
                     <div key={contact.id} className="group relative flex items-center">
                       <button
@@ -3055,7 +3036,7 @@ function ConversationParticipantsPicker({
   const [search, setSearch] = useState("");
   const term = search.trim().toLocaleLowerCase("nb-NO");
   const shown = people.filter((person) =>
-    `${person.name} ${person.position ?? ""} ${person.email ?? ""}`
+    `${person.name} ${person.description ?? ""} ${person.email ?? ""}`
       .toLocaleLowerCase("nb-NO")
       .includes(term),
   );
@@ -3113,9 +3094,9 @@ function ConversationParticipantsPicker({
                 />
                 <span className="min-w-0">
                   <span className="block truncate">{person.name}</span>
-                  {person.position && (
+                  {person.description && (
                     <span className="block truncate text-xs text-muted-foreground">
-                      {person.position}
+                      {person.description}
                     </span>
                   )}
                 </span>
@@ -3663,9 +3644,6 @@ function ContactDetail({
   const { peers } = useTeamRealtime();
   const contactQueryClient = useQueryClient();
   const [compare, setCompare] = useState<string | null>(null);
-  const [departmentDialogOpen, setDepartmentDialogOpen] = useState(false);
-  const [departmentDraft, setDepartmentDraft] = useState("");
-  const [departmentError, setDepartmentError] = useState("");
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [expandedActivityIds, setExpandedActivityIds] = useState<string[]>([]);
@@ -3706,25 +3684,6 @@ function ContactDetail({
         Tilbake
       </Button>
     );
-  async function createDepartment(event: FormEvent) {
-    event.preventDefault();
-    if (!c || !departmentDraft.trim()) return;
-    setDepartmentError("");
-    try {
-      const department = await mutate<Department>("/departments", {
-        companyId: c.companyId,
-        name: departmentDraft.trim(),
-      });
-      await mutate(`/contacts/${c.id}`, {
-        departmentId: department.id,
-        expected: { departmentId: c.departmentId },
-      });
-      setDepartmentDraft("");
-      setDepartmentDialogOpen(false);
-    } catch (cause) {
-      setDepartmentError(cause instanceof Error ? cause.message : "Kunne ikke velge avdeling");
-    }
-  }
   const company = data.companies.find((x) => x.id === c.companyId);
   const timeline = data.activities
     .filter((a) => data.activityContacts.some((x) => x.activityId === a.id && x.contactId === c.id))
@@ -3783,10 +3742,7 @@ function ContactDetail({
                     #{c.contactNumber}
                   </span>
                 </h1>
-                <p className="text-muted-foreground">
-                  {company?.name}
-                  {c.position && ` · ${c.position}`}
-                </p>
+                <p className="text-muted-foreground">{company?.name}</p>
               </div>
               {c.status !== "duplicate" && (
                 <Button
@@ -3857,51 +3813,6 @@ function ContactDetail({
                   onValueChange={(companyId) => void mutate(`/contacts/${c.id}`, { companyId })}
                   items={data.companies.map((x) => ({ value: x.id, label: x.name }))}
                   disabled={c.status === "duplicate"}
-                />
-              </ContactDetailField>
-              <ContactDetailField icon={Network} label="Avdeling">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Select
-                    value={c.departmentId ?? ""}
-                    className={`${detailFieldClass} min-w-0 flex-1`}
-                    aria-label="Avdeling"
-                    onValueChange={(departmentId) =>
-                      void mutate(`/contacts/${c.id}`, { departmentId: departmentId || null })
-                    }
-                    items={[
-                      { value: "", label: "Ingen avdeling" },
-                      ...data.departments
-                        .filter((d) => d.companyId === c.companyId)
-                        .map((d) => ({ value: d.id, label: d.name })),
-                    ]}
-                    disabled={c.status === "duplicate"}
-                  />
-                  {c.status !== "duplicate" && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => {
-                        setDepartmentDraft("");
-                        setDepartmentError("");
-                        setDepartmentDialogOpen(true);
-                      }}
-                    >
-                      <Plus size={14} /> Ny avdeling
-                    </Button>
-                  )}
-                </div>
-              </ContactDetailField>
-              <ContactDetailField icon={BriefcaseBusiness} label="Stilling">
-                <InlineText
-                  value={c.position}
-                  className={detailFieldClass}
-                  disabled={c.status === "duplicate"}
-                  ariaLabel="Stilling"
-                  onSave={(position, old) =>
-                    void mutate(`/contacts/${c.id}`, { position, expected: { position: old } })
-                  }
                 />
               </ContactDetailField>
               <ContactDetailField icon={Mail} label="E-post">
@@ -3999,7 +3910,6 @@ function ContactDetail({
             <ContactAiPanel
               contact={c}
               companies={data.companies}
-              departments={data.departments}
               domains={data.domains}
               tags={data.personTags}
               personTagIds={data.contactPersonTags
@@ -4430,38 +4340,6 @@ function ContactDetail({
         </aside>
       </div>
       <div className="h-[65vh] min-h-[28rem]" aria-hidden="true" />
-      <Dialog open={departmentDialogOpen} onOpenChange={setDepartmentDialogOpen}>
-        <DialogContent>
-          <DialogTitle>Ny avdeling</DialogTitle>
-          <DialogDescription>
-            Opprett en avdeling i {company?.name ?? "organisasjonen"} og knytt {c.name} til den.
-          </DialogDescription>
-          <form className="mt-4 space-y-3" onSubmit={(event) => void createDepartment(event)}>
-            <Input
-              autoFocus
-              required
-              maxLength={200}
-              aria-label="Navn på avdeling"
-              placeholder="Avdelingsnavn"
-              value={departmentDraft}
-              onChange={(event) => setDepartmentDraft(event.target.value)}
-            />
-            {departmentError && <p className="text-sm text-destructive">{departmentError}</p>}
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDepartmentDialogOpen(false)}
-              >
-                Avbryt
-              </Button>
-              <Button type="submit" disabled={busy || !departmentDraft.trim()}>
-                Opprett og velg
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
       <Dialog open={!!compare} onOpenChange={(open) => !open && setCompare(null)}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogTitle>Sammenlign kontakter</DialogTitle>
@@ -4935,30 +4813,18 @@ function DuplicateCompare({
       (link) => link.activityId === a.id && link.contactId === duplicate.id,
     ),
   );
-  const options = [
-    "name",
-    "companyId",
-    "departmentId",
-    "email",
-    "phone",
-    "position",
-    "description",
-  ] as const;
+  const options = ["name", "companyId", "email", "phone", "description"] as const;
   const labels = {
     name: "Navn",
     companyId: "Organisasjon",
-    departmentId: "Avdeling",
     email: "E-post",
     phone: "Telefon",
-    position: "Stilling",
     description: "Beskrivelse",
   };
   const display = (contact: Contact, field: (typeof options)[number]) =>
     field === "companyId"
       ? (data.companies.find((x) => x.id === contact.companyId)?.name ?? "—")
-      : field === "departmentId"
-        ? (data.departments.find((x) => x.id === contact.departmentId)?.name ?? "—")
-        : String(contact[field] || "—");
+      : String(contact[field] || "—");
   async function merge() {
     await mutate("/duplicates/merge", {
       primaryId,
@@ -5088,27 +4954,12 @@ function OrganizationGraph({
     const people = data.contacts.filter(
       (contact) => contact.companyId === company.id && contact.status !== "duplicate",
     );
-    const groups = [
-      ...data.departments
-        .filter((department) => department.companyId === company.id)
-        .map((department) => ({
-          id: department.id,
-          name: department.name,
-          people: people.filter((contact) => contact.departmentId === department.id),
-          type: "department" as const,
-        })),
-      ...people
-        .filter((contact) => !contact.departmentId)
-        .map((contact) => ({
-          id: contact.id,
-          name: contact.name,
-          people: [] as Contact[],
-          type: "contact" as const,
-        })),
-    ];
-    const groupWidths = groups.map((group) =>
-      group.type === "department" ? Math.max(240, group.people.length * 240) : 240,
-    );
+    const groups = people.map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      type: "contact" as const,
+    }));
+    const groupWidths = groups.map(() => 240);
     const groupsWidth =
       groupWidths.reduce((sum, width) => sum + width, 0) + Math.max(0, groups.length - 1) * 30;
     return { company, groups, groupWidths, groupsWidth, width: Math.max(270, groupsWidth + 40) };
@@ -5145,7 +4996,7 @@ function OrganizationGraph({
   type GraphNode = {
     id: string;
     entityId: string;
-    kind: "domain" | "company" | "department" | "contact";
+    kind: "domain" | "company" | "contact";
     label: string;
     subtitle?: string;
     x: number;
@@ -5198,19 +5049,13 @@ function OrganizationGraph({
       y: 180 + yOffset,
     });
     groups.forEach((group) => {
-      const directContact =
-        group.type === "contact" ? data.contacts.find((contact) => contact.id === group.id) : null;
+      const directContact = data.contacts.find((contact) => contact.id === group.id);
       nodes.push({
         id: `${group.type}:${group.id}`,
         entityId: group.id,
         kind: group.type,
         label: group.name,
-        subtitle:
-          group.type === "department"
-            ? `${group.people.length} ${group.people.length === 1 ? "kontakt" : "kontakter"}`
-            : directContact?.description?.trim() ||
-              directContact?.position?.trim() ||
-              "Ingen kort beskrivelse",
+        subtitle: directContact?.description?.trim() || "Ingen kort beskrivelse",
         x: group.x,
         y: 318 + yOffset,
       });
@@ -5221,26 +5066,6 @@ function OrganizationGraph({
         x2: group.x,
         y2: 318 + yOffset,
         color: "var(--border)",
-      });
-      group.people.forEach((person, index) => {
-        const x = group.x + (index - (group.people.length - 1) / 2) * 240;
-        nodes.push({
-          id: `contact:${person.id}`,
-          entityId: person.id,
-          kind: "contact",
-          label: person.name,
-          subtitle: person.description?.trim() || person.position?.trim() || group.name,
-          x,
-          y: 420 + yOffset,
-        });
-        edges.push({
-          id: `department:${group.id}:contact:${person.id}`,
-          x1: group.x,
-          y1: 374 + yOffset,
-          x2: x,
-          y2: 420 + yOffset,
-          color: "var(--border)",
-        });
       });
     });
   });
@@ -5288,16 +5113,9 @@ function OrganizationGraph({
       </AnimatePresence>
       <AnimatePresence initial={false}>
         {nodes.map((node) => {
-          const interactive = node.kind !== "department";
-          const width =
-            node.kind === "company"
-              ? 210
-              : node.kind === "domain"
-                ? 160
-                : node.kind === "department"
-                  ? 210
-                  : 220;
-          const height = node.kind === "contact" ? 72 : node.kind === "department" ? 56 : 50;
+          const interactive = true;
+          const width = node.kind === "company" ? 210 : node.kind === "domain" ? 160 : 220;
+          const height = node.kind === "contact" ? 72 : 50;
           const activate = (anchor: Element) => {
             if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
             else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
@@ -5445,7 +5263,6 @@ function OrganizationMap({
   const [newDomain, setNewDomain] = useState("");
   const [newDomainDescription, setNewDomainDescription] = useState("");
   const [domainColor, setDomainColor] = useState<Color>("blue");
-  const [newDept, setNewDept] = useState("");
   const [loiCompanyId, setLoiCompanyId] = useState<string | null>(null);
   const [summaryScope, setSummaryScope] = useState<{
     kind: "company" | "domain";
@@ -5533,12 +5350,6 @@ function OrganizationMap({
     setDomainDialogOpen(true);
   }
 
-  async function createDept(event: FormEvent) {
-    event.preventDefault();
-    if (!popupCompany || !newDept.trim()) return;
-    await mutate("/departments", { companyId: popupCompany.id, name: newDept.trim() });
-    setNewDept("");
-  }
   async function createDomain(event: FormEvent) {
     event.preventDefault();
     if (!newDomain.trim() || !newDomainDescription.trim()) return;
@@ -5858,18 +5669,6 @@ function OrganizationMap({
                   <p className="text-xs text-muted-foreground">Ingen kontakter ennå.</p>
                 )}
               </div>
-              <form className="mt-4 flex gap-2" onSubmit={(event) => void createDept(event)}>
-                <Input
-                  placeholder="Ny avdeling"
-                  aria-label="Ny avdeling"
-                  value={newDept}
-                  onChange={(event) => setNewDept(event.target.value)}
-                  required
-                />
-                <Button type="submit" size="sm" variant="outline" disabled={busy}>
-                  Legg til
-                </Button>
-              </form>
               <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
                 <Button
                   size="sm"
@@ -5899,13 +5698,7 @@ function OrganizationMap({
               <h2 className="pr-6 text-lg font-semibold">{popupContact.name}</h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 {data.companies.find((candidate) => candidate.id === popupContact.companyId)?.name}
-                {popupContact.departmentId
-                  ? ` · ${data.departments.find((department) => department.id === popupContact.departmentId)?.name ?? ""}`
-                  : ""}
               </p>
-              {popupContact.position && (
-                <p className="mt-3 text-xs text-muted-foreground">{popupContact.position}</p>
-              )}
               <p className="mt-3 whitespace-pre-wrap text-sm leading-5">
                 {popupContact.description?.trim() || "Ingen kort beskrivelse er lagt til."}
               </p>
