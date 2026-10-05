@@ -48,7 +48,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B1: remove contact position and department model across API, AI, MCP, UI, search, export, graph | Done; database migration not run here | `c9300b5` |
 | B3: concise evidence-grounded person description prompt | Prompt updated; representative output review pending | `c9300b5` |
 | B2: create or select organization from the contact detail field | Done | `0c9744d` |
-| C4: independent organization categories, palette colors, neutral default, LOI separation | Done; database migration not run here | This commit |
+| C4: independent organization categories, palette colors, neutral default, LOI separation | Done; database migration not run here | `97b3ff0` |
+| F1: create and edit person tags on contacts, edit domains on map, remove tag CRUD settings | Done | This commit |
 
 ## A. Navigation and daily work
 

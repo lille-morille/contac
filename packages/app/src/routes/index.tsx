@@ -4026,6 +4026,17 @@ function ContactDetail({
                       </button>
                     );
                   })}
+                  {c.status !== "duplicate" && (
+                    <PersonTagEditor
+                      contactId={c.id}
+                      tags={data.personTags}
+                      selectedIds={data.contactPersonTags
+                        .filter((tag) => tag.contactId === c.id)
+                        .map((tag) => tag.tagId)}
+                      mutate={mutate}
+                      busy={busy}
+                    />
+                  )}
                 </div>
               </ContactDetailField>
             </div>
@@ -5513,7 +5524,7 @@ function OrganizationMap({
   }
 
   return (
-    <div className="flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
+    <div className="relative flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
       <h1 className="sr-only">Organisasjoner</h1>
       <div className="flex flex-wrap items-center justify-end gap-4">
         <nav aria-label="Filtrer organisasjonsgrafen" className="flex flex-wrap items-center gap-2">
@@ -5735,6 +5746,11 @@ function OrganizationMap({
           viewportHeight={viewportHeight}
         />
       </section>
+      {selectedDomain && (
+        <div className="absolute bottom-5 left-5 z-10 w-[min(360px,calc(100%-40px))] max-h-[40vh] overflow-y-auto rounded-xl border border-border bg-card p-3 shadow-card">
+          <TagDescription tag={selectedDomain} pathPrefix="/domains" mutate={mutate} busy={busy} />
+        </div>
+      )}
       <Popover
         open={!!activeNode}
         onOpenChange={(open) => {
@@ -5957,21 +5973,32 @@ function OrganizationMap({
     </div>
   );
 }
-function PersonTagSettings({
+function PersonTagEditor({
+  contactId,
   tags,
+  selectedIds,
   mutate,
   busy,
 }: {
+  contactId: string;
   tags: Tag[];
+  selectedIds: string[];
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   async function create(event: FormEvent) {
     event.preventDefault();
     try {
-      await mutate("/person-tags", { name: name.trim(), description: description.trim() });
+      const created = await mutate<Tag>("/person-tags", {
+        name: name.trim(),
+        description: description.trim(),
+      });
+      await mutate(`/contacts/${contactId}/tags`, {
+        tagIds: [...selectedIds, created.id],
+      });
       setName("");
       setDescription("");
     } catch {
@@ -5979,83 +6006,56 @@ function PersonTagSettings({
     }
   }
   return (
-    <Card className="p-5">
-      <h2 className="font-semibold">Persontagger</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Beskriv når hver tagg skal brukes. AI foreslår bare tagger med beskrivelse.
-      </p>
-      <div className="mt-4 space-y-3">
-        {tags.map((tag) => (
-          <TagDescription
-            key={tag.id}
-            tag={tag}
-            pathPrefix="/person-tags"
-            mutate={mutate}
-            busy={busy}
-          />
-        ))}
-      </div>
-      <form
-        className="mt-5 space-y-3 border-t border-border pt-4"
-        onSubmit={(event) => void create(event)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        type="button"
+        className="rounded-lg border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground"
       >
-        <p className="text-sm font-medium">Ny persontagg</p>
-        <Input
-          required
-          maxLength={100}
-          placeholder="Navn, f.eks. Beslutningstaker"
-          aria-label="Navn på ny persontagg"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <Textarea
-          required
-          maxLength={500}
-          placeholder="Når skal denne taggen brukes? Beskriv konkrete kjennetegn."
-          aria-label="Beskrivelse av ny persontagg"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={busy || !name.trim() || !description.trim()}
+        <Plus size={12} className="mr-1 inline" /> Ny/rediger tagger
+      </PopoverTrigger>
+      <PopoverContent className="max-h-[min(600px,calc(100vh-32px))] w-[min(380px,calc(100vw-24px))] overflow-y-auto p-3">
+        <p className="text-sm font-medium">Persontagger</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Beskriv når taggene skal brukes for AI-forslag.
+        </p>
+        <div className="mt-3 space-y-2">
+          {tags.map((tag) => (
+            <TagDescription
+              key={tag.id}
+              tag={tag}
+              pathPrefix="/person-tags"
+              mutate={mutate}
+              busy={busy}
+            />
+          ))}
+        </div>
+        <form
+          className="mt-4 space-y-2 border-t border-border pt-3"
+          onSubmit={(event) => void create(event)}
         >
-          Legg til tagg
-        </Button>
-      </form>
-    </Card>
-  );
-}
-
-function DomainTagSettings({
-  tags,
-  mutate,
-  busy,
-}: {
-  tags: Domain[];
-  mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
-  busy: boolean;
-}) {
-  return (
-    <Card className="p-5">
-      <h2 className="font-semibold">Domener</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Beskriv hvilke organisasjoner hvert domene passer for. Nye domener opprettes fra
-        organisasjonsgrafen.
-      </p>
-      <div className="mt-4 space-y-3">
-        {tags.map((tag) => (
-          <TagDescription
-            key={tag.id}
-            tag={tag}
-            pathPrefix="/domains"
-            mutate={mutate}
-            busy={busy}
+          <p className="text-sm font-medium">Ny persontagg</p>
+          <Input
+            required
+            maxLength={100}
+            placeholder="Navn"
+            aria-label="Navn på ny persontagg"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
           />
-        ))}
-      </div>
-    </Card>
+          <Textarea
+            required
+            maxLength={500}
+            placeholder="Når skal denne taggen brukes?"
+            aria-label="Beskrivelse av ny persontagg"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+          <Button type="submit" size="sm" disabled={busy || !name.trim() || !description.trim()}>
+            Opprett og legg til
+          </Button>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -6313,12 +6313,6 @@ function Settings({
       )}
       {section === "team_settings" && state.org && <TeamAiSettings />}
       {section === "team_settings" && state.org && <TeamMcpSettings orgId={state.org.id} />}
-      {section === "team_settings" && state.org && (
-        <DomainTagSettings tags={data.domains} mutate={mutate} busy={busy} />
-      )}
-      {section === "team_settings" && state.org && (
-        <PersonTagSettings tags={data.personTags} mutate={mutate} busy={busy} />
-      )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>
