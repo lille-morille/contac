@@ -19,6 +19,7 @@ The token can call these tools:
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | 60-second download URL for a team activity attachment |
 | `create_contact` | Create a contact, optionally creating/reusing an organization and attaching separate agent Markdown information |
+| `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result for each input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
 
 The MCP token cannot edit or delete existing contacts, activities, or files; it
@@ -34,6 +35,14 @@ from the shared team note. Team members can edit it there. It is searchable in
 the owning team and returned by `get_contact`, but is excluded from built-in AI
 summaries and deterministic YAML export. Search for an existing person before
 creating a contact.
+
+`batch_create_contacts` accepts up to 100 objects with the same fields as
+`create_contact`. Each is checked against active team contacts using normalized
+name plus organization, email, or phone. Valid nonduplicates are created even
+when another item fails. Results include the input index and either the new
+contact ID and number, duplicate candidates for review, or a validation/write
+error. The single-contact tool also returns duplicate candidates instead of
+creating an obvious duplicate.
 
 Example generic MCP client configuration (client syntax varies):
 

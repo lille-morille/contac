@@ -43,6 +43,18 @@ const page = z.object({
   cursor: uuid.optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
+const contactCreateInput = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    companyId: uuid.optional(),
+    companyName: z.string().trim().min(1).max(200).optional(),
+    email: z.email().optional(),
+    phone: z.string().trim().max(200).optional(),
+    description: z.string().max(5000).optional(),
+    additionalInfo: z.string().trim().min(1).max(20000).optional(),
+    tagIds: z.array(uuid).max(30).optional(),
+  })
+  .refine((input) => !!(input.companyId || input.companyName), "Company ID or name is required");
 const result = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
 });
@@ -54,6 +66,122 @@ const failed = (message: string) => ({
 function makeServer(deps: ApiDeps, identity: TokenIdentity) {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
+
+  async function createOne(input: z.infer<typeof contactCreateInput>) {
+    return deps.db.transaction(async (tx) => {
+      // Serializing team creations makes duplicate decisions within and across
+      // concurrent batches deterministic before any new contact is inserted.
+      const [team] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, orgId))
+        .for("update");
+      if (!team) return { status: "error" as const, error: "Team not found" };
+      const tagIds = [...new Set(input.tagIds ?? [])];
+      if (tagIds.length) {
+        const valid = await tx
+          .select({ id: personTags.id })
+          .from(personTags)
+          .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, tagIds)));
+        if (valid.length !== tagIds.length)
+          return { status: "error" as const, error: "A tag does not belong to this team" };
+      }
+      let companyId = input.companyId;
+      if (!companyId && input.companyName) {
+        const [existing] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(
+            and(
+              eq(companies.orgId, orgId),
+              eq(companies.normalizedName, normalize(input.companyName)),
+            ),
+          );
+        companyId = existing?.id;
+      }
+      if (companyId) {
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId)));
+        if (!company)
+          return { status: "error" as const, error: "Organization not found in this team" };
+      }
+      const email = input.email?.toLowerCase() ?? null;
+      const phone = phoneKey(input.phone);
+      const criteria = [
+        ...(companyId
+          ? [
+              and(
+                eq(contacts.normalizedName, normalize(input.name)),
+                eq(contacts.companyId, companyId),
+              ),
+            ]
+          : []),
+        ...(email ? [eq(contacts.email, email)] : []),
+        ...(phone ? [eq(contacts.phoneNormalized, phone)] : []),
+      ];
+      const candidates = criteria.length
+        ? await tx
+            .select({
+              id: contacts.id,
+              name: contacts.name,
+              companyId: contacts.companyId,
+              email: contacts.email,
+              phone: contacts.phone,
+            })
+            .from(contacts)
+            .where(
+              and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"), or(...criteria)),
+            )
+            .limit(10)
+        : [];
+      if (candidates.length) return { status: "duplicate" as const, candidates };
+      if (!companyId && input.companyName) {
+        const [company] = await tx
+          .insert(companies)
+          .values({
+            orgId,
+            name: input.companyName,
+            normalizedName: normalize(input.companyName),
+          })
+          .onConflictDoUpdate({
+            target: [companies.orgId, companies.normalizedName],
+            set: { name: input.companyName },
+          })
+          .returning({ id: companies.id });
+        companyId = company.id;
+      }
+      if (!companyId) return { status: "error" as const, error: "Organization is required" };
+      const [contact] = await tx
+        .insert(contacts)
+        .values({
+          orgId,
+          companyId,
+          name: input.name,
+          normalizedName: normalize(input.name),
+          email,
+          phone: input.phone ?? null,
+          phoneNormalized: phone,
+          description: input.description ?? null,
+          createdBy,
+          allowExternalAi: true,
+        })
+        .returning();
+      if (tagIds.length)
+        await tx
+          .insert(contactPersonTags)
+          .values(tagIds.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
+      if (input.additionalInfo)
+        await tx.insert(contactAdditionalInfo).values({
+          orgId,
+          contactId: contact.id,
+          source: "agent",
+          markdown: input.additionalInfo,
+        });
+      return { status: "created" as const, contact };
+    });
+  }
 
   server.registerTool(
     "list_contacts",
@@ -349,89 +477,72 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
     {
       description:
         "Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep fields evidence-based; additionalInfo is Markdown context shown separately from the shared note. Does not modify existing contacts.",
-      inputSchema: z
-        .object({
-          name: z.string().trim().min(1).max(200),
-          companyId: uuid.optional(),
-          companyName: z.string().trim().min(1).max(200).optional(),
-          email: z.email().optional(),
-          phone: z.string().trim().max(200).optional(),
-          description: z.string().max(5000).optional(),
-          additionalInfo: z.string().trim().min(1).max(20000).optional(),
-          tagIds: z.array(uuid).max(30).optional(),
-        })
-        .refine(
-          (input) => !!(input.companyId || input.companyName),
-          "Company ID or name is required",
-        ),
+      inputSchema: contactCreateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
     },
     async (input) => {
-      const ids = [...new Set(input.tagIds ?? [])];
-      if (ids.length) {
-        const valid = await deps.db
-          .select({ id: personTags.id })
-          .from(personTags)
-          .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, ids)));
-        if (valid.length !== ids.length) return failed("A tag does not belong to this team");
-      }
-      const row = await deps.db.transaction(async (tx) => {
-        let companyId = input.companyId;
-        if (!companyId && input.companyName) {
-          const [company] = await tx
-            .insert(companies)
-            .values({
-              orgId,
-              name: input.companyName,
-              normalizedName: normalize(input.companyName),
-            })
-            .onConflictDoUpdate({
-              target: [companies.orgId, companies.normalizedName],
-              set: { name: input.companyName },
-            })
-            .returning();
-          companyId = company.id;
-        }
-        const [company] = await tx
-          .select({ id: companies.id })
-          .from(companies)
-          .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId!)));
-        if (!company) return null;
-        const [contact] = await tx
-          .insert(contacts)
-          .values({
-            orgId,
-            companyId: companyId!,
-            name: input.name,
-            normalizedName: normalize(input.name),
-            email: input.email?.toLowerCase() ?? null,
-            phone: input.phone ?? null,
-            phoneNormalized: phoneKey(input.phone),
-            description: input.description ?? null,
-            createdBy,
-            allowExternalAi: true,
-          })
-          .returning();
-        if (ids.length)
-          await tx
-            .insert(contactPersonTags)
-            .values(ids.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
-        if (input.additionalInfo)
-          await tx.insert(contactAdditionalInfo).values({
-            orgId,
-            contactId: contact.id,
-            source: "agent",
-            markdown: input.additionalInfo,
-          });
-        return contact;
-      });
-      if (!row) return failed("Organization not found in this team");
-      if (row.allowExternalAi)
+      const outcome = await createOne(input);
+      if (outcome.status === "error") return failed(outcome.error);
+      if (outcome.status === "duplicate") return result(outcome);
+      if (outcome.contact.allowExternalAi)
         queueMicrotask(() => {
-          void runContactAutomations(deps, orgId, [row.id], ["hierarchy"]);
+          void runContactAutomations(deps, orgId, [outcome.contact.id], ["hierarchy"]);
         });
-      return result(row);
+      return result(outcome.contact);
+    },
+  );
+
+  server.registerTool(
+    "batch_create_contacts",
+    {
+      description:
+        "Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields, including separate additionalInfo Markdown. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.",
+      inputSchema: z.object({ contacts: z.array(z.unknown()).min(1).max(100) }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ contacts: inputs }) => {
+      const results = [];
+      const createdIds: string[] = [];
+      for (const [index, raw] of inputs.entries()) {
+        const parsed = contactCreateInput.safeParse(raw);
+        if (!parsed.success) {
+          results.push({
+            index,
+            status: "error",
+            error: parsed.error.issues.map((issue) => issue.message).join("; "),
+          });
+          continue;
+        }
+        try {
+          const outcome = await createOne(parsed.data);
+          if (outcome.status === "created") {
+            createdIds.push(outcome.contact.id);
+            results.push({
+              index,
+              status: "created",
+              contactId: outcome.contact.id,
+              contactNumber: outcome.contact.contactNumber,
+            });
+          } else if (outcome.status === "duplicate") {
+            results.push({ index, status: "duplicate", candidates: outcome.candidates });
+          } else {
+            results.push({ index, status: "error", error: outcome.error });
+          }
+        } catch (error) {
+          results.push({
+            index,
+            status: "error",
+            error: error instanceof Error ? error.message : "Could not create contact",
+          });
+        }
+      }
+      if (createdIds.length)
+        queueMicrotask(() => {
+          void runContactAutomations(deps, orgId, createdIds, ["hierarchy"]);
+        });
+      return result({ results });
     },
   );
 
