@@ -30,7 +30,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | A6: responsive masonry quote library | Done | `b5102ee` |
 | A4: aligned Sist kontaktet header controls | Done | `f3ea2c7` |
 | A2: phone number copy and optional missed-call reminder | Done | `7584fec` |
-| 07: command palette shortcut opens without toggling closed | Done | This commit |
+| 07: command palette shortcut opens without toggling closed | Done | `4702fdc` |
+| D: report citation syntax and storage location recorded | Done | This commit |
 
 ## A. Navigation and daily work
 
@@ -72,8 +73,8 @@ The Linear-like shortcut system is in [spec 07](07-keyboard-shortcuts.md). The e
 ## D. Typst reporting and citations
 
 1. **Permanent team-scoped contact number.** Assign each contact an immutable, monotonically increasing integer within its team. Allocation must be safe under concurrent creation and have a unique `(team, number)` constraint. Existing contacts receive deterministic backfilled numbers; historical duplicates keep numbers, and deleted numbers are never reused. This number is a reference label, while UUID remains the internal key. Show the number where it helps identify a contact and include it in API and export data.
-2. **Standard report template.** Offer a downloadable, versioned Typst report ZIP independent of the LOI template. The developer will supply the ZIP and its citation syntax when this unit is assigned. Store that centrally maintained asset at a configured location in the storage bucket so it can be updated without team-level editing. It must include or document the files needed for contact references and the contact-log table. Copied snippets must compile against the supplied version. There is no team setting to edit this template.
-3. **Quote citation.** Each usable quote shows `Kopier Typst-sitat` without a separate Typst-mode toggle. The copied snippet includes the quote, the team's contact number, and source metadata sufficient to locate the original activity or note. A quote with a deleted source or missing contact shows a clear unavailable state. Ask the developer for the exact syntax when the report ZIP is supplied, before implementing this action.
+2. **Standard report template.** Offer a downloadable, versioned Typst report ZIP independent of the LOI template. The developer will upload the ZIP later to the private Supabase Storage bucket `workspace-files` at the exact object key `report-templates/contac-report-v1.zip`. The app may point to this currently nonexistent object; show a clear unavailable message until it has been uploaded. The ZIP must include or document the files needed for contact references and the contact-log table. Copied snippets must compile against the supplied version. There is no team setting to edit this template.
+3. **Quote citation.** Each usable quote shows `Kopier Typst-sitat` without a separate Typst-mode toggle. The report citation macro is `#cite-contact(1, 2, ...)`, using permanent team-scoped contact numbers. A single-source quote normally uses `#cite-contact(1)`, and multiple contacts may be cited together. The copied snippet includes the quote, its contact number citation, and source metadata sufficient to locate the original activity or note. A quote with a deleted source or missing contact shows a clear unavailable state. Validate the complete snippet against the ZIP after the developer uploads it.
 4. **Contact-log export.** Offer `Kopier kontaktlogg som YAML` from a team-level reporting/export location. Copy the complete deterministic team log for pasting into a file used by the report template. Preserve the one-activity-once rule, all linked contacts, timestamps, transcript/summary, and attachment metadata. Include team-scoped contact numbers. Remove `Vis full kontaktlogg` and `Last ned YAML` from contact detail. Clipboard copy replaces YAML download; no new download location is needed.
 5. **LOI setting.** Remove team editing/import of the LOI `Typst-mal`; use the built-in LOI source for future LOIs. Existing sent/generated PDF versions remain unchanged. This pre-production workspace does not need a separate migration path for customized team templates.
 
@@ -103,9 +104,9 @@ The Linear-like shortcut system is in [spec 07](07-keyboard-shortcuts.md). The e
 
 **Acceptance examples:** A new teammate can create an invite without choosing a role; team settings begin with product/team name and logo, then invite; AI model selection is inside `Avanserte innstillinger`; lifetime usage includes calls older than the latest 100; no team member loses contact access during role migration.
 
-## Input needed when unit D is assigned
+## Report asset awaiting upload
 
-The developer will provide the versioned report-template ZIP and the exact Typst citation syntax. Confirm the bucket key/versioning convention and copied quote metadata against those files before implementation. No YAML download or Typst-mode toggle is required.
+Upload the version 1 report ZIP to Supabase Storage bucket `workspace-files`, object key `report-templates/contac-report-v1.zip`. The citation syntax is `#cite-contact(1, 2, ...)`; contact numbers are scoped to the current team. The download can report that the template is unavailable until this object exists. Validate the generated quote snippet and YAML filename against the uploaded ZIP. No YAML download or Typst-mode toggle is required.
 
 ## Source map for implementation review
 
