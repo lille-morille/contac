@@ -10,6 +10,11 @@ The product is split into five specifications. **Chunks 01–05 are implemented*
 4. `docs/spec/04-search-and-ai.md`
 5. `docs/spec/05-export-and-loi.md`
 
+The reviewed follow-up is in `docs/spec/06-workflow-and-settings-refresh.md`,
+with keyboard and contact-menu requirements in `docs/spec/07-keyboard-shortcuts.md`.
+Both were assigned for implementation on 2026-10-05. Follow their progress
+table and complete each change before committing it.
+
 The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.
