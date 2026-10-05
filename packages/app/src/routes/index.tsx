@@ -688,6 +688,12 @@ function Home() {
     enabled: !!org && !!state.user?.onboarded,
     refetchInterval: 60_000,
   });
+  const productSettings = useQuery({
+    queryKey: ["loi-settings", org?.id],
+    queryFn: () => request<{ businessName: string }>("/org/loi-settings", org!.id),
+    enabled: !!org && !!state.user?.onboarded,
+    refetchInterval: 60_000,
+  });
   useEffect(() => {
     if (page === "sessions" && sessionSettings.data?.enabled === false) setPage("contacts");
   }, [page, sessionSettings.data?.enabled]);
@@ -1320,7 +1326,7 @@ function Home() {
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
               <Users size={18} />
             </div>
-            <strong>Contac</strong>
+            <strong className="truncate">{productSettings.data?.businessName || "Contac"}</strong>
           </div>
           <button
             type="button"

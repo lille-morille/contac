@@ -265,7 +265,6 @@ export const loiSettings = pgTable("loi_settings", {
     .primaryKey()
     .references(() => organizations.id, { onDelete: "cascade" }),
   businessName: text("business_name").notNull().default(""),
-  templateSource: text("template_source").notNull().default(""),
   logoFileId: uuid("logo_file_id").references(() => workspaceFiles.id, { onDelete: "set null" }),
   updatedAt: updatedAt(),
 });

@@ -35,7 +35,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | D2: authenticated report-template download with missing-asset message | Done; ZIP upload pending | `e560948` |
 | F4: lifetime AI usage total and partial-data indicator | Done | `4148d18` |
 | F3: remove team AI default toggle; new contacts default to allowed | Done | `17b8ee5` |
-| F1: move AI model and feature controls into advanced settings | Done | This commit |
+| F1: move AI model and feature controls into advanced settings | Done | `f84cec7` |
+| D5 and F1: built-in LOI template and product/team name card | Done | This commit |
 
 ## A. Navigation and daily work
 

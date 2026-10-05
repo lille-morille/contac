@@ -71,17 +71,14 @@ export function registerLoiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .where(eq(loiSettings.orgId, c.get("org").id));
     return c.json({
       businessName: settings?.businessName ?? "",
-      templateSource: settings?.templateSource || defaultLoiTemplate,
       logoFileId: settings?.logoFileId ?? null,
-      usesDefaultTemplate: !settings?.templateSource,
     });
   });
   app.post("/v1/org/loi-settings", async (c) => {
     if (c.get("org").role === "member") return c.json({ error: "Admin access required" }, 403);
     const parsed = z
       .object({
-        businessName: z.string().trim().min(1).max(200),
-        templateSource: z.string().max(100_000),
+        businessName: z.string().trim().max(200),
         logoFileId: id.nullable(),
       })
       .safeParse(await c.req.json().catch(() => null));
@@ -326,7 +323,7 @@ export function registerLoiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         pngBytes(deps, orgId, company.loiLogoFileId),
       ]);
       pdf = await compileLoiPdf(
-        settings.templateSource,
+        defaultLoiTemplate,
         {
           team_business_name: settings.businessName,
           organization_name: company.name,
