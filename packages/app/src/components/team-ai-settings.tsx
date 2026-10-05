@@ -5,7 +5,6 @@ import { request } from "../lib/api.ts";
 import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
-import { Checkbox } from "./ui/checkbox.tsx";
 import { Input } from "./ui/input.tsx";
 import { Select } from "./ui/select.tsx";
 
@@ -80,18 +79,10 @@ export function TeamAiSettings() {
     enabled: !!org,
     refetchInterval: 60_000,
   });
-  const teamDefault = useQuery({
-    queryKey: ["ai-team-default", org?.id],
-    queryFn: () =>
-      request<{ newContactsAllowExternalAi: boolean }>("/org/ai/team-default", org!.id),
-    enabled: !!org,
-    refetchInterval: 60_000,
-  });
   const [draftModes, setDraftModes] = useState<Partial<Record<Feature, Mode>>>({});
   const [lowModel, setLowModel] = useState<string | null>(null);
   const [mediumModel, setMediumModel] = useState<string | null>(null);
   const [token, setToken] = useState("");
-  const [defaultAllowed, setDefaultAllowed] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const modes = { ...settings.data?.modes, ...draftModes } as Record<Feature, Mode>;
@@ -109,19 +100,11 @@ export function TeamAiSettings() {
         ...(token.trim() && !clearToken ? { token: token.trim() } : {}),
         ...(clearToken ? { clearToken: true } : {}),
       });
-      if (defaultAllowed !== null)
-        await request("/org/ai/team-default", org.id, {
-          newContactsAllowExternalAi: defaultAllowed,
-        });
       setDraftModes({});
       setLowModel(null);
       setMediumModel(null);
       setToken("");
-      setDefaultAllowed(null);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["checkin-ai", org.id] }),
-        qc.invalidateQueries({ queryKey: ["ai-team-default", org.id] }),
-      ]);
+      await qc.invalidateQueries({ queryKey: ["checkin-ai", org.id] });
       setMessage(
         clearToken
           ? "Tokenet er fjernet og alle funksjoner er slått av."
@@ -216,17 +199,9 @@ export function TeamAiSettings() {
           </div>
         ))}
       </div>
-      <label className="mt-5 flex items-center gap-2 text-sm">
-        <Checkbox
-          aria-label="Tillat ekstern AI for nye kontakter"
-          checked={defaultAllowed ?? teamDefault.data?.newContactsAllowExternalAi ?? true}
-          onCheckedChange={setDefaultAllowed}
-        />{" "}
-        Nye kontakter tillater ekstern AI som standard
-      </label>
       <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-        <ShieldCheck size={13} /> Kan overstyres per kontakt og per aktivitet. Notater sendes aldri
-        til AI.
+        <ShieldCheck size={13} /> Nye kontakter tillater ekstern AI. Dette kan overstyres per
+        kontakt og per aktivitet. Notater sendes aldri til AI.
       </p>
       <div className="mt-5 flex flex-wrap gap-2">
         <Button size="sm" disabled={busy || settings.isLoading} onClick={() => void save()}>

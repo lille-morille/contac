@@ -954,29 +954,6 @@ async function groupContext(
 }
 
 export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
-  app.get("/v1/org/ai/team-default", async (c) => {
-    const [team] = await deps.db
-      .select({ allow: organizations.newContactsAllowExternalAi })
-      .from(organizations)
-      .where(eq(organizations.id, c.get("org").id));
-    return c.json({ newContactsAllowExternalAi: team?.allow ?? true });
-  });
-  app.post("/v1/org/ai/team-default", async (c) => {
-    if (c.get("org").role === "member") return c.json({ error: "Team admin access required" }, 403);
-    const parsed = z
-      .object({ newContactsAllowExternalAi: z.boolean() })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "Invalid setting" }, 400);
-    const [row] = await deps.db
-      .update(organizations)
-      .set({
-        newContactsAllowExternalAi: parsed.data.newContactsAllowExternalAi,
-        updatedAt: new Date(),
-      })
-      .where(eq(organizations.id, c.get("org").id))
-      .returning();
-    return c.json({ newContactsAllowExternalAi: row.newContactsAllowExternalAi });
-  });
   app.get("/v1/org/ai/usage", async (c) => {
     const [totals] = await deps.db
       .select({

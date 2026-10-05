@@ -81,7 +81,6 @@ export const organizations = pgTable("organizations", {
   slug: text("slug").notNull().unique(),
   inboundKey: text("inbound_key"),
   autoShareLogs: boolean("auto_share_logs").notNull().default(false),
-  newContactsAllowExternalAi: boolean("new_contacts_allow_external_ai").notNull().default(true),
   sessionsEnabled: boolean("sessions_enabled").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

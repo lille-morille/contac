@@ -385,10 +385,6 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
           .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, ids)));
         if (valid.length !== ids.length) return failed("A tag does not belong to this team");
       }
-      const [team] = await deps.db
-        .select({ allow: organizations.newContactsAllowExternalAi })
-        .from(organizations)
-        .where(eq(organizations.id, orgId));
       const row = await deps.db.transaction(async (tx) => {
         let companyId = input.companyId;
         if (!companyId && input.companyName) {
@@ -438,7 +434,7 @@ function makeServer(deps: ApiDeps, identity: TokenIdentity) {
             position: input.position ?? null,
             description: input.description ?? null,
             createdBy,
-            allowExternalAi: team?.allow ?? true,
+            allowExternalAi: true,
           })
           .returning();
         if (ids.length)

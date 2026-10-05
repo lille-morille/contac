@@ -605,10 +605,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (!data || (!data.companyId && !data.companyName))
       return c.json({ error: "Name and organization are required" }, 400);
     const orgId = c.get("org").id;
-    const [team] = await deps.db
-      .select({ allow: organizations.newContactsAllowExternalAi })
-      .from(organizations)
-      .where(eq(organizations.id, orgId));
     if (data.tagIds?.length) {
       const valid = await deps.db
         .select({ id: personTags.id })
@@ -662,7 +658,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           position: data.position || null,
           description: data.description || null,
           createdBy: c.get("user").id,
-          allowExternalAi: team?.allow ?? true,
+          allowExternalAi: true,
         })
         .returning();
       if (data.tagIds?.length) {
