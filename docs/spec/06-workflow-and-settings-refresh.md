@@ -43,7 +43,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | D1: permanent team-scoped contact numbers and export field | Done; database migration not run here | `b87f202` |
 | D4: copy complete YAML from team settings; remove contact-level export buttons | Done | `31e3262` |
 | D3: copy quote with `#cite-contact(...)` and source metadata | Done; template ZIP validation pending | `25209ba` |
-| F5: automatic matched-log sharing; remove team toggle and settings card | Done; database migration not run here | This commit |
+| F5: automatic matched-log sharing; remove team toggle and settings card | Done; database migration not run here | `6a4cc6d` |
+| F2: retire Økter page, session API/data, and AI feature | Done; database migration not run here | This commit |
 
 ## A. Navigation and daily work
 

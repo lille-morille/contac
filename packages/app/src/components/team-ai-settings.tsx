@@ -9,15 +9,8 @@ import { Input } from "./ui/input.tsx";
 import { Select } from "./ui/select.tsx";
 
 type Mode = "off" | "manual" | "suggest" | "safe_auto" | "dangerous";
-type Feature =
-  | "stikkord"
-  | "contact_fields"
-  | "hierarchy"
-  | "group_findings"
-  | "email_draft"
-  | "checkin_summary";
+type Feature = "stikkord" | "contact_fields" | "hierarchy" | "group_findings" | "email_draft";
 type Settings = {
-  enabled: boolean;
   emailDraftEnabled: boolean;
   hasToken: boolean;
   lowModel: string;
@@ -54,12 +47,6 @@ const features: { key: Feature; label: string; description: string; manualOnly?:
     description: "Skriv forslag på forespørsel. Sending skjer i e-postappen.",
     manualOnly: true,
   },
-  {
-    key: "checkin_summary",
-    label: "Øktoppsummering",
-    description: "Sammendrag av valgte aktiviteter i en økt.",
-    manualOnly: true,
-  },
 ];
 const modeItems = [
   { value: "off", label: "Av" },
@@ -92,7 +79,6 @@ export function TeamAiSettings() {
     setMessage("");
     try {
       await request("/org/checkin-ai", org.id, {
-        enabled: !clearToken && modes.checkin_summary === "manual",
         emailDraftEnabled: !clearToken && modes.email_draft === "manual",
         modes: clearToken ? Object.fromEntries(features.map((item) => [item.key, "off"])) : modes,
         lowModel: lowModel ?? settings.data?.lowModel ?? recommended.low,

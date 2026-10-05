@@ -81,7 +81,6 @@ export const organizations = pgTable("organizations", {
   slug: text("slug").notNull().unique(),
   inboundKey: text("inbound_key"),
   nextContactNumber: integer("next_contact_number").notNull().default(1),
-  sessionsEnabled: boolean("sessions_enabled").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -631,28 +630,10 @@ export const libraryItems = pgTable("library_items", {
   createdBy: uuid("created_by").notNull(),
   createdAt: createdAt(),
 });
-export const checkinSessions = pgTable("checkin_sessions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  orgId: uuid("org_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  startedBy: uuid("started_by").notNull(),
-  startedAt: createdAt(),
-  endedBy: uuid("ended_by"),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-  selectedActivityIds: jsonb("selected_activity_ids").$type<string[]>().notNull().default([]),
-  summary: text("summary"),
-  summarySourceVersions: jsonb("summary_source_versions").$type<Record<string, string>>(),
-  summaryCreatedAt: timestamp("summary_created_at", { withTimezone: true }),
-  summaryModel: text("summary_model"),
-  promptTokens: integer("prompt_tokens"),
-  completionTokens: integer("completion_tokens"),
-});
 export const checkinAiSettings = pgTable("checkin_ai_settings", {
   orgId: uuid("org_id")
     .primaryKey()
     .references(() => organizations.id, { onDelete: "cascade" }),
-  enabled: boolean("enabled").notNull().default(false),
   emailDraftEnabled: boolean("email_draft_enabled").notNull().default(false),
   modes: jsonb("modes").$type<Record<string, string>>().notNull().default({}),
   encryptedToken: text("encrypted_token"),

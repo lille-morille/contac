@@ -42,23 +42,18 @@ export const aiFeatures = [
   "hierarchy",
   "group_findings",
   "email_draft",
-  "checkin_summary",
 ] as const;
 export type AiFeature = (typeof aiFeatures)[number];
 export type AiMode = "off" | "manual" | "suggest" | "safe_auto" | "dangerous";
 const id = z.uuid();
 const modes = ["off", "manual", "suggest", "safe_auto", "dangerous"] as const;
 export const featureMode = (
-  settings:
-    | { modes: Record<string, string>; enabled: boolean; emailDraftEnabled: boolean }
-    | undefined,
+  settings: { modes: Record<string, string>; emailDraftEnabled: boolean } | undefined,
   feature: AiFeature,
 ): AiMode => {
   if (!settings) return "off";
   if (feature === "email_draft")
     return settings.modes.email_draft === "manual" || settings.emailDraftEnabled ? "manual" : "off";
-  if (feature === "checkin_summary")
-    return settings.modes.checkin_summary === "manual" || settings.enabled ? "manual" : "off";
   if (feature === "group_findings")
     return settings.modes.group_findings === "manual" ? "manual" : "off";
   return modes.includes(settings.modes[feature] as AiMode)

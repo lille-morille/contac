@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { isActivityAiEligible } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlignLeft,
@@ -212,45 +211,6 @@ type LibraryItem = {
   sourceEdited: boolean;
   createdAt: string;
 };
-type CheckinSession = {
-  id: string;
-  startedBy: string;
-  startedAt: string;
-  endedAt: string | null;
-  selectedActivityIds: string[];
-  summary: string | null;
-  summarySourceVersions: Record<string, string> | null;
-  summaryCreatedAt: string | null;
-  summaryModel: string | null;
-  promptTokens: number | null;
-  completionTokens: number | null;
-};
-type CheckinAiSettings = {
-  enabled: boolean;
-  emailDraftEnabled: boolean;
-  hasToken: boolean;
-  model: string;
-};
-function activityAiAllowed(activity: Activity, data: Data) {
-  const links = data.activityContacts.filter((link) => link.activityId === activity.id);
-  return isActivityAiEligible(
-    activity.allowExternalAiOverride,
-    links.map(
-      (link) =>
-        data.contacts.find((contact) => contact.id === link.contactId)?.allowExternalAi === true,
-    ),
-  );
-}
-function activitySourceVersion(activity: Activity, data: Data) {
-  const linked = data.activityContacts
-    .filter((link) => link.activityId === activity.id)
-    .map((link) => data.contacts.find((contact) => contact.id === link.contactId))
-    .filter((contact): contact is Contact => !!contact)
-    .map((contact) => `${contact.id}:${contact.name}:${contact.allowExternalAi}`)
-    .sort()
-    .join(",");
-  return `${activity.updatedAt}|${linked}`;
-}
 type MissedOutcome = "voicemail" | "busy" | "call_later" | "no_answer" | "no_signal";
 const missedOutcomeLabels: Record<MissedOutcome, string> = {
   voicemail: "Mobilsvar",
@@ -394,7 +354,6 @@ type Page =
   | "duplicates"
   | "organizations"
   | "library"
-  | "sessions"
   | "profile"
   | "team_settings"
   | "class_settings";
@@ -690,21 +649,12 @@ function Home() {
     refetchInterval: 60_000,
   });
   const data: Data = { ...emptyData, ...query.data, ...activityQuery.data, ...personalQuery.data };
-  const sessionSettings = useQuery({
-    queryKey: ["session-settings", org?.id],
-    queryFn: () => request<{ enabled: boolean }>("/org/session-settings", org!.id),
-    enabled: !!org && !!state.user?.onboarded,
-    refetchInterval: 60_000,
-  });
   const productSettings = useQuery({
     queryKey: ["loi-settings", org?.id],
     queryFn: () => request<{ businessName: string }>("/org/loi-settings", org!.id),
     enabled: !!org && !!state.user?.onboarded,
     refetchInterval: 60_000,
   });
-  useEffect(() => {
-    if (page === "sessions" && sessionSettings.data?.enabled === false) setPage("contacts");
-  }, [page, sessionSettings.data?.enabled]);
   useEffect(() => {
     setContact(
       selectedId && data.contacts.some((item) => item.id === selectedId) ? selectedId : null,
@@ -1116,9 +1066,6 @@ function Home() {
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
-    ...(sessionSettings.data?.enabled
-      ? ([["sessions", "Økter", CalendarDays]] as [Page, string, typeof LayoutGrid][])
-      : []),
     ["organizations", "Organisasjoner", Building2],
   ];
   const inboxCount =
@@ -1208,11 +1155,9 @@ function Home() {
         searchText:
           id === "library"
             ? "sitater bokmerker"
-            : id === "sessions"
-              ? "checkin standup oppsummering"
-              : id === "organizations"
-                ? "selskaper bedrifter domener hierarki"
-                : "duplikater",
+            : id === "organizations"
+              ? "selskaper bedrifter domener hierarki"
+              : "duplikater",
         run: () => go(id),
       }),
     ),
@@ -1597,15 +1542,6 @@ function Home() {
               params.set("passage", passage);
               params.set("q", query);
               window.history.replaceState(null, "", `?${params.toString()}`);
-            }}
-          />
-        ) : page === "sessions" ? (
-          <SessionsPage
-            data={data}
-            now={now}
-            onOpen={(contactId, activityId) => {
-              setFocusedActivityId(activityId);
-              setSelectedId(contactId);
             }}
           />
         ) : page === "contacted" ? (
@@ -2184,277 +2120,6 @@ function LibraryPage({
       <p className="mt-4 text-xs text-muted-foreground">
         Notatsitater forblir utenfor AI-sammendrag.
       </p>
-    </div>
-  );
-}
-function SessionsPage({
-  data,
-  now,
-  onOpen,
-}: {
-  data: Data;
-  now: number;
-  onOpen: (contactId: string, activityId: string) => void;
-}) {
-  const { org } = useOrg();
-  const qc = useQueryClient();
-  const [chosenId, setChosenId] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [selectedBySession, setSelectedBySession] = useState<Record<string, string[]>>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const sessions = useQuery({
-    queryKey: ["sessions", org?.id],
-    queryFn: () => request<CheckinSession[]>("/org/sessions", org!.id),
-    enabled: !!org,
-    refetchInterval: 60_000,
-  });
-  const ai = useQuery({
-    queryKey: ["checkin-ai", org?.id],
-    queryFn: () => request<CheckinAiSettings>("/org/checkin-ai", org!.id),
-    enabled: !!org,
-  });
-  const all = sessions.data ?? [];
-  const active = all.find((session) => !session.endedAt);
-  const session = all.find((item) => item.id === chosenId) ?? active ?? all[0];
-  const currentTime = new Date(now).toISOString();
-  const feed = session
-    ? data.activities
-        .filter(
-          (activity) =>
-            activity.createdAt >= session.startedAt &&
-            activity.createdAt <= (session.endedAt ?? currentTime),
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    : [];
-  const defaultSelected = feed
-    .filter((activity) => {
-      const inside =
-        activity.occurredAt >= session!.startedAt &&
-        activity.occurredAt <= (session!.endedAt ?? currentTime);
-      return (
-        activityAiAllowed(activity, data) &&
-        (session!.summary ? session!.selectedActivityIds.includes(activity.id) : inside)
-      );
-    })
-    .map((activity) => activity.id);
-  const selected = session
-    ? (selectedBySession[session.id] ?? defaultSelected).filter((id) => {
-        const activity = data.activities.find((item) => item.id === id);
-        return activity && activityAiAllowed(activity, data);
-      })
-    : [];
-  const stale =
-    !!session?.summary &&
-    session.selectedActivityIds.some((id) => {
-      const activity = data.activities.find((item) => item.id === id);
-      return (
-        !activity ||
-        !activityAiAllowed(activity, data) ||
-        activitySourceVersion(activity, data) !== session.summarySourceVersions?.[id]
-      );
-    });
-  const selectionChanged =
-    !!session?.summary &&
-    (selected.length !== session.selectedActivityIds.length ||
-      selected.some((id) => !session.selectedActivityIds.includes(id)));
-  async function action(path: string, body: unknown) {
-    if (!org) return;
-    setBusy(true);
-    setError("");
-    try {
-      const result = await request<CheckinSession>(`/org${path}`, org.id, body);
-      await qc.invalidateQueries({ queryKey: ["sessions", org.id] });
-      setChosenId(result.id);
-      return result;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Kunne ikke oppdatere økten.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="mx-auto max-w-5xl">
-      <h1 className="sr-only">Økter</h1>
-      <div className="flex flex-wrap justify-end gap-2">
-        {active ? (
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => void action(`/sessions/${active.id}/end`, {})}
-          >
-            Avslutt økt
-          </Button>
-        ) : (
-          <Button disabled={busy} onClick={() => void action("/sessions/start", {})}>
-            Start økt
-          </Button>
-        )}
-        <Button variant="outline" onClick={() => setShowAll((value) => !value)}>
-          Vis alle
-        </Button>
-      </div>
-      {error && (
-        <p role="alert" className="mt-4 rounded-xl bg-risk-soft p-3 text-sm text-risk">
-          {error}
-        </p>
-      )}
-      {showAll && (
-        <Card className="mt-5 p-3">
-          <p className="px-2 pb-2 text-xs font-semibold text-muted-foreground">Alle økter</p>
-          <div className="max-h-52 overflow-y-auto">
-            {all.map((item) => (
-              <button
-                key={item.id}
-                className={`block w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-muted ${session?.id === item.id ? "bg-primary-soft text-primary" : ""}`}
-                onClick={() => {
-                  setChosenId(item.id);
-                  setShowAll(false);
-                }}
-              >
-                {dateTimeLabel(item.startedAt)} ·{" "}
-                {item.endedAt ? `Avsluttet ${dateTimeLabel(item.endedAt)}` : "Pågår"}
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
-      {!session ? (
-        <Card className="mt-5 p-8 text-center text-sm text-muted-foreground">
-          Ingen økter ennå. Start en økt for å samle nye aktiviteter.
-        </Card>
-      ) : (
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <section className="space-y-3">
-            <Card className="p-4">
-              <h2 className="font-semibold">
-                {dateTimeLabel(session.startedAt)} · {session.endedAt ? "Avsluttet" : "Pågår"}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Aktiviteter vises etter når de ble lagt til, selv om aktivitetstiden senere er
-                endret.
-              </p>
-            </Card>
-            {feed.length ? (
-              feed.map((activity) => {
-                const linked = data.activityContacts
-                  .filter((link) => link.activityId === activity.id)
-                  .map((link) => data.contacts.find((contact) => contact.id === link.contactId))
-                  .filter((contact): contact is Contact => !!contact);
-                const outside =
-                  activity.occurredAt < session.startedAt ||
-                  activity.occurredAt > (session.endedAt ?? currentTime);
-                const eligible = activityAiAllowed(activity, data);
-                return (
-                  <Card key={activity.id} className="p-4">
-                    <div className="flex items-start gap-3">
-                      <Checkbox
-                        checked={selected.includes(activity.id)}
-                        disabled={!eligible}
-                        onCheckedChange={(checked) =>
-                          setSelectedBySession((current) => ({
-                            ...current,
-                            [session.id]: checked
-                              ? [...selected, activity.id]
-                              : selected.filter((id) => id !== activity.id),
-                          }))
-                        }
-                        aria-label={`Velg aktivitet ${dateTimeLabel(activity.createdAt)}`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold">
-                          {activity.kind === "meeting"
-                            ? "Møte"
-                            : activity.kind === "phone"
-                              ? "Telefonsamtale"
-                              : "Ubesvart anrop"}{" "}
-                          · {dateTimeLabel(activity.occurredAt)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Lagt til {dateTimeLabel(activity.createdAt)} ·{" "}
-                          {linked.map((contact) => contact.name).join(", ")}
-                        </p>
-                        {outside && (
-                          <p className="mt-1 text-xs text-warn">
-                            Lagt til under økten, men aktivitetstiden er utenfor økten. Ikke valgt
-                            automatisk.
-                          </p>
-                        )}
-                        {!eligible && (
-                          <p className="mt-1 text-xs text-risk">
-                            Ekstern AI er blokkert for denne aktiviteten.
-                          </p>
-                        )}
-                        <p className="mt-3 whitespace-pre-wrap text-sm">
-                          {activity.summary || activity.transcript || "Ingen notater."}
-                        </p>
-                        {linked[0] && (
-                          <button
-                            className="mt-2 text-xs text-primary hover:underline"
-                            onClick={() => onOpen(linked[0]!.id, activity.id)}
-                          >
-                            Åpne aktivitet
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })
-            ) : (
-              <Card className="p-8 text-center text-sm text-muted-foreground">
-                Ingen aktiviteter lagt til i dette tidsrommet.
-              </Card>
-            )}
-          </section>
-          <aside className="space-y-3">
-            <Card className="p-4">
-              <h2 className="font-semibold">Sammendrag</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {selected.length} aktiviteter valgt. Generering sender de valgte aktivitetene til
-                teamets OpenRouter-modell.
-              </p>
-              {!ai.data?.enabled && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  AI-sammendrag er av. Det kan slås på i Teaminnstillinger.
-                </p>
-              )}
-              {session.summary && (
-                <div className="mt-4">
-                  <p className="text-xs text-muted-foreground">
-                    Generert {dateTimeLabel(session.summaryCreatedAt!)} · {session.summaryModel} ·{" "}
-                    {session.promptTokens ?? "?"} inn / {session.completionTokens ?? "?"} ut-tokener
-                  </p>
-                  {(stale || selectionChanged) && (
-                    <Badge variant="neutral">
-                      {stale ? "Kilder endret" : "Utvalg endret"} · generer på nytt
-                    </Badge>
-                  )}
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">
-                    {session.summary}
-                  </p>
-                </div>
-              )}
-              <Button
-                className="mt-4"
-                size="sm"
-                disabled={
-                  busy ||
-                  !selected.length ||
-                  !ai.data?.enabled ||
-                  !ai.data.hasToken ||
-                  !ai.data.model
-                }
-                onClick={() =>
-                  void action(`/sessions/${session.id}/generate`, { activityIds: selected })
-                }
-              >
-                {session.summary ? "Generer på nytt" : "Generer sammendrag"}
-              </Button>
-            </Card>
-          </aside>
-        </div>
-      )}
     </div>
   );
 }
@@ -6555,52 +6220,6 @@ function TagDescription({
   );
 }
 
-function TeamSessionSettings() {
-  const { org } = useOrg();
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const settings = useQuery({
-    queryKey: ["session-settings", org?.id],
-    queryFn: () => request<{ enabled: boolean }>("/org/session-settings", org!.id),
-    enabled: !!org,
-  });
-  async function setEnabled(enabled: boolean) {
-    if (!org) return;
-    setBusy(true);
-    setError("");
-    try {
-      await request("/org/session-settings", org.id, { enabled });
-      await qc.invalidateQueries({ queryKey: ["session-settings", org.id] });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Kunne ikke lagre øktinnstillingen.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Card className="p-5">
-      <h2 className="font-semibold">Økter</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Slå på økter for teamet når dere vil samle aktiviteter i en felles gjennomgang.
-      </p>
-      <label className="mt-4 flex items-center gap-2 text-sm">
-        <Checkbox
-          aria-label="Aktiver økter for teamet"
-          checked={settings.data?.enabled ?? false}
-          disabled={busy || !settings.data}
-          onCheckedChange={(checked) => void setEnabled(checked === true)}
-        />
-        Aktiver økter for teamet
-      </label>
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-risk">
-          {error}
-        </p>
-      )}
-    </Card>
-  );
-}
 function Settings({
   section,
   state,
@@ -6696,7 +6315,6 @@ function Settings({
       )}
       {section === "team_settings" && state.org && <TeamLoiSettings />}
       {section === "team_settings" && inviteCard}
-      {section === "team_settings" && state.org && <TeamSessionSettings />}
       {section === "team_settings" && state.org && (
         <Card className="p-5">
           <h2 className="font-semibold">Rapportmal</h2>
