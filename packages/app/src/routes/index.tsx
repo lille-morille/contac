@@ -6711,6 +6711,7 @@ function Settings({
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
+  const [reportError, setReportError] = useState("");
   async function createTeam(e: FormEvent) {
     e.preventDefault();
     try {
@@ -6768,6 +6769,38 @@ function Settings({
         </Card>
       )}
       {section === "team_settings" && state.org?.role !== "member" && <TeamSessionSettings />}
+      {section === "team_settings" && state.org && (
+        <Card className="p-5">
+          <h2 className="font-semibold">Rapportmal</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Last ned Typst-malen for rapporten. Siter kontakter med teamets kontaktnummer, for
+            eksempel <code>#cite-contact(1, 2)</code>.
+          </p>
+          <Button
+            className="mt-4"
+            variant="outline"
+            onClick={() => {
+              setReportError("");
+              void downloadOrgFile(
+                state.org!.id,
+                "/org/export/report-template.zip",
+                "contac-report-v1.zip",
+              ).catch((cause) =>
+                setReportError(
+                  cause instanceof Error ? cause.message : "Kunne ikke laste ned malen.",
+                ),
+              );
+            }}
+          >
+            Last ned Typst-rapportmal
+          </Button>
+          {reportError && (
+            <p role="alert" className="mt-2 text-sm text-risk">
+              {reportError}
+            </p>
+          )}
+        </Card>
+      )}
       {section === "team_settings" && state.org?.role !== "member" && <TeamAiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamLoiSettings />}
       {section === "team_settings" && state.org?.role !== "member" && <TeamEmailSettings />}

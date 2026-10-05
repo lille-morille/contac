@@ -5,3 +5,12 @@ Download `kontaktlogg.yaml` from any contact page. The file contains one team, a
 The top-level keys are `schemaVersion`, `team`, `contacts`, and `activities`. `team` has `id` and `name`. Each contact carries identifying fields, organization/department, status, assignee ID, person tags, and organization domains. Each activity carries its kind and timestamps, creator ID, export owner, all linked IDs, complete summary and transcript, missed-call outcome, AI override, email headers when present, and attachment metadata (`id`, name, MIME type, size). Binary attachment bytes are not embedded in YAML. Shared research notes and confirmed duplicate contacts are excluded.
 
 [`kontaktlogg.typ`](kontaktlogg.typ) is a minimal example of importing the YAML and constructing a table. Put it beside the exported file and run `typst compile kontaktlogg.typ kontaktlogg.pdf`. Adapt its columns and layout for the university's final document.
+
+# Typst report template
+
+Upload the version 1 report ZIP to the private Supabase Storage bucket
+`workspace-files` with the exact object key
+`report-templates/contac-report-v1.zip`. The team settings download button
+uses this path. Until the object exists, it reports that the template has not
+been uploaded. Contact citations use `#cite-contact(1, 2, ...)`, where each
+number is permanent within its team.

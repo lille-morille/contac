@@ -21,8 +21,20 @@ import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const id = z.uuid();
+const reportTemplatePath = "report-templates/contac-report-v1.zip";
 
 export function registerContactExportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
+  app.get("/v1/org/export/report-template.zip", async (c) => {
+    const { data, error } = await deps.supabase.storage
+      .from("workspace-files")
+      .download(reportTemplatePath);
+    if (error || !data) return c.json({ error: "Rapportmalen er ikke lastet opp ennå." }, 404);
+    c.header("Content-Type", "application/zip");
+    c.header("Content-Disposition", 'attachment; filename="contac-report-v1.zip"');
+    c.header("Cache-Control", "no-store");
+    return c.body(await data.arrayBuffer());
+  });
+
   app.post("/v1/org/activities/:id/export-owner", async (c) => {
     const activityId = id.safeParse(c.req.param("id"));
     const body = z.object({ contactId: id }).safeParse(await c.req.json().catch(() => null));

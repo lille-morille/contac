@@ -31,7 +31,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | A4: aligned Sist kontaktet header controls | Done | `f3ea2c7` |
 | A2: phone number copy and optional missed-call reminder | Done | `7584fec` |
 | 07: command palette shortcut opens without toggling closed | Done | `4702fdc` |
-| D: report citation syntax and storage location recorded | Done | This commit |
+| D: report citation syntax and storage location recorded | Done | `9022273` |
+| D2: authenticated report-template download with missing-asset message | Done; ZIP upload pending | This commit |
 
 ## A. Navigation and daily work
 
