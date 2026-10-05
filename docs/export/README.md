@@ -1,6 +1,6 @@
 # YAML contact-log contract (v1)
 
-Download `kontaktlogg.yaml` from any contact page. The file contains one team, a list of non-duplicate contacts, and a chronological list of activities. Each activity occurs exactly once. `exportOwnerContactId` is one of its `linkedContactIds`; all linked contacts remain listed even when the activity is printed under one owner.
+Copy the complete YAML from Teaminnstillinger with `Kopier kontaktlogg som YAML`, then paste it into `kontaktlogg.yaml` beside the report template. It contains one team, a list of non-duplicate contacts, and a chronological list of activities. Each activity occurs exactly once. `exportOwnerContactId` is one of its `linkedContactIds`; all linked contacts remain listed even when the activity is printed under one owner.
 
 The top-level keys are `schemaVersion`, `team`, `contacts`, and `activities`. `team` has `id` and `name`. Each contact carries its immutable team-scoped `contactNumber`, identifying fields, organization/department, status, assignee ID, person tags, and organization domains. Each activity carries its kind and timestamps, creator ID, export owner, all linked IDs, complete summary and transcript, missed-call outcome, AI override, email headers when present, and attachment metadata (`id`, name, MIME type, size). Binary attachment bytes are not embedded in YAML. Shared research notes and confirmed duplicate contacts are excluded.
 

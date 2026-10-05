@@ -88,12 +88,18 @@ import { MultiSelect } from "../components/ui/multi-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.tsx";
 import { Select } from "../components/ui/select.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
-import { ApiError, downloadOrgFile, profileAvatarUrl, request, uploadFile } from "../lib/api.ts";
+import {
+  ApiError,
+  downloadOrgFile,
+  profileAvatarUrl,
+  readOrgText,
+  request,
+  uploadFile,
+} from "../lib/api.ts";
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { parseContactPaste, remainingSuggestion } from "../lib/contact-paste.ts";
 import { HighlightedText } from "../lib/search-highlight.tsx";
-import { formatFullContactLog } from "../lib/full-contact-log.ts";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
 import { useTheme } from "../lib/theme.ts";
@@ -1144,14 +1150,14 @@ function Home() {
     {
       id: "action:export",
       group: "actions",
-      title: "Last ned kontaktlogg som YAML",
+      title: "Kopier kontaktlogg som YAML",
       detail: "Eksporter hele teamets kontaktlogg",
-      searchText: "eksport typst last ned",
+      searchText: "eksport typst kopier",
       icon: FileText,
       run: () =>
-        void downloadOrgFile(org.id, "/org/export/contact-log.yaml", "kontaktlogg.yaml").catch(
-          (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
-        ),
+        void readOrgText(org.id, "/org/export/contact-log.yaml")
+          .then(copyText)
+          .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))),
     },
     {
       id: "action:board",
@@ -3968,8 +3974,6 @@ function ContactDetail({
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [expandedActivityIds, setExpandedActivityIds] = useState<string[]>([]);
-  const [showFullLog, setShowFullLog] = useState(false);
-  const [exportError, setExportError] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<{ activityId: string; quote: string } | null>(
     null,
   );
@@ -4030,34 +4034,6 @@ function ContactDetail({
   const timeline = data.activities
     .filter((a) => data.activityContacts.some((x) => x.activityId === a.id && x.contactId === c.id))
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-  const fullLog = formatFullContactLog(
-    {
-      name: c.name,
-      companyName:
-        data.companies.find((item) => item.id === c.companyId)?.name ?? "Ukjent organisasjon",
-      departmentName: data.departments.find((item) => item.id === c.departmentId)?.name,
-      position: c.position,
-      email: c.email,
-      phone: c.phone,
-      description: c.description,
-    },
-    timeline.map((activity) => ({
-      id: activity.id,
-      kind: activity.kind,
-      occurredAt: activity.occurredAt,
-      summary: activity.summary,
-      transcript: activity.transcript,
-      missedOutcome: activity.missedOutcome ? missedOutcomeLabels[activity.missedOutcome] : null,
-      participantNames: data.activityContacts
-        .filter((link) => link.activityId === activity.id)
-        .map((link) => data.contacts.find((person) => person.id === link.contactId)?.name)
-        .filter((name): name is string => !!name),
-      attachmentNames: data.activityFiles
-        .filter((file) => file.activityId === activity.id)
-        .map((file) => file.name),
-      email: data.emailActivities.find((row) => row.activityId === activity.id) ?? null,
-    })),
-  );
   const related = data.contacts.filter(
     (x) =>
       !!c.companyId && x.id !== c.id && x.companyId === c.companyId && x.status !== "duplicate",
@@ -4348,39 +4324,7 @@ function ContactDetail({
             />
           )}
           <Card className="p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-semibold">Aktivitet</h2>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => setShowFullLog(true)}>
-                  Vis full kontaktlogg
-                </Button>
-                {state.org && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setExportError("");
-                      void downloadOrgFile(
-                        state.org!.id,
-                        "/org/export/contact-log.yaml",
-                        "kontaktlogg.yaml",
-                      ).catch((error) =>
-                        setExportError(
-                          error instanceof Error ? error.message : "Kunne ikke laste ned YAML",
-                        ),
-                      );
-                    }}
-                  >
-                    Last ned YAML
-                  </Button>
-                )}
-              </div>
-            </div>
-            {exportError && (
-              <p role="alert" className="mt-2 text-sm text-risk">
-                {exportError}
-              </p>
-            )}
+            <h2 className="font-semibold">Aktivitet</h2>
             {c.status !== "duplicate" && (
               <ActivityComposer
                 contact={c}
@@ -4869,25 +4813,6 @@ function ContactDetail({
               Slett aktivitet
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={showFullLog} onOpenChange={setShowFullLog}>
-        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
-          <DialogTitle>Full kontaktlogg · {c.name}</DialogTitle>
-          <DialogDescription>
-            Alle aktiviteter i kronologisk rekkefølge. Det delte notatet er ikke inkludert.
-          </DialogDescription>
-          <pre className="mt-4 max-h-[55vh] overflow-auto whitespace-pre-wrap rounded-xl bg-muted p-4 text-xs leading-relaxed">
-            {fullLog}
-          </pre>
-          <Button
-            className="mt-3"
-            size="sm"
-            variant="outline"
-            onClick={() => void copyText(fullLog)}
-          >
-            Kopier tekst
-          </Button>
         </DialogContent>
       </Dialog>
     </>
@@ -6664,6 +6589,7 @@ function Settings({
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
   const [reportError, setReportError] = useState("");
+  const [reportMessage, setReportMessage] = useState("");
   async function createTeam(e: FormEvent) {
     e.preventDefault();
     try {
@@ -6766,6 +6692,29 @@ function Settings({
           >
             Last ned Typst-rapportmal
           </Button>
+          <Button
+            className="mt-4 ml-2"
+            variant="outline"
+            onClick={() => {
+              setReportError("");
+              setReportMessage("");
+              void readOrgText(state.org!.id, "/org/export/contact-log.yaml")
+                .then(copyText)
+                .then(() => setReportMessage("Kontaktloggen er kopiert som YAML."))
+                .catch((cause) =>
+                  setReportError(
+                    cause instanceof Error ? cause.message : "Kunne ikke kopiere kontaktloggen.",
+                  ),
+                );
+            }}
+          >
+            Kopier kontaktlogg som YAML
+          </Button>
+          {reportMessage && (
+            <p role="status" className="mt-2 text-sm">
+              {reportMessage}
+            </p>
+          )}
           {reportError && (
             <p role="alert" className="mt-2 text-sm text-risk">
               {reportError}

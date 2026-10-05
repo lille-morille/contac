@@ -56,6 +56,21 @@ export async function downloadOrgFile(orgId: string, path: string, filename: str
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
 }
+export async function readOrgText(orgId: string, path: string): Promise<string> {
+  const { data } = await getSupabase().auth.getSession();
+  if (!data.session) throw new Error("Logg inn før eksport");
+  const response = await fetch(`${env.apiUrl}/v1${path}`, {
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      "x-org-id": orgId,
+    },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? "Kunne ikke lese kontaktloggen");
+  }
+  return response.text();
+}
 export async function uploadFile(orgId: string, file: File): Promise<{ id: string }> {
   const { data } = await getSupabase().auth.getSession();
   if (!data.session) throw new Error("Sign in before uploading");
