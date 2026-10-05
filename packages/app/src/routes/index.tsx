@@ -2087,7 +2087,7 @@ function LibraryPage({
     }
   }
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-6xl">
       <h1 className="sr-only">Sitater</h1>
       <Input
         className="max-w-sm"
@@ -2104,9 +2104,9 @@ function LibraryPage({
       {library.isLoading ? (
         <p className="mt-6 text-sm text-muted-foreground">Laster sitater …</p>
       ) : entries.length ? (
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <div className="mt-5 columns-1 gap-3 sm:columns-2 xl:columns-3">
           {entries.map((item) => (
-            <Card key={item.id} className="p-5">
+            <Card key={item.id} className="mb-3 break-inside-avoid p-5">
               <blockquote className="whitespace-pre-wrap border-l-2 border-primary pl-3 text-sm leading-relaxed">
                 {item.quote}
               </blockquote>
