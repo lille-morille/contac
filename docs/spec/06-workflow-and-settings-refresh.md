@@ -29,7 +29,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | A3: viewport-height Kanban with independent column scrolling | Done | `75a2a13` |
 | A6: responsive masonry quote library | Done | `b5102ee` |
 | A4: aligned Sist kontaktet header controls | Done | `f3ea2c7` |
-| A2: phone number copy and optional missed-call reminder | Done | This commit |
+| A2: phone number copy and optional missed-call reminder | Done | `7584fec` |
+| 07: command palette shortcut opens without toggling closed | Done | This commit |
 
 ## A. Navigation and daily work
 

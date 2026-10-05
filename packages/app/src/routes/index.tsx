@@ -606,11 +606,11 @@ function Home() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) return;
       event.preventDefault();
-      if (!event.repeat) setCommandOpen((current) => !current);
+      if (!event.repeat && !commandOpen) setCommandOpen(true);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canOpenCommand]);
+  }, [canOpenCommand, commandOpen]);
   useEffect(() => {
     if (!inboxOpen) return;
     inboxPanelRef.current?.focus();
