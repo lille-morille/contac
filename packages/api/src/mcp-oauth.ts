@@ -105,24 +105,30 @@ export async function authorizeMcpOauth(
     onFailure?.("missing_or_malformed_bearer");
     return null;
   }
+  let payload;
   try {
-    const { payload } = await jwtVerify(bearer, jwks, {
+    ({ payload } = await jwtVerify(bearer, jwks, {
       issuer,
       audience: `${baseUrl()}${resourcePath}`,
-    });
-    if (!uuid.safeParse(payload.sub).success || !uuid.safeParse(payload.client_id).success) {
-      onFailure?.("missing_subject_or_client");
-      return null;
-    }
-    if (payload.role !== "authenticated") {
-      onFailure?.("unexpected_role");
-      return null;
-    }
-    const identity = await resolveAgentTeam(deps, payload.sub!, payload.client_id as string);
+    }));
+  } catch (error) {
+    onFailure?.(`token_verification_failed:${error instanceof Error ? error.name : "unknown"}`);
+    return null;
+  }
+  if (!uuid.safeParse(payload.sub).success || !uuid.safeParse(payload.client_id).success) {
+    onFailure?.("missing_subject_or_client");
+    return null;
+  }
+  if (payload.role !== "authenticated") {
+    onFailure?.("unexpected_role");
+    return null;
+  }
+  try {
+    const identity = await resolveAgentTeam(deps, payload.sub, payload.client_id as string);
     if (!identity) onFailure?.("no_active_team_grant");
     return identity;
   } catch {
-    onFailure?.("token_verification_or_team_lookup_failed");
+    onFailure?.("team_lookup_failed");
     return null;
   }
 }
