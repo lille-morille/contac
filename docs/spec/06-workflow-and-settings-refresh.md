@@ -23,6 +23,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
+| Organization map: reduce discrete mouse-wheel panning on both axes while preserving smooth trackpad scrolling and Ctrl/pinch zoom | Done in code; browser acceptance pending | This commit |
 | Kanban cards: show the company beside the contact name when it fits, otherwise move the whole company name below | Done in code; browser acceptance pending | This commit |
 | Class-admin unmatched email inbox: show the team picker above the flyout and allow permanent notification dismissal while retaining the email | Done in code; browser acceptance pending | This commit |
 | Kort beskrivelse: tighten the shared contact and MCP limit to 120 characters | Done in code; live client acceptance pending | This commit |

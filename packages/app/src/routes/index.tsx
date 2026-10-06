@@ -6537,11 +6537,23 @@ function OrganizationGraph({
           scale: Math.min(3, Math.max(0.04, current.scale * Math.exp(-event.deltaY / 320))),
         }));
       } else {
-        const factor = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? viewportHeight : 1;
+        const panDelta = (delta: number) => {
+          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return delta * 9;
+          if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE)
+            return delta * Math.min(viewportHeight * 0.4, 360);
+          // Most mice report a whole 100/120px notch in pixel mode. Keep smooth trackpad deltas.
+          const magnitude = Math.abs(delta);
+          const mouseNotch =
+            magnitude >= 80 &&
+            [100, 120].some(
+              (step) => Math.abs(magnitude / step - Math.round(magnitude / step)) < 0.01,
+            );
+          return mouseNotch ? delta * 0.35 : delta;
+        };
         setView((current) => ({
           ...current,
-          x: current.x - event.deltaX * factor,
-          y: current.y - event.deltaY * factor,
+          x: current.x - panDelta(event.deltaX),
+          y: current.y - panDelta(event.deltaY),
         }));
       }
     };
