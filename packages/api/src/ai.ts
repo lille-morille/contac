@@ -79,10 +79,20 @@ export function partitionSafeAutoFields(
   for (const [key, value] of Object.entries(proposed)) {
     const existing = current[key as "email" | "phone" | "description"]?.trim() ?? "";
     if (existing.toLocaleLowerCase("nb-NO") === value.trim().toLocaleLowerCase("nb-NO")) continue;
-    if (existing) pending[key] = value;
+    // Generated descriptions need representative-output review before automatic application.
+    if (key === "description" || existing) pending[key] = value;
     else automatic[key] = value;
   }
   return { automatic, pending };
+}
+export function partitionAutomaticContactFields(
+  proposed: Record<string, string>,
+  current: { email?: string | null; phone?: string | null; description?: string | null },
+  mode: "safe_auto" | "dangerous",
+) {
+  if (mode === "safe_auto") return partitionSafeAutoFields(proposed, current);
+  const { description, ...automatic } = proposed;
+  return { automatic, pending: description ? { description } : {} };
 }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const clean = (value: unknown, limit = 200) =>
@@ -786,10 +796,11 @@ async function generateContact(
           )
       : [];
   const contactFieldParts =
-    feature === "contact_fields" && mode === "safe_auto"
-      ? partitionSafeAutoFields(
+    feature === "contact_fields" && (mode === "safe_auto" || mode === "dangerous")
+      ? partitionAutomaticContactFields(
           suggestion.fields as Record<string, string>,
           latestContactFields ?? person.contact,
+          mode,
         )
       : null;
   const pendingContactFields = contactFieldParts?.pending ?? null;
@@ -829,7 +840,8 @@ async function generateContact(
       (Array.isArray(value.personTagIds) && value.personTagIds.length > 0) ||
       (Array.isArray(value.domainIds) && value.domainIds.length > 0));
   const shouldAutoApply =
-    mode === "dangerous" ||
+    (mode === "dangerous" &&
+      (feature !== "contact_fields" || !!Object.keys(autoContactFields ?? {}).length)) ||
     (mode === "safe_auto" &&
       (feature === "contact_fields"
         ? !!Object.keys(autoContactFields ?? {}).length

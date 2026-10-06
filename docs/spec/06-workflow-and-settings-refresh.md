@@ -64,7 +64,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B4: inline AI suggestions with per-field decisions, safe-auto review, manual tools, and team-wide audit access | Done; live model output not verified here | `b92fce5` |
 | 07: reversible contact deletion, confirmation, Undo, deleted view, restore links, and active-data filtering | Done; database migration not run here | `d13a73e` |
 | 07: contact shortcuts, choosers, phone/email launch, context menu, and shortcut help | Done; live browser interaction not verified here | `92cf9cb` |
-| B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; live model output and migration not verified here | This commit |
+| B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; live model output and migration not verified here | `b8354c2` |
+| B3: require user review for generated descriptions until representative outputs are checked | Done; live output review pending | This commit |
 
 ## A. Navigation and daily work
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { partitionSafeAutoFields, remainingSuggestion } from "./ai.ts";
+import {
+  partitionAutomaticContactFields,
+  partitionSafeAutoFields,
+  remainingSuggestion,
+} from "./ai.ts";
 
 describe("field-level AI suggestions", () => {
   it("auto-fills blank fields and leaves different filled values for review", () => {
@@ -19,6 +23,25 @@ describe("field-level AI suggestions", () => {
     ).toEqual({
       automatic: { phone: "+47 123 45 678" },
       pending: { description: "Instituttleder for biokjemisk avdeling" },
+    });
+  });
+
+  it("keeps a generated description for review even when its field is blank", () => {
+    expect(
+      partitionSafeAutoFields({ description: "Senior fullstackutvikler" }, { description: null }),
+    ).toEqual({ automatic: {}, pending: { description: "Senior fullstackutvikler" } });
+  });
+
+  it("never automatically applies a generated description in dangerous mode", () => {
+    expect(
+      partitionAutomaticContactFields(
+        { email: "ada@example.no", description: "Senior fullstackutvikler" },
+        { email: "old@example.no", description: "" },
+        "dangerous",
+      ),
+    ).toEqual({
+      automatic: { email: "ada@example.no" },
+      pending: { description: "Senior fullstackutvikler" },
     });
   });
 
