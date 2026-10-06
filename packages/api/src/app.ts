@@ -29,6 +29,7 @@ import { registerContactExportRoutes } from "./contact-export.ts";
 import { registerLoiRoutes } from "./loi.ts";
 import { registerCollabRoutes } from "./collab.ts";
 import { registerMcpRoutes } from "./mcp.ts";
+import { registerTeamAdminRoutes } from "./team-admin.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const uuid = z.uuid();
@@ -371,6 +372,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       return c.json(org, 201);
     },
   );
+  registerTeamAdminRoutes(app, deps);
 
   app.post(
     "/v1/invitations/accept",

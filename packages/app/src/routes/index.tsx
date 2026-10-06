@@ -7471,6 +7471,12 @@ function Settings({
   onSelectTeam: (id: string) => Promise<void>;
 }) {
   const [teamName, setTeamName] = useState("");
+  const [editingTeam, setEditingTeam] = useState<{ id: string; name: string } | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [deletingTeam, setDeletingTeam] = useState<{ id: string; name: string } | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [teamActionBusy, setTeamActionBusy] = useState(false);
+  const [teamError, setTeamError] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
@@ -7478,6 +7484,9 @@ function Settings({
   const [reportMessage, setReportMessage] = useState("");
   async function createTeam(e: FormEvent) {
     e.preventDefault();
+    setTeamActionBusy(true);
+    setTeamError("");
+    setMessage("");
     try {
       const row = await request<{ id: string }>("/organizations", undefined, { name: teamName });
       await state.refresh();
@@ -7485,7 +7494,71 @@ function Settings({
       setTeamName("");
       setMessage("Team opprettet. Lag en invitasjon til teamet.");
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : String(cause));
+      setTeamError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setTeamActionBusy(false);
+    }
+  }
+  async function renameTeam(e: FormEvent) {
+    e.preventDefault();
+    if (!editingTeam) return;
+    if (renameDraft.trim().length < 2) {
+      setTeamError("Teamnavnet må ha minst to tegn.");
+      return;
+    }
+    setTeamActionBusy(true);
+    setTeamError("");
+    setMessage("");
+    try {
+      await request(`/organizations/${editingTeam.id}`, undefined, {
+        name: renameDraft.trim(),
+        expectedName: editingTeam.name,
+      });
+      setEditingTeam(null);
+      setMessage("Teamnavnet er oppdatert.");
+      try {
+        await state.refresh();
+      } catch {
+        setTeamError(
+          "Navnet er lagret, men teamlisten kunne ikke oppdateres. Last inn siden på nytt.",
+        );
+      }
+    } catch (cause) {
+      setTeamError(cause instanceof Error ? cause.message : "Kunne ikke endre teamnavnet.");
+    } finally {
+      setTeamActionBusy(false);
+    }
+  }
+  async function deleteTeam() {
+    if (!deletingTeam || deleteConfirmation !== deletingTeam.name) return;
+    setTeamActionBusy(true);
+    setTeamError("");
+    setMessage("");
+    try {
+      const result = await request<{ deleted: boolean; storageCleanupFailed: boolean }>(
+        `/organizations/${deletingTeam.id}/delete`,
+        undefined,
+        { confirmName: deleteConfirmation },
+      );
+      setDeletingTeam(null);
+      setDeleteConfirmation("");
+      setEditingTeam(null);
+      setMessage(
+        result.storageCleanupFailed
+          ? "Teamet er slettet, men noen filer kunne ikke fjernes fra lagringen. Kontakt driftsansvarlig."
+          : "Teamet og innholdet er slettet.",
+      );
+      try {
+        await state.refresh();
+      } catch {
+        setTeamError(
+          "Teamet er slettet, men teamlisten kunne ikke oppdateres. Last inn siden på nytt.",
+        );
+      }
+    } catch (cause) {
+      setTeamError(cause instanceof Error ? cause.message : "Kunne ikke slette teamet.");
+    } finally {
+      setTeamActionBusy(false);
     }
   }
   async function invite() {
@@ -7646,36 +7719,153 @@ function Settings({
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Opprett team og send den første hemmelige invitasjonen.
+            Opprett, endre og slett team. Invitasjoner oppretter du fra teamfanen.
           </p>
           <form className="mt-4 flex gap-2" onSubmit={(e) => void createTeam(e)}>
             <Input
               required
+              minLength={2}
+              maxLength={100}
               placeholder="Teamnavn"
+              aria-label="Nytt teamnavn"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
             />
-            <Button type="submit">Opprett team</Button>
+            <Button type="submit" disabled={teamActionBusy}>
+              Opprett team
+            </Button>
           </form>
-          <div className="mt-3 text-sm">
+          <div className="mt-5 space-y-2 text-sm">
             {state.organizations.map((o) => (
-              <button
-                key={o.id}
-                className="mr-2 rounded-lg bg-muted px-3 py-1"
-                onClick={() =>
-                  void state
-                    .select(o.id)
-                    .catch((cause) =>
-                      setMessage(cause instanceof Error ? cause.message : String(cause)),
-                    )
-                }
-              >
-                {o.name}
-              </button>
+              <div key={o.id} className="rounded-xl border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium">{o.name}</p>
+                    <p className="break-all text-xs text-muted-foreground">{o.slug}</p>
+                    {state.org?.id === o.id && (
+                      <p className="text-xs text-muted-foreground">Aktivt team</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={teamActionBusy || state.org?.id === o.id}
+                      onClick={() => void onSelectTeam(o.id)}
+                    >
+                      Åpne
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={teamActionBusy}
+                      onClick={() => {
+                        setEditingTeam({ id: o.id, name: o.name });
+                        setRenameDraft(o.name);
+                        setTeamError("");
+                      }}
+                    >
+                      <Pencil size={14} /> Endre navn
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-risk"
+                      disabled={teamActionBusy}
+                      onClick={() => {
+                        setDeletingTeam({ id: o.id, name: o.name });
+                        setDeleteConfirmation("");
+                        setTeamError("");
+                      }}
+                    >
+                      <Trash2 size={14} /> Slett
+                    </Button>
+                  </div>
+                </div>
+                {editingTeam?.id === o.id && (
+                  <form className="mt-3 flex flex-wrap gap-2" onSubmit={(e) => void renameTeam(e)}>
+                    <Input
+                      autoFocus
+                      required
+                      minLength={2}
+                      maxLength={100}
+                      className="min-w-44 flex-1"
+                      aria-label={`Nytt navn for ${o.name}`}
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={
+                        teamActionBusy ||
+                        renameDraft.trim().length < 2 ||
+                        renameDraft.trim() === editingTeam.name
+                      }
+                    >
+                      Lagre navn
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingTeam(null)}>
+                      Avbryt
+                    </Button>
+                  </form>
+                )}
+              </div>
             ))}
           </div>
+          {teamError && (
+            <p role="alert" className="mt-3 text-sm text-risk">
+              {teamError}
+            </p>
+          )}
         </Card>
       )}
+      <Dialog
+        open={!!deletingTeam}
+        onOpenChange={(open) => !open && !teamActionBusy && setDeletingTeam(null)}
+      >
+        <DialogContent>
+          <DialogTitle>Slett teamet {deletingTeam?.name}?</DialogTitle>
+          <DialogDescription>
+            Alle kontakter, samtaler, intensjonsavtaler, invitasjoner og filer i teamet slettes
+            permanent. Medlemmene beholder kontoene sine og eventuelle andre team.
+          </DialogDescription>
+          <p className="mt-3 break-all text-xs text-muted-foreground">
+            Team-ID: {deletingTeam?.id}
+          </p>
+          <label className="mt-4 block text-sm font-medium" htmlFor="confirm-team-name">
+            Skriv {deletingTeam?.name} for å bekrefte
+          </label>
+          <Input
+            id="confirm-team-name"
+            autoFocus
+            className="mt-2"
+            value={deleteConfirmation}
+            onChange={(e) => setDeleteConfirmation(e.target.value)}
+          />
+          {teamError && (
+            <p role="alert" className="mt-2 text-sm text-risk">
+              {teamError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              variant="outline"
+              disabled={teamActionBusy}
+              onClick={() => setDeletingTeam(null)}
+            >
+              Avbryt
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={teamActionBusy || deleteConfirmation !== deletingTeam?.name}
+              onClick={() => void deleteTeam()}
+            >
+              Slett team permanent
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
     </div>
   );
