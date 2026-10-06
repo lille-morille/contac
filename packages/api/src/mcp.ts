@@ -11,6 +11,7 @@ import {
   domainTags,
   emailActivities,
   libraryItems,
+  memberships,
   organizations,
   personTags,
   mcpUserConnections,
@@ -44,6 +45,17 @@ const page = z.object({
   cursor: uuid.optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
+const contactStatus = z.enum([
+  "ikke_kontaktet",
+  "avsluttet",
+  "kan_kontaktes_igjen",
+  "skal_ringe",
+  "venter_pa_svar",
+  "follow_up",
+  "ikke_kontakt_igjen",
+]);
+const additionalInfoGuidance =
+  "Tilleggsinformasjon (Markdown): add useful context beyond Kort beskrivelse, such as evidence-backed relevance, a natural conversation opener, and 2–4 specific questions the team could ask this person. Separate known facts from suggested questions or hypotheses. Do not repeat the short description or invent facts; omit sections without useful evidence.";
 const contactCreateFields = z.object({
   name: z.string().trim().min(1).max(200),
   companyId: uuid.optional(),
@@ -57,7 +69,17 @@ const contactCreateFields = z.object({
       `Kort beskrivelse: a concise, evidence-based Norwegian phrase; max ${CONTACT_DESCRIPTION_MAX_LENGTH} characters`,
     )
     .optional(),
-  additionalInfo: z.string().trim().min(1).max(20000).optional(),
+  additionalInfo: z.string().trim().min(1).max(20000).describe(additionalInfoGuidance).optional(),
+  status: contactStatus
+    .describe(
+      "Initial workflow status; defaults to ikke_kontaktet. Duplicate is not a creation status.",
+    )
+    .optional(),
+  assigneeId: uuid
+    .describe(
+      "ID of a member of this team. If omitted with a nondefault status, the connected user becomes the assignee.",
+    )
+    .optional(),
   tagIds: z.array(uuid).max(30).optional(),
 });
 const hasOrganization = (input: { companyId?: string; companyName?: string }) =>
@@ -118,6 +140,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, tagIds)));
         if (valid.length !== tagIds.length)
           return { status: "error" as const, error: "A tag does not belong to this team" };
+      }
+      if (input.assigneeId) {
+        const [member] = await tx
+          .select({ id: memberships.id })
+          .from(memberships)
+          .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, input.assigneeId)));
+        if (!member) return { status: "error" as const, error: "Assignee must be a team member" };
       }
       let companyId = input.companyId;
       if (!companyId && input.companyName) {
@@ -202,6 +231,10 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           phone: input.phone ?? null,
           phoneNormalized: phone,
           description: input.description ?? null,
+          status: input.status ?? "ikke_kontaktet",
+          assigneeId:
+            input.assigneeId ??
+            (input.status && input.status !== "ikke_kontaktet" ? createdBy : null),
           createdBy,
           allowExternalAi: true,
         })
@@ -528,7 +561,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "create_contact",
     {
-      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context; use additionalInfo Markdown for longer research, shown separately from the shared note. Does not modify existing contacts.`,
+      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context. ${additionalInfoGuidance} Optional status and assigneeId set the initial workflow state and team member. Does not modify existing contacts.`,
       inputSchema: contactCreateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -550,7 +583,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "batch_create_contacts",
     {
-      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters and put longer research in separate additionalInfo Markdown. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
+      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters. ${additionalInfoGuidance} Optional status and assigneeId set each contact's initial workflow state and team member. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
       inputSchema: z.object({
         expectedTeamId: uuid,
         contacts: z.array(z.unknown()).min(1).max(100),

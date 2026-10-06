@@ -115,6 +115,17 @@ members. It is included in the owning team's local search and `get_contact`,
 but excluded from built-in AI and deterministic YAML export. Keep it factual
 and separate from the team's shared note.
 
+Use it for relevant background beyond `Kort beskrivelse`, a natural way to
+start a conversation, and two to four specific questions the team could ask
+the person. Mark questions or hypotheses as suggestions and distinguish them
+from known facts. Omit sections when there is no useful evidence.
+
+Both creation tools accept an optional initial `status` and `assigneeId` per
+contact. `status` defaults to `ikke_kontaktet`; `duplicate` is not accepted.
+`assigneeId` must identify a member of the connected team. If a contact is
+created in another status without an explicit assignee, the connected user is
+assigned, matching the first status-change rule.
+
 The profile instructions are generated from the workspace's currently selected
 team name and immutable ID, and explicitly say that the connection follows the
 workspace team. They contain no credentials. If the selected team changes,
