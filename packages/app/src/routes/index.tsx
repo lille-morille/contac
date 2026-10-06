@@ -5621,6 +5621,7 @@ function AdditionalInformation({
       // Keep the draft visible; the page-level banner explains the failure.
     }
   }
+  if (entries.length === 0) return null;
   return (
     <Card className="p-5" data-additional-info>
       <h2 className="font-semibold">Tilleggsinformasjon</h2>
@@ -5631,9 +5632,6 @@ function AdditionalInformation({
         <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm">
           <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
         </p>
-      )}
-      {entries.length === 0 && (
-        <p className="mt-3 text-sm text-muted-foreground">Ingen tilleggsinformasjon ennå.</p>
       )}
       <div className="mt-3 space-y-3">
         {entries.map((entry) => {
