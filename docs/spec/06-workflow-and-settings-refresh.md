@@ -56,7 +56,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | E1, E2 and E4: profile team selection, personal OAuth connections, copied agent instructions, old token retirement | Done; live OAuth connection not verified here | `e2d5fa5` |
 | E2: reject MCP-scoped OAuth tokens from browser profile and workspace API | Done | `8f91e9d` |
 | C1: outward organization map with background panning, trackpad navigation, zoom, and fit | Done | `51510ed` |
-| C2: map toolbar removal, focused-domain back action, in-place creation and summary | Done; URL focus remains with A1 | This commit |
+| C2: map toolbar removal, focused-domain back action, in-place creation and summary | Done; URL focus remains with A1 | `7088901` |
+| C3: complete wrapped map descriptions, contact tags in popover, selected domain chip contrast | Done | This commit |
 
 ## A. Navigation and daily work
 

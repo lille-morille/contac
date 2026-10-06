@@ -5218,6 +5218,20 @@ type OrganizationSelection =
 
 const graphSpring = { type: "spring" as const, stiffness: 230, damping: 19, mass: 0.85 };
 
+function wrapMapDescription(description: string): string[] {
+  const words = description
+    .trim()
+    .split(/\s+/)
+    .flatMap((word) => word.match(/.{1,31}/g) ?? []);
+  const lines: string[] = [];
+  for (const word of words) {
+    const last = lines.length - 1;
+    if (last >= 0 && lines[last].length + word.length + 1 <= 31) lines[last] += ` ${word}`;
+    else lines.push(word);
+  }
+  return lines;
+}
+
 function OrganizationGraph({
   data,
   companies,
@@ -5262,8 +5276,23 @@ function OrganizationGraph({
   }));
   const domainRadius = domains.length > 1 ? Math.max(170, domains.length * 55) : 0;
   const companyRadius = Math.max(domainRadius + 290, companies.length * 155);
-  const maxRows = Math.max(1, ...companyPeople.map(({ people }) => Math.ceil(people.length / 3)));
-  const graphRadius = companyRadius + 240 + maxRows * 155;
+  const contactHeight = (description: string) =>
+    Math.max(72, 50 + wrapMapDescription(description).length * 15);
+  const rowHeights = companyPeople.map(({ people }) =>
+    Array.from({ length: Math.ceil(people.length / 3) }, (_, row) =>
+      Math.max(
+        72,
+        ...people
+          .slice(row * 3, row * 3 + 3)
+          .map((person) => contactHeight(person.description?.trim() || "Ingen kort beskrivelse")),
+      ),
+    ),
+  );
+  const maxContactReach = Math.max(
+    0,
+    ...rowHeights.map((heights) => heights.reduce((total, height) => total + height + 30, 0)),
+  );
+  const graphRadius = companyRadius + 300 + maxContactReach;
   const graphWidth = graphRadius * 2;
   const graphHeight = graphWidth;
   const center = graphRadius;
@@ -5337,7 +5366,10 @@ function OrganizationGraph({
       const countInRow = Math.min(3, people.length - row * 3);
       const column = contactIndex % 3;
       const lateral = (column - (countInRow - 1) / 2) * 265;
-      const radius = companyRadius + 210 + row * 155;
+      const radius =
+        companyRadius +
+        210 +
+        rowHeights[index].slice(0, row).reduce((total, height) => total + height + 30, 0);
       const x = center + Math.cos(radians) * radius - Math.sin(radians) * lateral;
       const y = center + Math.sin(radians) * radius + Math.cos(radians) * lateral;
       nodes.push({
@@ -5491,7 +5523,8 @@ function OrganizationGraph({
           {nodes.map((node) => {
             const interactive = true;
             const width = node.kind === "company" ? 210 : node.kind === "domain" ? 160 : 220;
-            const height = node.kind === "contact" ? 72 : 50;
+            const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
+            const height = node.kind === "contact" ? contactHeight(node.subtitle ?? "") : 50;
             const activate = (anchor: Element) => {
               if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
               else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
@@ -5583,7 +5616,13 @@ function OrganizationGraph({
                     fill="var(--muted-foreground)"
                     className="pointer-events-none"
                   >
-                    {node.subtitle.length > 30 ? `${node.subtitle.slice(0, 29)}…` : node.subtitle}
+                    {node.kind === "contact"
+                      ? descriptionLines.map((line, index) => (
+                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 15 : 0}>
+                            {line}
+                          </tspan>
+                        ))
+                      : node.subtitle}
                   </text>
                 )}
               </motion.g>
@@ -5877,8 +5916,13 @@ function OrganizationMap({
                       type="button"
                       aria-pressed={linked}
                       disabled={busy}
-                      className={`rounded-lg border px-2 py-1 text-xs transition-colors ${linked ? "bg-card" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
-                      style={{ borderColor: colors[domain.color] }}
+                      className={`rounded-lg border px-2 py-1 text-xs transition-colors ${linked ? "font-semibold text-foreground shadow-sm ring-1 ring-inset ring-primary/20" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+                      style={{
+                        borderColor: colors[domain.color],
+                        backgroundColor: linked
+                          ? `color-mix(in srgb, ${colors[domain.color]} 24%, var(--card))`
+                          : undefined,
+                      }}
                       onClick={() => void toggleDomain(domain.id)}
                     >
                       <span
@@ -5944,13 +5988,22 @@ function OrganizationMap({
               <p className="mt-3 whitespace-pre-wrap text-sm leading-5">
                 {popupContact.description?.trim() || "Ingen kort beskrivelse er lagt til."}
               </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {data.contactPersonTags
+                  .filter((link) => link.contactId === popupContact.id)
+                  .map((link) => {
+                    const tag = data.personTags.find((candidate) => candidate.id === link.tagId);
+                    return tag ? (
+                      <Badge key={tag.id} variant="neutral">
+                        {tag.name}
+                      </Badge>
+                    ) : null;
+                  })}
+              </div>
               <div className="mt-3">
                 <ContactStatusBadge status={popupContact.status} />
               </div>
-              <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-3">
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {popupContact.email || popupContact.phone || ""}
-                </span>
+              <div className="mt-4 flex justify-end border-t border-border pt-3">
                 <Button
                   size="sm"
                   className="shrink-0"
