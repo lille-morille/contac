@@ -15,7 +15,7 @@ The current app is a single TanStack route with in-memory page selection; only s
 | C | Organization map and group summary repair | B for removal of departments | Done in code; browser acceptance pending |
 | D | Typst report, citation IDs, and contact-log export | B for contact model and IDs | Done in code; report ZIP upload and compile check pending |
 | E | MCP contact creation and personal agent connection | B for new contact fields; F for team access | Done in code; live OAuth connection pending |
-| F | Team settings, sharing, roles, and usage | Access-control migration | Done in code; database migration pending |
+| F | Team settings, sharing, roles, and usage | Access-control migration | Done; production database migrated 2026-10-06 |
 
 All units were assigned by the product owner. Mark each completed change in the implementation log with its commit before moving to the next change.
 
@@ -23,7 +23,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Email draft mailto link: percent-encode spaces for desktop mail apps | Done | This commit |
+| Production recovery: apply migrations 0032–0044, preserve old position and department text, and fix the API rollout around host port 25 | Done; production database and API verified 2026-10-06 | This commit |
+| Email draft mailto link: percent-encode spaces for desktop mail apps | Done | `b26e9ad` |
 | Reviewed specs 06 and 07 recorded | Done | `4fa200b` |
 | A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | `6d325e2` |
 | A5 and A7: conditional duplicates navigation, Kontaktlogg label, simpler sidebar | Done | `8b99a62` |
@@ -41,17 +42,17 @@ All units were assigned by the product owner. Mark each completed change in the 
 | F6 and F1: flat team permissions and invitation directly below product name | Done | `911626e` |
 | B2: reduce new-contact form to name, organization, email, and phone | Done | `f470571` |
 | C5: group summary labels, linked/eligible counts, shared activity deduplication | Done; regression cases pending | `c6c896d` |
-| D1: permanent team-scoped contact numbers and export field | Done; database migration not run here | `b87f202` |
+| D1: permanent team-scoped contact numbers and export field | Done; production migration verified 2026-10-06 | `b87f202` |
 | D4: copy complete YAML from team settings; remove contact-level export buttons | Done | `31e3262` |
 | D3: copy quote with `#cite-contact(...)` and source metadata | Done; template ZIP validation pending | `25209ba` |
-| F5: automatic matched-log sharing; remove team toggle and settings card | Done; database migration not run here | `6a4cc6d` |
-| F2: retire Økter page, session API/data, and AI feature | Done; database migration not run here | `bb1054a` |
-| B1: remove contact position and department model across API, AI, MCP, UI, search, export, graph | Done; database migration not run here | `c9300b5` |
+| F5: automatic matched-log sharing; remove team toggle and settings card | Done; production migration verified 2026-10-06 | `6a4cc6d` |
+| F2: retire Økter page, session API/data, and AI feature | Done; production migration verified 2026-10-06 | `bb1054a` |
+| B1: remove contact position and department model across API, AI, MCP, UI, search, export, graph | Done; production migration verified 2026-10-06 | `c9300b5` |
 | B3: concise evidence-grounded person description prompt | Prompt updated; representative output review pending | `c9300b5` |
 | B2: create or select organization from the contact detail field | Done | `0c9744d` |
-| C4: independent organization categories, palette colors, neutral default, LOI separation | Done; database migration not run here | `97b3ff0` |
+| C4: independent organization categories, palette colors, neutral default, LOI separation | Done; production migration verified 2026-10-06 | `97b3ff0` |
 | F1: create and edit person tags on contacts, edit domains on map, remove tag CRUD settings | Done | `8f76fa1` |
-| B6 and E6: separate Markdown information on contacts and MCP creation, local search, MCP reads | Done; database migration not run here | `ebf205b` |
+| B6 and E6: separate Markdown information on contacts and MCP creation, local search, MCP reads | Done; production migration verified 2026-10-06 | `ebf205b` |
 | E5: batch MCP creation with per-item validation, duplicate candidates, and partial success | Done; live MCP integration not run here | `d30ae2f` |
 | E3: identity tool and required team-ID guard on every MCP data tool | Done | `037b153` |
 | E1, E2 and E4: profile team selection, personal OAuth connections, copied agent instructions, old token retirement | Done; live OAuth connection not verified here | `e2d5fa5` |
@@ -63,9 +64,9 @@ All units were assigned by the product owner. Mark each completed change in the 
 | 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | `858df26` |
 | A1 and C2: linkable workspace URLs, map focus, filters, search, Back/Forward, and invalid-link fallbacks | Done; live browser session not verified here | `bae3697` |
 | B4: inline AI suggestions with per-field decisions, safe-auto review, manual tools, and team-wide audit access | Done; live model output not verified here | `b92fce5` |
-| 07: reversible contact deletion, confirmation, Undo, deleted view, restore links, and active-data filtering | Done; database migration not run here | `d13a73e` |
+| 07: reversible contact deletion, confirmation, Undo, deleted view, restore links, and active-data filtering | Done; production migration verified 2026-10-06 | `d13a73e` |
 | 07: contact shortcuts, choosers, phone/email launch, context menu, and shortcut help | Done; live browser interaction not verified here | `92cf9cb` |
-| B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; live model output and migration not verified here | `b8354c2` |
+| B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; production migration verified, live model output pending | `b8354c2` |
 | B3: require user review for generated descriptions until representative outputs are checked | Done; live output review pending | `78c4537` |
 | 07: group shortcut help by context and highlight current-page actions | Done | `301e273` |
 | F1: place AI controls and lifetime usage before advanced settings and report actions | Done | `144df6a` |
@@ -73,7 +74,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 The implementation of review units A–F and spec 07 is complete in this checkout. Runtime acceptance remains open where it depends on the local database, an external OAuth client, live model output, or the report asset:
 
-- Apply all outstanding migrations through 0044 and run the database-backed smoke flow against a reachable Supabase instance. The local `.env` points to `127.0.0.1`, but its database was unavailable during this implementation.
+- Production migrations through 0044 were applied and their schema and contact backfills verified on 2026-10-06. An authenticated workspace smoke flow remains pending; the local `.env` points to `127.0.0.1`, where its database was unavailable during implementation.
 - Upload `workspace-files/report-templates/contac-report-v1.zip`, then compile a copied `#cite-contact(...)` quote and the exported `kontaktlogg.yaml` against that ZIP.
 - Review representative generated person descriptions with a configured team AI token. Generated descriptions remain pending suggestions in both automatic modes until this review happens.
 - Exercise Claude/Codex OAuth connection, team switching, revocation, and the expected-team-ID guard with real clients.

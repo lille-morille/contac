@@ -28,7 +28,11 @@ Create these records in Domeneshop:
 Dokploy has HTTPS routes for the web app on port 3000 and the API on port
 8787. Let’s Encrypt can issue certificates after the A records resolve. The API
 publishes host TCP port 25 to its receive-only SMTP listener on container port
-2525. The MX record affects every address at `plingapp.no`; Contac accepts only
+2525. Set the API application's Swarm update and rollback order to `stop-first`
+before deploying: host mode port 25 prevents a new task from starting while the
+old task still owns the port. Dokploy may report a build as done even while the
+new task remains pending, so check the running task after deployment. The MX
+record affects every address at `plingapp.no`; Contac accepts only
 `contac@plingapp.no`. If other mailboxes are needed, route that address through
 an existing mail provider instead of pointing the domain-wide MX at Contac.
 
