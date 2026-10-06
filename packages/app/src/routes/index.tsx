@@ -6524,6 +6524,7 @@ function OrganizationGraph({
           const width = node.width;
           const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
           const height = node.height;
+          const companyColor = companyStatusColors[node.status ?? "ingen"];
           const activate = (anchor: Element) => {
             if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
             else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
@@ -6566,14 +6567,14 @@ function OrganizationGraph({
                     : node.kind === "company"
                       ? node.status === "ingen"
                         ? "var(--card)"
-                        : "var(--primary-soft)"
+                        : `color-mix(in srgb, ${companyColor} 24%, var(--card))`
                       : "var(--muted)"
                 }
                 stroke={
                   node.kind === "domain"
                     ? colors[node.color ?? "blue"]
                     : node.kind === "company"
-                      ? companyStatusColors[node.status ?? "ingen"]
+                      ? companyColor
                       : node.kind === "contact" &&
                           activeNode?.kind === "contact" &&
                           activeNode.id === node.entityId
