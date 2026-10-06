@@ -10,7 +10,6 @@ import {
   CalendarDays,
   ChevronDown,
   Clock3,
-  ClipboardPaste,
   Copy,
   GraduationCap,
   Inbox,
@@ -103,7 +102,6 @@ import {
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { typstQuoteSnippet } from "../lib/typst-citation.ts";
-import { parseContactPaste, remainingSuggestion } from "../lib/contact-paste.ts";
 import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
@@ -715,7 +713,6 @@ function Home() {
       : "unsupported",
   );
   const [now, setNow] = useState(() => Date.now());
-  const [paste, setPaste] = useState("");
   const [focusedActivityId, setFocusedActivityId] = useState<string | null>(
     initialLocation.activity,
   );
@@ -1383,19 +1380,6 @@ function Home() {
       // The page-level error banner explains the failure; keep the confirmation open.
     }
   }
-  async function openClipboardContact() {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) {
-        setError("Utklippstavlen er tom. Kopier kontaktinformasjon og prøv igjen.");
-        return;
-      }
-      setPaste(text);
-      setCreateOpen(true);
-    } catch {
-      setError("Kunne ikke lese utklippstavlen. Gi nettleseren tilgang og prøv igjen.");
-    }
-  }
   const contactNav: [Page, string, typeof LayoutGrid][] = [
     ["contacts", "Kontaktlogg", LayoutGrid],
     ["contacted", "Sist kontaktet", CalendarDays],
@@ -1504,7 +1488,6 @@ function Home() {
       } else if (key === "c") {
         if (event.repeat) return;
         event.preventDefault();
-        setPaste("");
         setCreateOpen(true);
       } else if (key === "i") {
         if (event.repeat) return;
@@ -1588,7 +1571,6 @@ function Home() {
       searchText: "legg til opprett person",
       icon: Plus,
       run: () => {
-        setPaste("");
         setCreateOpen(true);
       },
     },
@@ -1785,7 +1767,6 @@ function Home() {
           <Button
             className="w-full"
             onClick={() => {
-              setPaste("");
               setCreateOpen(true);
             }}
           >
@@ -2057,7 +2038,6 @@ function Home() {
               }}
               onDelete={setDeletingContact}
               onAcceptReferral={(referral) => {
-                setPaste("");
                 setCreateReferral(referral);
                 setCreateOpen(true);
               }}
@@ -2577,20 +2557,9 @@ function Home() {
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogTitle>Ny kontakt</DialogTitle>
-          {!createReferral && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-3"
-              onClick={() => void openClipboardContact()}
-            >
-              <ClipboardPaste size={16} /> Lim inn kontaktinformasjon
-            </Button>
-          )}
           <CreateContact
-            key={`${paste}:${createReferral?.id ?? ""}`}
+            key={createReferral?.id ?? "new"}
             data={data}
-            initial={parseContactPaste(paste)}
             referral={createReferral}
             mutate={mutate}
             onCreated={(id, openDetail) => {
@@ -2599,7 +2568,6 @@ function Home() {
                   queryKey: ["contact-ai", org.id, createReferral.sourceContactId],
                 });
               setCreateOpen(false);
-              setPaste("");
               setCreateReferral(null);
               setCreatedHighlightId(null);
               setCreatedNotice(null);
@@ -3637,14 +3605,12 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
 }
 function CreateContact({
   data,
-  initial,
   referral,
   mutate,
   onCreated,
   busy,
 }: {
   data: Data;
-  initial: ReturnType<typeof parseContactPaste>;
   referral: ReferralPrefill | null;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   onCreated: (id: string, openDetail: boolean) => void;
@@ -3659,10 +3625,8 @@ function CreateContact({
         referral?.companyName.trim().toLocaleLowerCase("nb-NO"),
     )?.id ?? "",
   );
-  const [email, setEmail] = useState(referral?.email ?? initial.email);
-  const [phone, setPhone] = useState(referral?.phone ?? initial.phone);
-  const nameSuggestion = remainingSuggestion(initial.suggestion, companyText);
-  const companySuggestion = remainingSuggestion(initial.suggestion, name);
+  const [email, setEmail] = useState(referral?.email ?? "");
+  const [phone, setPhone] = useState(referral?.phone ?? "");
   const companies = data.companies
     .filter((c) =>
       c.name.toLocaleLowerCase("nb-NO").includes(companyText.toLocaleLowerCase("nb-NO")),
@@ -3687,15 +3651,6 @@ function CreateContact({
       <label className="block text-sm">
         Navn *<Input autoFocus required value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      {nameSuggestion && !name && (
-        <button
-          type="button"
-          className="rounded-lg bg-primary-soft px-2 py-1 text-xs text-primary"
-          onClick={() => setName(nameSuggestion)}
-        >
-          Bruk «{nameSuggestion}» som navn
-        </button>
-      )}
       <label className="block text-sm">
         Organisasjon *
         <Input
@@ -3708,15 +3663,6 @@ function CreateContact({
           placeholder="Søk eller opprett"
         />
       </label>
-      {companySuggestion && !companyText && (
-        <button
-          type="button"
-          className="rounded-lg bg-primary-soft px-2 py-1 text-xs text-primary"
-          onClick={() => setCompanyText(companySuggestion)}
-        >
-          Bruk «{companySuggestion}» som organisasjon
-        </button>
-      )}
       {!!companyText && !companyId && (
         <div className="max-h-32 overflow-y-auto rounded-xl border bg-card p-1">
           {companies.map((company) => (
