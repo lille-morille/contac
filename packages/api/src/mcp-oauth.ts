@@ -112,7 +112,12 @@ export async function authorizeMcpOauth(
       audience: `${baseUrl()}${resourcePath}`,
     }));
   } catch (error) {
-    onFailure?.(`token_verification_failed:${error instanceof Error ? error.name : "unknown"}`);
+    const claim =
+      error && typeof error === "object" && "claim" in error &&
+      ["aud", "iss", "exp", "nbf", "iat"].includes(String(error.claim))
+        ? `:${String(error.claim)}`
+        : "";
+    onFailure?.(`token_verification_failed:${error instanceof Error ? error.name : "unknown"}${claim}`);
     return null;
   }
   if (!uuid.safeParse(payload.sub).success || !uuid.safeParse(payload.client_id).success) {
