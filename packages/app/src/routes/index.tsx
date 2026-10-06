@@ -3432,7 +3432,7 @@ function ContactBoard({
                       data-contact-item={contact.id}
                       layout="position"
                       transition={boardSpring}
-                      className={`rounded-xl transition-shadow hover:ring-2 hover:ring-primary/35 focus-within:ring-2 focus-within:ring-primary/60 ${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
+                      className={`rounded-xl ${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
                     >
                       <ContactCard
                         contact={
