@@ -3267,6 +3267,27 @@ function ContactBoard({
     },
     [],
   );
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      const maxScroll = board.scrollWidth - board.clientWidth;
+      if (maxScroll <= 0) return;
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? board.clientWidth
+            : 1;
+      const next = Math.max(0, Math.min(maxScroll, board.scrollLeft + event.deltaX * unit));
+      if (next === board.scrollLeft) return;
+      event.preventDefault();
+      board.scrollLeft = next;
+    };
+    board.addEventListener("wheel", onWheel, { passive: false });
+    return () => board.removeEventListener("wheel", onWheel);
+  }, []);
   function scrollWhileDragging() {
     const current = dragRef.current;
     const board = boardRef.current;
@@ -3438,7 +3459,7 @@ function ContactBoard({
                 </h2>
                 <div
                   data-column-scroll
-                  className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pb-1 pr-1"
+                  className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain pb-1 pr-1"
                 >
                   {cards.map((contact) => (
                     <motion.div
