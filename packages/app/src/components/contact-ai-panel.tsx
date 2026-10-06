@@ -6,7 +6,7 @@ import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
 
-type Feature = "stikkord" | "contact_fields" | "hierarchy";
+type Feature = "stikkord" | "contact_fields" | "hierarchy" | "contact_referral";
 type Suggestion = {
   id: string;
   feature: Feature;
@@ -15,6 +15,14 @@ type Suggestion = {
   status: "pending" | "applied" | "dismissed";
   stale: boolean;
   createdAt: string;
+};
+export type ReferralPrefill = {
+  id: string;
+  sourceContactId: string;
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
 };
 type Edit = {
   id: string;
@@ -74,16 +82,23 @@ export function ContactAiPanel({
   companies,
   domains,
   tags,
+  contacts,
+  onAcceptReferral,
+  onOpenContact,
 }: {
   contact: Contact;
   companies: Item[];
   domains: Item[];
   tags: Item[];
+  contacts: Item[];
+  onAcceptReferral: (referral: ReferralPrefill) => void;
+  onOpenContact: (id: string) => void;
 }) {
   const { org } = useOrg();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const settings = useQuery({
     queryKey: ["checkin-ai", org?.id],
     queryFn: () =>
@@ -108,8 +123,15 @@ export function ContactAiPanel({
     if (!org) return;
     setBusy(true);
     setError("");
+    setMessage("");
     try {
-      await request(path, org.id, body);
+      const result = await request<unknown>(path, org.id, body);
+      if (path.endsWith("/generate") && Array.isArray(result))
+        setMessage(
+          result.length
+            ? `${result.length} kontaktforslag funnet.`
+            : "Ingen nye kontaktforslag i de gjennomgåtte samtalene.",
+        );
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["contact-ai", org.id, contact.id] }),
         qc.invalidateQueries({ queryKey: ["contact-data", org.id] }),
@@ -137,29 +159,116 @@ export function ContactAiPanel({
       )}
       {contact.allowExternalAi && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {(["stikkord", "contact_fields", "hierarchy"] as Feature[]).map((feature) => (
-            <Button
-              key={feature}
-              variant="outline"
-              size="sm"
-              disabled={
-                busy ||
-                (feature !== "hierarchy" && !state.data?.hasConversations) ||
-                settings.data?.modes[feature] !== "manual" ||
-                !settings.data?.hasToken
-              }
-              onClick={() => void action(`/org/ai/contacts/${contact.id}/generate`, { feature })}
-            >
-              <Sparkles size={14} />{" "}
-              {feature === "stikkord"
-                ? "Lag stikkord"
-                : feature === "contact_fields"
-                  ? "Foreslå felter"
-                  : "Foreslå hierarki"}
-            </Button>
-          ))}
+          {(["stikkord", "contact_fields", "hierarchy", "contact_referral"] as Feature[]).map(
+            (feature) => (
+              <Button
+                key={feature}
+                variant="outline"
+                size="sm"
+                disabled={
+                  busy ||
+                  (feature !== "hierarchy" && !state.data?.hasConversations) ||
+                  settings.data?.modes[feature] !== "manual" ||
+                  !settings.data?.hasToken
+                }
+                onClick={() => void action(`/org/ai/contacts/${contact.id}/generate`, { feature })}
+              >
+                <Sparkles size={14} />{" "}
+                {feature === "stikkord"
+                  ? "Lag stikkord"
+                  : feature === "contact_fields"
+                    ? "Foreslå felter"
+                    : feature === "hierarchy"
+                      ? "Foreslå hierarki"
+                      : "Foreslå kontakter"}
+              </Button>
+            ),
+          )}
         </div>
       )}
+      {(state.data?.suggestions ?? [])
+        .filter(
+          (suggestion) =>
+            suggestion.feature === "contact_referral" &&
+            suggestion.status === "pending" &&
+            !suggestion.stale,
+        )
+        .map((suggestion) => {
+          const payload = suggestion.payload;
+          const existingId =
+            typeof payload.existingContactId === "string" ? payload.existingContactId : null;
+          const existing = contacts.find((item) => item.id === existingId);
+          return (
+            <section
+              key={suggestion.id}
+              className="mt-4 rounded-xl border border-primary/25 bg-primary-soft/40 p-3 text-sm"
+            >
+              <p className="font-medium">Foreslått kontakt: {String(payload.name ?? "")}</p>
+              {!!payload.companyName && (
+                <p className="text-xs text-muted-foreground">{String(payload.companyName)}</p>
+              )}
+              <p className="mt-2">{String(payload.reason ?? "")}</p>
+              <blockquote className="mt-2 border-l-2 border-primary/30 pl-2 text-xs text-muted-foreground">
+                «{String(payload.passage ?? "")}»
+              </blockquote>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {existing ? (
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={async () => {
+                      if (!org) return;
+                      setBusy(true);
+                      try {
+                        const result = await request<{ contactId: string }>(
+                          `/org/ai/referrals/${suggestion.id}/use-existing`,
+                          org.id,
+                          {},
+                        );
+                        await qc.invalidateQueries({
+                          queryKey: ["contact-ai", org.id, contact.id],
+                        });
+                        onOpenContact(result.contactId);
+                      } catch (cause) {
+                        setError(
+                          cause instanceof Error ? cause.message : "Kunne ikke åpne kontakten.",
+                        );
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Åpne eksisterende: {existing.name}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      onAcceptReferral({
+                        id: suggestion.id,
+                        sourceContactId: contact.id,
+                        name: String(payload.name ?? ""),
+                        companyName: String(payload.companyName ?? ""),
+                        email: String(payload.email ?? ""),
+                        phone: String(payload.phone ?? ""),
+                      })
+                    }
+                  >
+                    Opprett kontakt
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => void action(`/org/ai/suggestions/${suggestion.id}/dismiss`, {})}
+                >
+                  Avvis
+                </Button>
+              </div>
+            </section>
+          );
+        })}
       {contact.stikkord && (
         <p className="mt-2 text-xs text-muted-foreground">
           Stikkord:{" "}
@@ -238,6 +347,11 @@ export function ContactAiPanel({
       {error && (
         <p role="alert" className="mt-3 text-sm text-risk">
           {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          {message}
         </p>
       )}
     </Card>

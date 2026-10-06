@@ -26,6 +26,7 @@ export const defaultModels = { low: "openai/gpt-4.1-nano", medium: "openai/gpt-4
 export const aiFeatures = [
   "stikkord",
   "contact_fields",
+  "contact_referral",
   "hierarchy",
   "group_findings",
   "email_draft",
@@ -86,6 +87,98 @@ export function partitionSafeAutoFields(
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const clean = (value: unknown, limit = 200) =>
   typeof value === "string" ? value.trim().slice(0, limit) : "";
+const normalized = (value: string) =>
+  value.normalize("NFKC").toLocaleLowerCase("nb-NO").replace(/\s+/g, " ").trim();
+const phoneDigits = (value: string) => {
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 10 && digits.startsWith("47") ? digits.slice(2) : digits;
+};
+
+export function referralCandidates(
+  raw: unknown,
+  conversations: { id: string; summary: string; transcript: string }[],
+  sourceName: string,
+) {
+  if (!Array.isArray(raw)) return [];
+  const found = new Set<string>();
+  return raw
+    .flatMap((candidate) => {
+      if (!candidate || typeof candidate !== "object") return [];
+      const item = candidate as Record<string, unknown>;
+      const activityId = clean(item.activityId, 36);
+      const conversation = conversations.find((row) => row.id === activityId);
+      const name = clean(item.name, 200);
+      const proposedCompany = clean(item.organization, 200);
+      const reason = clean(item.reason, 500);
+      const passage = clean(item.sourcePassage, 500).replace(/^[«“"]|[»”"]$/g, "");
+      const source = normalized(`${conversation?.summary ?? ""} ${conversation?.transcript ?? ""}`);
+      const companyName = source.includes(normalized(proposedCompany)) ? proposedCompany : "";
+      const key = `${activityId}:${normalized(name)}:${normalized(companyName)}`;
+      if (
+        !conversation ||
+        name.length < 3 ||
+        normalized(name) === normalized(sourceName) ||
+        reason.length < 10 ||
+        passage.length < 8 ||
+        !source.includes(normalized(passage)) ||
+        found.has(key)
+      )
+        return [];
+      found.add(key);
+      const proposedEmail = clean(item.email, 200);
+      const email =
+        source.includes(normalized(proposedEmail)) && z.email().safeParse(proposedEmail).success
+          ? proposedEmail
+          : "";
+      const proposedPhone = clean(item.phone, 100);
+      const phone =
+        phoneDigits(proposedPhone).length >= 8 &&
+        phoneDigits(source).includes(phoneDigits(proposedPhone))
+          ? proposedPhone
+          : "";
+      return [
+        {
+          activityId,
+          name,
+          companyName,
+          email,
+          phone,
+          reason,
+          passage,
+        },
+      ];
+    })
+    .slice(0, 3);
+}
+export function existingReferralMatch(
+  candidate: { name: string; companyName: string; email: string; phone: string },
+  rows: {
+    id: string;
+    name: string;
+    companyName: string;
+    email: string | null;
+    phone: string | null;
+  }[],
+  sourceContactId: string,
+) {
+  const available = rows.filter((row) => row.id !== sourceContactId);
+  const direct = available.find(
+    (row) =>
+      (!!candidate.email && normalized(row.email ?? "") === normalized(candidate.email)) ||
+      (!!candidate.phone &&
+        phoneDigits(candidate.phone).length >= 8 &&
+        phoneDigits(row.phone ?? "") === phoneDigits(candidate.phone)),
+  );
+  if (direct) return direct.id;
+  const names = available.filter((row) => normalized(row.name) === normalized(candidate.name));
+  if (candidate.companyName) {
+    const sameCompany = names.filter(
+      (row) => normalized(row.companyName) === normalized(candidate.companyName),
+    );
+    return sameCompany.length === 1 ? sameCompany[0]!.id : null;
+  }
+  return names.length === 1 ? names[0]!.id : null;
+}
 
 async function settingsFor(deps: ApiDeps, orgId: string) {
   const [row] = await deps.db
@@ -105,7 +198,7 @@ async function callModel(
   json = false,
 ) {
   if (!settings.encryptedToken) throw new Error("Teamet mangler OpenRouter-token");
-  const model = (["contact_fields", "hierarchy"] as string[]).includes(feature)
+  const model = (["contact_fields", "contact_referral", "hierarchy"] as string[]).includes(feature)
     ? settings.lowModel
     : settings.model || defaultModels.medium;
   const prompt = JSON.stringify(payload);
@@ -219,6 +312,7 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
     date: activity.occurredAt.toISOString(),
     summary: activity.summary,
     transcript: activity.transcript,
+    sourceVersion: hash([activity.id, activity.updatedAt, activity.allowExternalAiOverride]),
   }));
   const version = hash({
     conversations: eligible.map((activity) => [
@@ -874,12 +968,124 @@ async function generateContact(
   return row;
 }
 
+async function generateReferrals(
+  deps: ApiDeps,
+  orgId: string,
+  contactId: string,
+  trigger: "manual" | "automatic",
+) {
+  const settings = await settingsFor(deps, orgId);
+  const mode = featureMode(settings, "contact_referral");
+  if (
+    !settings?.encryptedToken ||
+    mode === "off" ||
+    (trigger === "manual" ? mode !== "manual" : mode === "manual")
+  )
+    throw new Error("Kontaktforslag er ikke aktivert i valgt AI-modus");
+  const context = await contactContext(deps, orgId, contactId);
+  if (!context.conversations.length) return [];
+  const scans = await deps.db
+    .select({ sourceVersion: aiSuggestions.sourceVersion })
+    .from(aiSuggestions)
+    .where(
+      and(
+        eq(aiSuggestions.orgId, orgId),
+        eq(aiSuggestions.contactId, contactId),
+        eq(aiSuggestions.feature, "contact_referral_scan"),
+      ),
+    );
+  const scannedVersions = new Set(scans.map((row) => row.sourceVersion));
+  const pending = context.conversations
+    .filter((conversation) => !scannedVersions.has(conversation.sourceVersion))
+    .slice(0, 8);
+  if (!pending.length) return [];
+  const generated = await callModel(
+    deps,
+    orgId,
+    settings,
+    "contact_referral",
+    'Finn bare navngitte personer som kildesamtalen konkret anbefaler at teamet kontakter. Returner KUN JSON: {"recommendations":[{"activityId":"...","name":"...","organization":"...","email":"...","phone":"...","reason":"...","sourcePassage":"..."}]}. Maks tre forslag totalt. sourcePassage må være et ordrett utdrag fra summary eller transcript. Ta bare med navn og kontaktopplysninger som står i kilden. Hvis ingen tydelig henvisning finnes, returner tom liste. Ikke foreslå kildens kontaktperson selv. Ikke utled organisasjon fra kildens organisasjon uten belegg.',
+    {
+      sourceContact: context.person.contact.name,
+      conversations: pending.map((conversation) => ({
+        activityId: conversation.id,
+        summary: conversation.summary.slice(0, 3000),
+        transcript: conversation.transcript.slice(0, 7000),
+      })),
+    },
+    true,
+  );
+  const candidates = referralCandidates(
+    parseJson(generated.output).recommendations,
+    pending,
+    context.person.contact.name,
+  );
+  const existing = await deps.db
+    .select({ contact: contacts, companyName: companies.name })
+    .from(contacts)
+    .innerJoin(companies, eq(companies.id, contacts.companyId))
+    .where(
+      and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"), isNull(contacts.deletedAt)),
+    );
+  const inserted = await deps.db.transaction(async (tx) => {
+    const acceptedVersions = new Set<string>();
+    for (const conversation of pending) {
+      const [scan] = await tx
+        .insert(aiSuggestions)
+        .values({
+          orgId,
+          contactId,
+          feature: "contact_referral_scan",
+          sourceVersion: conversation.sourceVersion,
+          payload: { activityId: conversation.id },
+          status: "applied",
+        })
+        .onConflictDoNothing()
+        .returning({ id: aiSuggestions.id });
+      if (scan) acceptedVersions.add(conversation.sourceVersion);
+    }
+    const rows = [];
+    for (const candidate of candidates) {
+      const conversation = pending.find((item) => item.id === candidate.activityId);
+      if (!conversation || !acceptedVersions.has(conversation.sourceVersion)) continue;
+      const existingContactId = existingReferralMatch(
+        candidate,
+        existing.map(({ contact, companyName }) => ({
+          id: contact.id,
+          name: contact.name,
+          companyName,
+          email: contact.email,
+          phone: contact.phone,
+        })),
+        contactId,
+      );
+      const [row] = await tx
+        .insert(aiSuggestions)
+        .values({
+          orgId,
+          contactId,
+          feature: "contact_referral",
+          sourceVersion: conversation.sourceVersion,
+          payload: {
+            ...candidate,
+            existingContactId,
+            model: generated.model,
+          },
+        })
+        .returning();
+      rows.push(row);
+    }
+    return rows;
+  });
+  return inserted;
+}
+
 const automationLocks = new Map<string, Promise<void>>();
 export async function runContactAutomations(
   deps: ApiDeps,
   orgId: string,
   contactIds: string[],
-  onlyFeatures?: readonly ("stikkord" | "contact_fields" | "hierarchy")[],
+  onlyFeatures?: readonly ("stikkord" | "contact_fields" | "hierarchy" | "contact_referral")[],
 ) {
   const settings = await settingsFor(deps, orgId).catch((error) => {
     console.error("AI automation settings failed:", error);
@@ -901,6 +1107,18 @@ export async function runContactAutomations(
               await generateContact(deps, orgId, contactId, feature, "automatic");
             } catch (error) {
               console.error(`AI automation ${feature} failed:`, error);
+            }
+          }
+          if (
+            (!onlyFeatures || onlyFeatures.includes("contact_referral")) &&
+            ["suggest", "safe_auto", "dangerous"].includes(
+              featureMode(settings, "contact_referral"),
+            )
+          ) {
+            try {
+              await generateReferrals(deps, orgId, contactId, "automatic");
+            } catch (error) {
+              console.error("AI automation contact_referral failed:", error);
             }
           }
         });
@@ -996,7 +1214,13 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       deps.db
         .select()
         .from(aiSuggestions)
-        .where(and(eq(aiSuggestions.orgId, orgId), eq(aiSuggestions.contactId, contactId.data)))
+        .where(
+          and(
+            eq(aiSuggestions.orgId, orgId),
+            eq(aiSuggestions.contactId, contactId.data),
+            ne(aiSuggestions.feature, "contact_referral_scan"),
+          ),
+        )
         .orderBy(desc(aiSuggestions.createdAt))
         .limit(30),
       deps.db
@@ -1010,7 +1234,14 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({
       suggestions: suggestions.map((item) => ({
         ...item,
-        stale: !!context && item.sourceVersion !== context.version,
+        stale:
+          item.feature === "contact_referral"
+            ? !context?.conversations.some(
+                (conversation) =>
+                  conversation.id === item.payload.activityId &&
+                  conversation.sourceVersion === item.sourceVersion,
+              )
+            : !!context && item.sourceVersion !== context.version,
       })),
       edits,
       stikkordStale:
@@ -1023,17 +1254,64 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   app.post("/v1/org/ai/contacts/:id/generate", async (c) => {
     const contactId = id.safeParse(c.req.param("id"));
     const parsed = z
-      .object({ feature: z.enum(["stikkord", "contact_fields", "hierarchy"]) })
+      .object({ feature: z.enum(["stikkord", "contact_fields", "hierarchy", "contact_referral"]) })
       .safeParse(await c.req.json().catch(() => null));
     if (!contactId.success || !parsed.success)
       return c.json({ error: "Invalid generation request" }, 400);
     try {
       return c.json(
-        await generateContact(deps, c.get("org").id, contactId.data, parsed.data.feature, "manual"),
+        parsed.data.feature === "contact_referral"
+          ? await generateReferrals(deps, c.get("org").id, contactId.data, "manual")
+          : await generateContact(
+              deps,
+              c.get("org").id,
+              contactId.data,
+              parsed.data.feature,
+              "manual",
+            ),
       );
     } catch (error) {
       return c.json({ error: String(error instanceof Error ? error.message : error) }, 400);
     }
+  });
+  app.post("/v1/org/ai/referrals/:id/use-existing", async (c) => {
+    const suggestionId = id.safeParse(c.req.param("id"));
+    if (!suggestionId.success) return c.json({ error: "Invalid referral" }, 400);
+    const orgId = c.get("org").id;
+    const [suggestion] = await deps.db
+      .select()
+      .from(aiSuggestions)
+      .where(
+        and(
+          eq(aiSuggestions.id, suggestionId.data),
+          eq(aiSuggestions.orgId, orgId),
+          eq(aiSuggestions.feature, "contact_referral"),
+          eq(aiSuggestions.status, "pending"),
+        ),
+      );
+    const existingId = suggestion?.payload.existingContactId;
+    if (typeof existingId !== "string" || !id.safeParse(existingId).success)
+      return c.json({ error: "Ingen eksisterende kontakt er knyttet til forslaget" }, 404);
+    const [existing] = await deps.db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.orgId, orgId),
+          eq(contacts.id, existingId),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
+      );
+    if (!existing) return c.json({ error: "Eksisterende kontakt finnes ikke lenger" }, 404);
+    const [used] = await deps.db
+      .update(aiSuggestions)
+      .set({ status: "applied" })
+      .where(and(eq(aiSuggestions.id, suggestion!.id), eq(aiSuggestions.status, "pending")))
+      .returning({ id: aiSuggestions.id });
+    return used
+      ? c.json({ contactId: existing.id })
+      : c.json({ error: "Kontaktforslaget er allerede behandlet" }, 409);
   });
   app.post("/v1/org/ai/suggestions/:id/apply", async (c) => {
     const suggestionId = id.safeParse(c.req.param("id"));

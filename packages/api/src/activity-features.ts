@@ -267,6 +267,11 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
       )
     )
       return c.json({ error: "This feature supports Off or Manual only" }, 400);
+    if (
+      data.modes &&
+      ![undefined, "off", "manual", "suggest"].includes(data.modes.contact_referral)
+    )
+      return c.json({ error: "Kontaktforslag støtter Av, Manuelt eller Automatisk forslag" }, 400);
     const nextModes = {
       ...data.modes,
       email_draft: data.modes?.email_draft ?? (data.emailDraftEnabled ? "manual" : "off"),

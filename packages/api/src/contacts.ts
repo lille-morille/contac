@@ -16,6 +16,7 @@ import {
   personTags,
   profiles,
   aiEditLog,
+  aiSuggestions,
 } from "@contac/core/db";
 import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -62,6 +63,7 @@ const contactInput = z.object({
   phone: blank,
   description: z.string().max(5000).nullable().optional(),
   tagIds: z.array(id).optional(),
+  referralSuggestionId: id.optional(),
 });
 const contactPatch = z.object({
   name: z.string().trim().min(1).max(200).optional(),
@@ -665,6 +667,43 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         return c.json({ error: "Tag not found" }, 404);
     }
     const result = await deps.db.transaction(async (tx) => {
+      let referral: { sourceContactId: string; markdown: string } | null = null;
+      if (data.referralSuggestionId) {
+        const [suggestion] = await tx
+          .select()
+          .from(aiSuggestions)
+          .where(
+            and(
+              eq(aiSuggestions.id, data.referralSuggestionId),
+              eq(aiSuggestions.orgId, orgId),
+              eq(aiSuggestions.feature, "contact_referral"),
+              eq(aiSuggestions.status, "pending"),
+            ),
+          );
+        if (!suggestion?.contactId) return null;
+        const [source] = await tx
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.orgId, orgId),
+              eq(contacts.id, suggestion.contactId),
+              isNull(contacts.deletedAt),
+            ),
+          );
+        if (!source) return null;
+        const reason =
+          typeof suggestion.payload.reason === "string" ? suggestion.payload.reason : "";
+        const passage =
+          typeof suggestion.payload.passage === "string" ? suggestion.payload.passage : "";
+        referral = {
+          sourceContactId: source.id,
+          markdown:
+            [reason, passage ? `> ${passage.replace(/\n/g, "\n> ")}` : ""]
+              .filter(Boolean)
+              .join("\n\n") || "Henvisning fra en samtale.",
+        };
+      }
       let companyId = data.companyId;
       if (!companyId && data.companyName) {
         const [company] = await tx
@@ -682,6 +721,19 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .from(companies)
         .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId!)));
       if (!company) return null;
+      if (data.referralSuggestionId) {
+        const [claimed] = await tx
+          .update(aiSuggestions)
+          .set({ status: "applied" })
+          .where(
+            and(
+              eq(aiSuggestions.id, data.referralSuggestionId),
+              eq(aiSuggestions.status, "pending"),
+            ),
+          )
+          .returning({ id: aiSuggestions.id });
+        if (!claimed) return null;
+      }
       const [row] = await tx
         .insert(contacts)
         .values({
@@ -702,6 +754,15 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .insert(contactPersonTags)
           .values([...new Set(data.tagIds)].map((tagId) => ({ orgId, contactId: row.id, tagId })));
       }
+      if (referral) {
+        await tx.insert(contactAdditionalInfo).values({
+          orgId,
+          contactId: row.id,
+          source: "referral",
+          sourceContactId: referral.sourceContactId,
+          markdown: referral.markdown,
+        });
+      }
       return row;
     });
     if (result && result.allowExternalAi)
@@ -710,7 +771,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       });
     return result
       ? c.json(result, 201)
-      : c.json({ error: "Organization, department, or tag not found" }, 404);
+      : c.json({ error: "Organisasjonen eller kontaktforslaget er ikke tilgjengelig lenger" }, 409);
   });
   app.post("/v1/org/contacts/:id", async (c) => {
     const contactId = id.safeParse(c.req.param("id"));

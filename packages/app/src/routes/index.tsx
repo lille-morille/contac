@@ -68,7 +68,11 @@ import { SemanticSearch } from "../components/semantic-search.tsx";
 import type { SearchResult } from "../components/semantic-search.tsx";
 import { CommandPalette, type PaletteItem } from "../components/command-palette.tsx";
 import { TeamAiSettings } from "../components/team-ai-settings.tsx";
-import { ContactAiPanel, ContactAiFieldSuggestions } from "../components/contact-ai-panel.tsx";
+import {
+  ContactAiPanel,
+  ContactAiFieldSuggestions,
+  type ReferralPrefill,
+} from "../components/contact-ai-panel.tsx";
 import { GroupAiSummary } from "../components/group-ai-summary.tsx";
 import { LoiPanel } from "../components/loi-panel.tsx";
 import { TeamLoiSettings } from "../components/team-loi-settings.tsx";
@@ -666,6 +670,7 @@ function Home() {
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
   const [deletedNotice, setDeletedNotice] = useState<{ id: string; name: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createReferral, setCreateReferral] = useState<ReferralPrefill | null>(null);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [shortcutChooser, setShortcutChooser] = useState<{
     contactId: string;
@@ -2014,6 +2019,11 @@ function Home() {
                 setFocusedActivityId(null);
               }}
               onDelete={setDeletingContact}
+              onAcceptReferral={(referral) => {
+                setPaste("");
+                setCreateReferral(referral);
+                setCreateOpen(true);
+              }}
               composerShortcut={
                 composerShortcut?.contactId === chosen?.id ? composerShortcut : null
               }
@@ -2481,25 +2491,39 @@ function Home() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setCreateReferral(null);
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogTitle>Ny kontakt</DialogTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-3"
-            onClick={() => void openClipboardContact()}
-          >
-            <ClipboardPaste size={16} /> Lim inn kontaktinformasjon
-          </Button>
+          {!createReferral && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-3"
+              onClick={() => void openClipboardContact()}
+            >
+              <ClipboardPaste size={16} /> Lim inn kontaktinformasjon
+            </Button>
+          )}
           <CreateContact
-            key={paste}
+            key={`${paste}:${createReferral?.id ?? ""}`}
             data={data}
             initial={parseContactPaste(paste)}
+            referral={createReferral}
             mutate={mutate}
             onCreated={(id, openDetail) => {
+              if (createReferral)
+                void qc.invalidateQueries({
+                  queryKey: ["contact-ai", org.id, createReferral.sourceContactId],
+                });
               setCreateOpen(false);
               setPaste("");
+              setCreateReferral(null);
               setCreatedHighlightId(null);
               setCreatedNotice(null);
               if (openDetail) setSelectedId(id);
@@ -3537,21 +3561,29 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
 function CreateContact({
   data,
   initial,
+  referral,
   mutate,
   onCreated,
   busy,
 }: {
   data: Data;
   initial: ReturnType<typeof parseContactPaste>;
+  referral: ReferralPrefill | null;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   onCreated: (id: string, openDetail: boolean) => void;
   busy: boolean;
 }) {
-  const [name, setName] = useState("");
-  const [companyText, setCompanyText] = useState("");
-  const [companyId, setCompanyId] = useState("");
-  const [email, setEmail] = useState(initial.email);
-  const [phone, setPhone] = useState(initial.phone);
+  const [name, setName] = useState(referral?.name ?? "");
+  const [companyText, setCompanyText] = useState(referral?.companyName ?? "");
+  const [companyId, setCompanyId] = useState(
+    data.companies.find(
+      (company) =>
+        company.name.trim().toLocaleLowerCase("nb-NO") ===
+        referral?.companyName.trim().toLocaleLowerCase("nb-NO"),
+    )?.id ?? "",
+  );
+  const [email, setEmail] = useState(referral?.email ?? initial.email);
+  const [phone, setPhone] = useState(referral?.phone ?? initial.phone);
   const nameSuggestion = remainingSuggestion(initial.suggestion, companyText);
   const companySuggestion = remainingSuggestion(initial.suggestion, name);
   const companies = data.companies
@@ -3569,6 +3601,7 @@ function CreateContact({
       companyName: companyId ? undefined : companyText,
       email: email || null,
       phone: phone || null,
+      referralSuggestionId: referral?.id,
     });
     onCreated(row.id, openDetail);
   }
@@ -4589,6 +4622,7 @@ function ContactDetail({
   onBack,
   onOpen,
   onDelete,
+  onAcceptReferral,
   composerShortcut,
   busy,
   focusedActivityId,
@@ -4605,6 +4639,7 @@ function ContactDetail({
   onBack: () => void;
   onOpen: (id: string) => void;
   onDelete: (contact: Contact) => void;
+  onAcceptReferral: (referral: ReferralPrefill) => void;
   composerShortcut: { contactId: string; kind: "phone" | "email"; nonce: number } | null;
   busy: boolean;
   focusedActivityId: string | null;
@@ -4985,6 +5020,9 @@ function ContactDetail({
               companies={data.companies}
               domains={data.domains}
               tags={data.personTags}
+              contacts={data.contacts.map((contact) => ({ id: contact.id, name: contact.name }))}
+              onAcceptReferral={onAcceptReferral}
+              onOpenContact={onOpen}
             />
           )}
           {c.status !== "duplicate" && (
@@ -5520,7 +5558,7 @@ function AdditionalInformation({
             <section key={entry.id} className="rounded-xl border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-medium text-muted-foreground">
-                  {entry.source === "agent" ? "Lagt til av agent" : "Henvisning fra kontakt"}
+                  {entry.source === "agent" ? "Lagt til av agent" : "Referert til av"}
                   {entry.source === "referral" && source && (
                     <button
                       type="button"

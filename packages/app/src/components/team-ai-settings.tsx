@@ -9,7 +9,13 @@ import { Input } from "./ui/input.tsx";
 import { Select } from "./ui/select.tsx";
 
 type Mode = "off" | "manual" | "suggest" | "safe_auto" | "dangerous";
-type Feature = "stikkord" | "contact_fields" | "hierarchy" | "group_findings" | "email_draft";
+type Feature =
+  | "stikkord"
+  | "contact_fields"
+  | "contact_referral"
+  | "hierarchy"
+  | "group_findings"
+  | "email_draft";
 type Settings = {
   emailDraftEnabled: boolean;
   hasToken: boolean;
@@ -28,12 +34,18 @@ const features: { key: Feature; label: string; description: string; manualOnly?:
   {
     key: "contact_fields",
     label: "Kontaktfelter",
-    description: "Trekk ut e-post, telefon, stilling og beskrivelse fra samtaler.",
+    description: "Trekk ut e-post, telefon og kort beskrivelse fra samtaler.",
+  },
+  {
+    key: "contact_referral",
+    label: "Kontaktforslag fra samtaler",
+    description:
+      "Foreslå personer som bør kontaktes når samtalen gir konkret grunnlag. Oppretter aldri kontakter automatisk.",
   },
   {
     key: "hierarchy",
     label: "Hierarki og tagger",
-    description: "Foreslå organisasjon, avdeling, domene og persontagger.",
+    description: "Foreslå organisasjon, domene og persontagger.",
   },
   {
     key: "group_findings",
@@ -180,7 +192,13 @@ export function TeamAiSettings() {
                 onValueChange={(value) =>
                   setDraftModes((prev) => ({ ...prev, [feature.key]: value as Mode }))
                 }
-                items={feature.manualOnly ? modeItems.slice(0, 2) : modeItems}
+                items={
+                  feature.manualOnly
+                    ? modeItems.slice(0, 2)
+                    : feature.key === "contact_referral"
+                      ? modeItems.slice(0, 3)
+                      : modeItems
+                }
                 aria-label={`AI-modus for ${feature.label}`}
                 className="min-w-48"
               />
