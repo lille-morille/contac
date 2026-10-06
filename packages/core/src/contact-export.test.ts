@@ -49,4 +49,17 @@ describe("contact-log export", () => {
       transcript: "Hele transkripsjonen",
     });
   });
+  it("moves export ownership to another live contact and omits deleted-only activities", () => {
+    const result = buildContactExport({
+      team: { id: "team", name: "Team" },
+      contacts: [contact("b")],
+      activities: [activity("shared", ["a", "b"]), activity("deleted-only", ["a"])],
+    });
+    expect(result.activities).toHaveLength(1);
+    expect(result.activities[0]).toMatchObject({
+      id: "shared",
+      exportOwnerContactId: "b",
+      linkedContactIds: ["b"],
+    });
+  });
 });

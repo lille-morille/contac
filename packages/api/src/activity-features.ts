@@ -41,7 +41,9 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     const [current] = await deps.db
       .select()
       .from(contacts)
-      .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId.data)));
+      .where(
+        and(eq(contacts.orgId, orgId), eq(contacts.id, contactId.data), isNull(contacts.deletedAt)),
+      );
     if (!current || current.status === "duplicate")
       return c.json({ error: "Contact not found" }, 404);
     if ((current.sharedNoteSavedAt?.toISOString() ?? null) !== data.expectedSavedAt)
@@ -64,6 +66,7 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
         and(
           eq(contacts.orgId, orgId),
           eq(contacts.id, contactId.data),
+          isNull(contacts.deletedAt),
           current.sharedNoteSavedAt
             ? eq(contacts.sharedNoteSavedAt, current.sharedNoteSavedAt)
             : isNull(contacts.sharedNoteSavedAt),
@@ -135,7 +138,7 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
           sharedNoteSavedAt: contacts.sharedNoteSavedAt,
         })
         .from(contacts)
-        .where(eq(contacts.orgId, orgId)),
+        .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
     ]);
     return c.json(
       items.map((item) => {
@@ -161,7 +164,9 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
     const [contact] = await deps.db
       .select()
       .from(contacts)
-      .where(and(eq(contacts.orgId, orgId), eq(contacts.id, data.contactId)));
+      .where(
+        and(eq(contacts.orgId, orgId), eq(contacts.id, data.contactId), isNull(contacts.deletedAt)),
+      );
     if (!contact || contact.status === "duplicate")
       return c.json({ error: "Contact not found" }, 404);
     let updatedAt = contact.sharedNoteSavedAt;

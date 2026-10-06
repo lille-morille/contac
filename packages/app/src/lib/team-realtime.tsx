@@ -135,14 +135,19 @@ export function TeamRealtimeProvider({ children }: { children: ReactNode }) {
                 old
                   ? {
                       ...old,
-                      contacts: old.contacts
-                        .map((item) => (item.id === id ? row : item))
-                        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
+                      contacts: (old.contacts.some((item) => item.id === id)
+                        ? old.contacts.map((item) => (item.id === id ? row : item))
+                        : [...old.contacts, row]
+                      ).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
                     }
                   : old,
             );
+            void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
           })
-          .catch(() => qc.invalidateQueries({ queryKey: ["contact-data", teamId, "core"] }));
+          .catch(() => {
+            void qc.invalidateQueries({ queryKey: ["contact-data", teamId, "core"] });
+            void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
+          });
       }
       for (const id of changedActivities) {
         const requestKey = `activity:${id}`;

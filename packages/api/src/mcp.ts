@@ -18,7 +18,7 @@ import {
   workspaceFiles,
 } from "@contac/core/db";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { and, asc, desc, eq, gt, inArray, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { runContactAutomations } from "./ai.ts";
@@ -152,7 +152,12 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
             })
             .from(contacts)
             .where(
-              and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"), or(...criteria)),
+              and(
+                eq(contacts.orgId, orgId),
+                ne(contacts.status, "duplicate"),
+                isNull(contacts.deletedAt),
+                or(...criteria),
+              ),
             )
             .limit(10)
         : [];
@@ -226,6 +231,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           and(
             eq(contacts.orgId, orgId),
             ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
             ...(cursor ? [gt(contacts.id, cursor)] : []),
           ),
         )
@@ -257,6 +263,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
             eq(contacts.orgId, orgId),
             eq(contacts.id, contactId),
             ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
           ),
         );
       if (!contact) return failed("Contact not found in this team");
@@ -619,6 +626,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
             eq(contacts.orgId, orgId),
             inArray(contacts.id, ids),
             ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
           ),
         );
       if (valid.length !== ids.length)

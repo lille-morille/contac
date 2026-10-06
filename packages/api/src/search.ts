@@ -13,7 +13,7 @@ import {
   personTags,
   searchChunks,
 } from "@contac/core/db";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
@@ -71,7 +71,13 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
       .select({ contact: contacts, company: companies.name })
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
-      .where(and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"))),
+      .where(
+        and(
+          eq(contacts.orgId, orgId),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
+      ),
     deps.db
       .select({ contactId: activityContacts.contactId, activity: contactActivities })
       .from(activityContacts)
@@ -242,7 +248,7 @@ export function registerSearchRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         })
         .from(contacts)
         .innerJoin(companies, eq(companies.id, contacts.companyId))
-        .where(inArray(contacts.orgId, orgIds)),
+        .where(and(inArray(contacts.orgId, orgIds), isNull(contacts.deletedAt))),
       embed(query),
     ]);
     const approved = new Set(approvals.map((item) => item.ownerContactId));
@@ -258,7 +264,10 @@ export function registerSearchRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             row.sourceKind !== "note" &&
             row.sourceKind !== "additional_info"),
       )
-      .filter((row) => byId.get(row.contactId)?.status !== "duplicate")
+      .filter((row) => {
+        const person = byId.get(row.contactId);
+        return !!person && person.status !== "duplicate";
+      })
       .map((row) => {
         const person = byId.get(row.contactId)!;
         const body = normal(row.body);

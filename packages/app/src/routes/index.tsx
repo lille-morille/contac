@@ -174,6 +174,7 @@ type Contact = {
   allowExternalAi: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
 };
 type Activity = {
   id: string;
@@ -311,6 +312,7 @@ const workspacePages: Page[] = [
   "contacted",
   "search",
   "duplicates",
+  "deleted",
   "organizations",
   "library",
   "profile",
@@ -468,6 +470,7 @@ type Page =
   | "contacted"
   | "search"
   | "duplicates"
+  | "deleted"
   | "organizations"
   | "library"
   | "profile"
@@ -660,6 +663,8 @@ function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(initialLocation.contact);
   const [createdHighlightId, setCreatedHighlightId] = useState<string | null>(null);
   const [createdNotice, setCreatedNotice] = useState<{ id: string; hidden: boolean } | null>(null);
+  const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
+  const [deletedNotice, setDeletedNotice] = useState<{ id: string; name: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -765,6 +770,19 @@ function Home() {
     refetchInterval: 60_000,
   });
   const data: Data = { ...emptyData, ...query.data, ...activityQuery.data, ...personalQuery.data };
+  const deletedContactsQuery = useQuery({
+    queryKey: ["deleted-contacts", org?.id],
+    queryFn: () => request<Contact[]>("/org/contacts/deleted", org!.id),
+    enabled: !!org && !!state.user?.onboarded,
+    refetchInterval: 60_000,
+  });
+  const deletedContacts = deletedContactsQuery.data ?? [];
+  const selectedDeletedContact = deletedContacts.find((contact) => contact.id === selectedId);
+  useEffect(() => {
+    if (!deletedNotice) return;
+    const timer = window.setTimeout(() => setDeletedNotice(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [deletedNotice]);
   useEffect(() => {
     if (!query.isSuccess) return;
     const valid = {
@@ -1050,6 +1068,13 @@ function Home() {
         await qc.invalidateQueries({ queryKey: ["inbox", org.id] });
       if (path.startsWith("/library"))
         await qc.invalidateQueries({ queryKey: ["library", org.id] });
+      if (/^\/contacts\/[^/]+\/(delete|restore)$/.test(path)) {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ["deleted-contacts", org.id] }),
+          qc.invalidateQueries({ queryKey: ["contact-data", org.id] }),
+          qc.invalidateQueries({ queryKey: ["inbox", org.id] }),
+        ]);
+      }
       setNow(Date.now());
       return result;
     } catch (cause) {
@@ -1229,6 +1254,17 @@ function Home() {
       home: { ...(current.home ?? defaultViewSettings), layout: next },
     }));
   }
+  async function confirmDeleteContact() {
+    if (!deletingContact) return;
+    try {
+      await mutate(`/contacts/${deletingContact.id}/delete`, {});
+      if (selectedId === deletingContact.id) setSelectedId(null);
+      setDeletedNotice({ id: deletingContact.id, name: deletingContact.name });
+      setDeletingContact(null);
+    } catch {
+      // The page-level error banner explains the failure; keep the confirmation open.
+    }
+  }
   async function openClipboardContact() {
     try {
       const text = await navigator.clipboard.readText();
@@ -1283,6 +1319,9 @@ function Home() {
     ["contacted", "Sist kontaktet", CalendarDays],
     ...(data.contacts.some((contact) => contact.status === "duplicate")
       ? ([["duplicates", "Duplikate kontakter", Copy]] as [Page, string, typeof LayoutGrid][])
+      : []),
+    ...(deletedContacts.length
+      ? ([["deleted", "Slettede kontakter", Trash2]] as [Page, string, typeof LayoutGrid][])
       : []),
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
@@ -1783,30 +1822,81 @@ function Home() {
             </button>
           </div>
         )}
+        {deletedNotice && (
+          <div
+            role="status"
+            className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-ok-soft px-4 py-3 text-sm"
+          >
+            <span className="flex-1">{deletedNotice.name} er slettet.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void mutate(`/contacts/${deletedNotice.id}/restore`, {}).then(() =>
+                  setDeletedNotice(null),
+                )
+              }
+            >
+              Angre
+            </Button>
+            <button type="button" aria-label="Lukk melding" onClick={() => setDeletedNotice(null)}>
+              <X size={16} />
+            </button>
+          </div>
+        )}
         {selectedId ? (
-          <ContactDetail
-            key={chosen?.id}
-            contact={chosen}
-            missing={query.isSuccess && !chosen}
-            data={data}
-            favorite={chosen ? data.favoriteContactIds.includes(chosen.id) : false}
-            mutate={mutate}
-            onBack={() => {
-              setSelectedId(null);
-              setFocusedActivityId(null);
-              setFocusedPassage(null);
-              setFocusedQuery(null);
-            }}
-            onOpen={(id) => {
-              setSelectedId(id);
-              setFocusedActivityId(null);
-            }}
+          selectedDeletedContact ? (
+            <div className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-border bg-card p-6 shadow-card">
+              <h1 className="text-2xl font-semibold">{selectedDeletedContact.name} er slettet</h1>
+              <p className="text-sm text-muted-foreground">
+                Kontakten og historikken er bevart. Gjenopprett for å fortsette arbeidet.
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setSelectedId(null)}>
+                  <ArrowLeft size={16} /> Tilbake
+                </Button>
+                <Button
+                  onClick={() => void mutate(`/contacts/${selectedDeletedContact.id}/restore`, {})}
+                >
+                  Gjenopprett kontakt
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <ContactDetail
+              key={chosen?.id}
+              contact={chosen}
+              missing={query.isSuccess && !chosen}
+              data={data}
+              favorite={chosen ? data.favoriteContactIds.includes(chosen.id) : false}
+              mutate={mutate}
+              onBack={() => {
+                setSelectedId(null);
+                setFocusedActivityId(null);
+                setFocusedPassage(null);
+                setFocusedQuery(null);
+              }}
+              onOpen={(id) => {
+                setSelectedId(id);
+                setFocusedActivityId(null);
+              }}
+              onDelete={setDeletingContact}
+              busy={busy}
+              focusedActivityId={focusedActivityId}
+              focusedPassage={focusedPassage}
+              focusedQuery={focusedQuery}
+              notificationPermission={notificationPermission}
+              onEnableNotifications={() => void enableBrowserNotifications()}
+            />
+          )
+        ) : page === "deleted" ? (
+          <DeletedContactsPage
+            contacts={deletedContacts}
+            companies={data.companies}
+            loading={deletedContactsQuery.isPending}
             busy={busy}
-            focusedActivityId={focusedActivityId}
-            focusedPassage={focusedPassage}
-            focusedQuery={focusedQuery}
-            notificationPermission={notificationPermission}
-            onEnableNotifications={() => void enableBrowserNotifications()}
+            onOpen={setSelectedId}
+            onRestore={(id) => void mutate(`/contacts/${id}/restore`, {})}
           />
         ) : page === "library" ? (
           <LibraryPage
@@ -2072,6 +2162,29 @@ function Home() {
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!deletingContact} onOpenChange={(open) => !open && setDeletingContact(null)}>
+        <DialogContent>
+          <DialogTitle>Slett kontakt?</DialogTitle>
+          <DialogDescription>
+            {deletingContact?.name} ·{" "}
+            {data.companies.find((company) => company.id === deletingContact?.companyId)?.name ??
+              "Organisasjon ukjent"}
+            . Kontakten og samtalene blir bevart og kan gjenopprettes fra Slettede kontakter.
+          </DialogDescription>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="outline" disabled={busy} onClick={() => setDeletingContact(null)}>
+              Avbryt
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void confirmDeleteContact()}
+            >
+              Slett kontakt
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogTitle>Ny kontakt</DialogTitle>
@@ -2313,6 +2426,66 @@ function NoTeam() {
     </main>
   );
 }
+function DeletedContactsPage({
+  contacts,
+  companies,
+  loading,
+  busy,
+  onOpen,
+  onRestore,
+}: {
+  contacts: Contact[];
+  companies: Company[];
+  loading: boolean;
+  busy: boolean;
+  onOpen: (id: string) => void;
+  onRestore: (id: string) => void;
+}) {
+  return (
+    <div className="mx-auto max-w-4xl">
+      <h1 className="text-2xl font-semibold">Slettede kontakter</h1>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Gjenoppretting tar med kontaktens tidligere felter og samtaler.
+      </p>
+      {loading && <p className="mt-6 text-sm text-muted-foreground">Laster …</p>}
+      {!loading && !contacts.length && (
+        <p className="mt-6 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+          Ingen slettede kontakter.
+        </p>
+      )}
+      <div className="mt-5 space-y-2">
+        {contacts.map((contact) => (
+          <div
+            key={contact.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-card"
+          >
+            <button
+              type="button"
+              className="min-w-0 text-left hover:text-primary"
+              onClick={() => onOpen(contact.id)}
+            >
+              <span className="block font-medium">{contact.name}</span>
+              <span className="block text-xs text-muted-foreground">
+                {companies.find((company) => company.id === contact.companyId)?.name ??
+                  "Organisasjon ukjent"}
+                {contact.deletedAt ? ` · Slettet ${dateTimeLabel(contact.deletedAt)}` : ""}
+              </span>
+            </button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onRestore(contact.id)}
+            >
+              Gjenopprett
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LibraryPage({
   onOpen,
   initialSearch,
@@ -4101,6 +4274,7 @@ function ContactDetail({
   mutate,
   onBack,
   onOpen,
+  onDelete,
   busy,
   focusedActivityId,
   focusedPassage,
@@ -4115,6 +4289,7 @@ function ContactDetail({
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   onBack: () => void;
   onOpen: (id: string) => void;
+  onDelete: (contact: Contact) => void;
   busy: boolean;
   focusedActivityId: string | null;
   focusedPassage: string | null;
@@ -4261,18 +4436,31 @@ function ContactDetail({
                 <p className="text-muted-foreground">{company?.name}</p>
               </div>
               {c.status !== "duplicate" && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
-                  aria-pressed={favorite}
-                  onClick={() => void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })}
-                >
-                  <Star size={16} className={favorite ? "fill-current text-primary" : ""} />
-                  {favorite ? "Favoritt" : "Legg til favoritter"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
+                    aria-pressed={favorite}
+                    onClick={() =>
+                      void mutate(`/contacts/${c.id}/favorite`, { favorite: !favorite })
+                    }
+                  >
+                    <Star size={16} className={favorite ? "fill-current text-primary" : ""} />
+                    {favorite ? "Favoritt" : "Legg til favoritter"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => onDelete(c)}
+                  >
+                    <Trash2 size={16} /> Slett kontakt
+                  </Button>
+                </div>
               )}
             </div>
             {viewingPeers.length > 0 && (

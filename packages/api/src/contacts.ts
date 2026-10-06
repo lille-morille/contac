@@ -17,7 +17,7 @@ import {
   profiles,
   aiEditLog,
 } from "@contac/core/db";
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
@@ -104,7 +104,13 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const [row] = await deps.db
       .select()
       .from(contacts)
-      .where(and(eq(contacts.orgId, c.get("org").id), eq(contacts.id, contactId.data)));
+      .where(
+        and(
+          eq(contacts.orgId, c.get("org").id),
+          eq(contacts.id, contactId.data),
+          isNull(contacts.deletedAt),
+        ),
+      );
     return row ? c.json(row) : c.json({ error: "Contact not found" }, 404);
   });
   app.get("/v1/org/activity-records/:id", async (c) => {
@@ -155,7 +161,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         deps.db
           .select()
           .from(contacts)
-          .where(eq(contacts.orgId, orgId))
+          .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
           .orderBy(desc(contacts.updatedAt)),
         deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
         deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
@@ -224,6 +230,14 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
               eq(contactReminders.orgId, orgId),
               eq(contactReminders.userId, userId),
               isNull(contactReminders.dismissedAt),
+              exists(
+                deps.db
+                  .select({ id: contacts.id })
+                  .from(contacts)
+                  .where(
+                    and(eq(contacts.id, contactReminders.contactId), isNull(contacts.deletedAt)),
+                  ),
+              ),
             ),
           )
           .orderBy(asc(contactReminders.dueAt)),
@@ -268,7 +282,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       deps.db
         .select()
         .from(contacts)
-        .where(eq(contacts.orgId, orgId))
+        .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
         .orderBy(desc(contacts.updatedAt)),
       deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
       deps.db
@@ -312,6 +326,14 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             eq(contactReminders.orgId, orgId),
             eq(contactReminders.userId, userId),
             isNull(contactReminders.dismissedAt),
+            exists(
+              deps.db
+                .select({ id: contacts.id })
+                .from(contacts)
+                .where(
+                  and(eq(contacts.id, contactReminders.contactId), isNull(contacts.deletedAt)),
+                ),
+            ),
           ),
         )
         .orderBy(asc(contactReminders.dueAt)),
@@ -587,6 +609,48 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       : c.json({ error: "Information not found" }, 404);
   });
 
+  app.get("/v1/org/contacts/deleted", async (c) => {
+    const rows = await deps.db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.orgId, c.get("org").id), isNotNull(contacts.deletedAt)))
+      .orderBy(desc(contacts.deletedAt));
+    return c.json(rows);
+  });
+  app.post("/v1/org/contacts/:id/delete", async (c) => {
+    const contactId = id.safeParse(c.req.param("id"));
+    if (!contactId.success) return c.json({ error: "Invalid contact" }, 400);
+    const [row] = await deps.db
+      .update(contacts)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(contacts.orgId, c.get("org").id),
+          eq(contacts.id, contactId.data),
+          isNull(contacts.deletedAt),
+          ne(contacts.status, "duplicate"),
+        ),
+      )
+      .returning();
+    return row ? c.json(row) : c.json({ error: "Active contact not found" }, 404);
+  });
+  app.post("/v1/org/contacts/:id/restore", async (c) => {
+    const contactId = id.safeParse(c.req.param("id"));
+    if (!contactId.success) return c.json({ error: "Invalid contact" }, 400);
+    const [row] = await deps.db
+      .update(contacts)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(contacts.orgId, c.get("org").id),
+          eq(contacts.id, contactId.data),
+          isNotNull(contacts.deletedAt),
+        ),
+      )
+      .returning();
+    return row ? c.json(row) : c.json({ error: "Deleted contact not found" }, 404);
+  });
+
   app.post("/v1/org/contacts", async (c) => {
     const data = await parse(c, contactInput);
     if (!data || (!data.companyId && !data.companyName))
@@ -662,7 +726,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select()
       .from(contacts)
       .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId.data)));
-    if (!current || current.status === "duplicate")
+    if (!current || current.status === "duplicate" || current.deletedAt)
       return c.json({ error: "Active contact not found" }, 404);
     if (changes.assigneeId) {
       const [member] = await deps.db
@@ -704,6 +768,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         and(
           eq(contacts.orgId, orgId),
           eq(contacts.id, contactId.data),
+          isNull(contacts.deletedAt),
           ...changedKeys.map(
             (key) => sql`${contactScalarColumns[key]} IS NOT DISTINCT FROM ${expected[key]}`,
           ),
@@ -759,6 +824,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.orgId, orgId),
           eq(contacts.id, contactId.data),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!contact) return c.json({ error: "Active contact not found" }, 404);
@@ -796,6 +862,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.orgId, orgId),
           eq(contacts.id, contactId.data),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     const valid = data.tagIds.length
@@ -876,7 +943,12 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({ id: contacts.id })
       .from(contacts)
       .where(
-        and(eq(contacts.orgId, orgId), inArray(contacts.id, ids), ne(contacts.status, "duplicate")),
+        and(
+          eq(contacts.orgId, orgId),
+          inArray(contacts.id, ids),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
       );
     if (valid.length !== ids.length) return c.json({ error: "Contact not found" }, 404);
     const row = await deps.db.transaction(async (tx) => {
@@ -1052,6 +1124,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.orgId, orgId),
           eq(contacts.id, data.contactId),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!contact) return c.json({ error: "Contact not found" }, 404);
@@ -1118,7 +1191,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select()
       .from(contacts)
       .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId.data)));
-    if (!contact || contact.status === "duplicate")
+    if (!contact || contact.status === "duplicate" || contact.deletedAt)
       return c.json({ error: "Contact not found" }, 404);
     const possible = await deps.db
       .select()
@@ -1128,6 +1201,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.orgId, orgId),
           ne(contacts.id, contact.id),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
           or(
             and(
               eq(contacts.normalizedName, contact.normalizedName),
@@ -1172,6 +1246,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
               eq(contacts.orgId, orgId),
               eq(contacts.id, contactId),
               ne(contacts.status, "duplicate"),
+              isNull(contacts.deletedAt),
             ),
           )
           .limit(1)

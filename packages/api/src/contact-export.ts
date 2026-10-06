@@ -13,7 +13,7 @@ import {
   personTags,
   workspaceFiles,
 } from "@contac/core/db";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { Hono } from "hono";
 import { stringify } from "yaml";
 import { z } from "zod";
@@ -49,6 +49,7 @@ export function registerContactExportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(activityContacts.activityId, activityId.data),
           eq(activityContacts.contactId, body.data.contactId),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!link) return c.json({ error: "Choose a linked, active contact" }, 400);
@@ -82,7 +83,10 @@ export function registerContactExportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .select({ id: organizations.id, name: organizations.name })
         .from(organizations)
         .where(eq(organizations.id, orgId)),
-      deps.db.select().from(contacts).where(eq(contacts.orgId, orgId)),
+      deps.db
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
       deps.db.select().from(companies).where(eq(companies.orgId, orgId)),
       deps.db.select().from(personTags).where(eq(personTags.orgId, orgId)),
       deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),

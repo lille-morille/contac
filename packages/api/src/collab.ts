@@ -45,7 +45,8 @@ export function registerCollabRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(contacts)
           .where(and(eq(contacts.orgId, orgId), eq(contacts.id, entityId)))
           .for("update");
-        if (row?.sharedNoteSavedAt && row.status !== "duplicate") sourceText = row.sharedNote;
+        if (row?.sharedNoteSavedAt && row.status !== "duplicate" && !row.deletedAt)
+          sourceText = row.sharedNote;
       } else if (kind === "summary" || kind === "transcript") {
         const [row] = await tx
           .select()
@@ -151,7 +152,8 @@ export function registerCollabRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(contacts)
           .where(and(eq(contacts.orgId, orgId), eq(contacts.id, entityId)))
           .for("update");
-        if (row?.sharedNoteSavedAt && row.status !== "duplicate") sourceText = row.sharedNote;
+        if (row?.sharedNoteSavedAt && row.status !== "duplicate" && !row.deletedAt)
+          sourceText = row.sharedNote;
       } else if (kind === "summary" || kind === "transcript") {
         const [row] = await tx
           .select()

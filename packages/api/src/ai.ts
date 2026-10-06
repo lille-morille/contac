@@ -166,7 +166,12 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
     .from(contacts)
     .innerJoin(companies, eq(companies.id, contacts.companyId))
     .where(
-      and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), ne(contacts.status, "duplicate")),
+      and(
+        eq(contacts.orgId, orgId),
+        eq(contacts.id, contactId),
+        ne(contacts.status, "duplicate"),
+        isNull(contacts.deletedAt),
+      ),
     );
   if (!person) throw new Error("Fant ikke kontakten");
   const entries = await deps.db
@@ -304,7 +309,12 @@ async function applyChange(
     .select()
     .from(contacts)
     .where(
-      and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), ne(contacts.status, "duplicate")),
+      and(
+        eq(contacts.orgId, orgId),
+        eq(contacts.id, contactId),
+        ne(contacts.status, "duplicate"),
+        isNull(contacts.deletedAt),
+      ),
     );
   if (!before) throw new Error("Fant ikke kontakten");
   const filtered = Object.fromEntries(
@@ -332,7 +342,14 @@ async function applyChange(
         : {}),
       updatedAt: new Date(),
     })
-    .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), ...guards))
+    .where(
+      and(
+        eq(contacts.orgId, orgId),
+        eq(contacts.id, contactId),
+        isNull(contacts.deletedAt),
+        ...guards,
+      ),
+    )
     .returning();
   if (!after) return null;
   await deps.db.insert(aiEditLog).values({
@@ -369,7 +386,7 @@ async function applyTagSet(
   const [contact] = await deps.db
     .select({ companyId: contacts.companyId })
     .from(contacts)
-    .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)));
+    .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), isNull(contacts.deletedAt)));
   if (!contact) throw new Error("Fant ikke kontakten");
   const targetCompany = companyId ?? contact.companyId;
   const before =
@@ -670,7 +687,9 @@ async function generateContact(
             description: contacts.description,
           })
           .from(contacts)
-          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
+          .where(
+            and(eq(contacts.orgId, orgId), eq(contacts.id, contactId), isNull(contacts.deletedAt)),
+          )
       : [];
   const contactFieldParts =
     feature === "contact_fields" && mode === "safe_auto"
@@ -746,6 +765,7 @@ async function generateContact(
           eq(contacts.orgId, orgId),
           eq(contacts.id, contactId),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!fresh?.allowExternalAi) return row;
@@ -918,6 +938,7 @@ export async function groupContext(
             eq(contacts.orgId, orgId),
             inArray(contacts.companyId, ids),
             ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
           ),
         )
     : [];
@@ -1052,7 +1073,13 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const [current] = await deps.db
       .select()
       .from(contacts)
-      .where(and(eq(contacts.orgId, orgId), eq(contacts.id, suggestion.contactId)));
+      .where(
+        and(
+          eq(contacts.orgId, orgId),
+          eq(contacts.id, suggestion.contactId),
+          isNull(contacts.deletedAt),
+        ),
+      );
     if (!current) return c.json({ error: "Contact not found" }, 404);
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;

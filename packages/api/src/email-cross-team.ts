@@ -51,7 +51,9 @@ async function linkedContacts(deps: ApiDeps, orgId: string, message: Message, pr
   const rows = await deps.db
     .select({ id: contacts.id, email: contacts.email })
     .from(contacts)
-    .where(and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate")));
+    .where(
+      and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"), isNull(contacts.deletedAt)),
+    );
   return [
     ...new Set([
       ...(primaryId ? [primaryId] : []),
@@ -111,7 +113,13 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({ orgId: contacts.orgId, email: contacts.email })
       .from(contacts)
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
-      .where(and(eq(organizations.classId, classRow.id), ne(contacts.status, "duplicate")));
+      .where(
+        and(
+          eq(organizations.classId, classRow.id),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
+      );
     const matchedTeams = new Set(
       classContacts
         .filter((row) => contactMatchesEmail(row.email, message))
@@ -232,6 +240,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.id, contactId),
           eq(contacts.orgId, orgId),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!contact) return c.json({ error: "Contact not found" }, 404);
@@ -384,6 +393,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.id, parsed.data.contactId),
           eq(contacts.orgId, orgId),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (!person) return c.json({ error: "Contact not found" }, 404);
@@ -528,7 +538,13 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       deps.db
         .select({ name: contacts.name, email: contacts.email })
         .from(contacts)
-        .where(and(eq(contacts.orgId, orgId), ne(contacts.status, "duplicate"))),
+        .where(
+          and(
+            eq(contacts.orgId, orgId),
+            ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
+          ),
+        ),
     ]);
     return c.json({
       suggestions: suggestions.map((row) =>
@@ -579,7 +595,12 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({ id: contacts.id })
       .from(contacts)
       .where(
-        and(eq(contacts.orgId, orgId), inArray(contacts.id, ids), ne(contacts.status, "duplicate")),
+        and(
+          eq(contacts.orgId, orgId),
+          inArray(contacts.id, ids),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
       );
     if (found.length !== ids.length) return c.json({ error: "Choose team contacts" }, 400);
     const inbound = item.inbound;
@@ -672,7 +693,9 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
-      .where(and(eq(contacts.id, contactId.data), eq(contacts.orgId, orgId)));
+      .where(
+        and(eq(contacts.id, contactId.data), eq(contacts.orgId, orgId), isNull(contacts.deletedAt)),
+      );
     if (!source || ["ikke_kontaktet", "duplicate"].includes(source.contact.status))
       return c.json([]);
     const others = await deps.db
@@ -692,6 +715,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           ne(contacts.orgId, orgId),
           ne(contacts.status, "ikke_kontaktet"),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     const matching = others.filter((row) =>
@@ -743,7 +767,13 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
-      .where(and(eq(contacts.id, parsed.data.requesterContactId), eq(contacts.orgId, orgId)));
+      .where(
+        and(
+          eq(contacts.id, parsed.data.requesterContactId),
+          eq(contacts.orgId, orgId),
+          isNull(contacts.deletedAt),
+        ),
+      );
     const [other] = await deps.db
       .select({
         contact: contacts,
@@ -753,7 +783,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(contacts)
       .innerJoin(companies, eq(companies.id, contacts.companyId))
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
-      .where(eq(contacts.id, parsed.data.ownerContactId));
+      .where(and(eq(contacts.id, parsed.data.ownerContactId), isNull(contacts.deletedAt)));
     if (
       !own ||
       !other ||
@@ -831,7 +861,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(contacts)
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
       .innerJoin(companies, eq(companies.id, contacts.companyId))
-      .where(eq(contacts.id, contactId.data));
+      .where(and(eq(contacts.id, contactId.data), isNull(contacts.deletedAt)));
     if (
       !target ||
       target.contact.orgId === orgId ||
@@ -853,6 +883,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           eq(contacts.orgId, orgId),
           ne(contacts.status, "ikke_kontaktet"),
           ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
         ),
       );
     if (

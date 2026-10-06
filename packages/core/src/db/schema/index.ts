@@ -381,6 +381,7 @@ export const contacts = pgTable(
     assigneeId: uuid("assignee_id"),
     allowExternalAi: boolean("allow_external_ai").notNull().default(true),
     duplicateOfId: uuid("duplicate_of_id"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdBy: uuid("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
