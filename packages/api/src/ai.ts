@@ -1222,7 +1222,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const contactId = id.safeParse(c.req.param("id"));
     if (!contactId.success) return c.json({ error: "Invalid contact" }, 400);
     const orgId = c.get("org").id;
-    const [suggestions, edits] = await Promise.all([
+    const [pending, history, edits] = await Promise.all([
       deps.db
         .select()
         .from(aiSuggestions)
@@ -1231,6 +1231,19 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             eq(aiSuggestions.orgId, orgId),
             eq(aiSuggestions.contactId, contactId.data),
             ne(aiSuggestions.feature, "contact_referral_scan"),
+            eq(aiSuggestions.status, "pending"),
+          ),
+        )
+        .orderBy(desc(aiSuggestions.createdAt)),
+      deps.db
+        .select()
+        .from(aiSuggestions)
+        .where(
+          and(
+            eq(aiSuggestions.orgId, orgId),
+            eq(aiSuggestions.contactId, contactId.data),
+            ne(aiSuggestions.feature, "contact_referral_scan"),
+            ne(aiSuggestions.status, "pending"),
           ),
         )
         .orderBy(desc(aiSuggestions.createdAt))
@@ -1242,6 +1255,9 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .orderBy(desc(aiEditLog.createdAt))
         .limit(30),
     ]);
+    const suggestions = [...pending, ...history].sort(
+      (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+    );
     const context = await contactContext(deps, orgId, contactId.data).catch(() => null);
     return c.json({
       suggestions: suggestions.map((item) => ({

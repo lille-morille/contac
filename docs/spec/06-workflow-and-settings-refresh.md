@@ -67,7 +67,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; live model output and migration not verified here | `b8354c2` |
 | B3: require user review for generated descriptions until representative outputs are checked | Done; live output review pending | `78c4537` |
 | 07: group shortcut help by context and highlight current-page actions | Done | `301e273` |
-| F1: place AI controls and lifetime usage before advanced settings and report actions | Done | This commit |
+| F1: place AI controls and lifetime usage before advanced settings and report actions | Done | `144df6a` |
+| B4–B5: keep all pending contact AI and referral suggestions visible beyond recent history | Done | This commit |
 
 ## A. Navigation and daily work
 
