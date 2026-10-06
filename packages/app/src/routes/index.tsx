@@ -6225,33 +6225,25 @@ function OrganizationGraph({
       (contact) => contact.companyId === company.id && contact.status !== "duplicate",
     ),
   }));
-  const domainRadius = domains.length > 1 ? Math.max(170, domains.length * 55) : 0;
-  const companyRadius = Math.max(domainRadius + 290, companies.length * 155);
+  const domainRadius = domains.length > 1 ? Math.max(120, domains.length * 42) : 0;
+  const companyRadius = Math.max(domainRadius + 200, companies.length * 90);
   const contactHeight = (description: string) =>
-    Math.max(72, 50 + wrapMapDescription(description).length * 15);
+    Math.max(80, 58 + wrapMapDescription(description).length * 20);
   const rowHeights = companyPeople.map(({ people }) =>
     Array.from({ length: Math.ceil(people.length / 3) }, (_, row) =>
       Math.max(
-        72,
+        80,
         ...people
           .slice(row * 3, row * 3 + 3)
           .map((person) => contactHeight(person.description?.trim() || "Ingen kort beskrivelse")),
       ),
     ),
   );
-  const maxContactReach = Math.max(
-    0,
-    ...rowHeights.map((heights) => heights.reduce((total, height) => total + height + 30, 0)),
-  );
-  const graphRadius = companyRadius + 300 + maxContactReach;
-  const graphWidth = graphRadius * 2;
-  const graphHeight = graphWidth;
-  const center = graphRadius;
   const angle = (index: number, count: number) =>
     -Math.PI / 2 + (index * 2 * Math.PI) / Math.max(count, 1);
   const polar = (radius: number, radians: number) => ({
-    x: center + Math.cos(radians) * radius,
-    y: center + Math.sin(radians) * radius,
+    x: Math.cos(radians) * radius,
+    y: Math.sin(radians) * radius,
   });
   type GraphNode = {
     id: string;
@@ -6316,13 +6308,13 @@ function OrganizationGraph({
       const row = Math.floor(contactIndex / 3);
       const countInRow = Math.min(3, people.length - row * 3);
       const column = contactIndex % 3;
-      const lateral = (column - (countInRow - 1) / 2) * 265;
+      const lateral = (column - (countInRow - 1) / 2) * 280;
       const radius =
         companyRadius +
-        210 +
-        rowHeights[index].slice(0, row).reduce((total, height) => total + height + 30, 0);
-      const x = center + Math.cos(radians) * radius - Math.sin(radians) * lateral;
-      const y = center + Math.sin(radians) * radius + Math.cos(radians) * lateral;
+        160 +
+        rowHeights[index].slice(0, row).reduce((total, height) => total + height + 28, 0);
+      const x = Math.cos(radians) * radius - Math.sin(radians) * lateral;
+      const y = Math.sin(radians) * radius + Math.cos(radians) * lateral;
       nodes.push({
         id: `contact:${contact.id}`,
         entityId: contact.id,
@@ -6342,6 +6334,23 @@ function OrganizationGraph({
       });
     });
   });
+  const bounds = nodes.reduce(
+    (current, node) => {
+      const width = node.kind === "contact" ? 260 : node.kind === "company" ? 230 : 190;
+      const height = node.kind === "contact" ? contactHeight(node.subtitle ?? "") : 58;
+      return {
+        minX: Math.min(current.minX, node.x - width / 2),
+        maxX: Math.max(current.maxX, node.x + width / 2),
+        minY: Math.min(current.minY, node.y),
+        maxY: Math.max(current.maxY, node.y + height),
+      };
+    },
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
+  );
+  const contentWidth = nodes.length ? Math.max(300, bounds.maxX - bounds.minX) : 300;
+  const contentHeight = nodes.length ? Math.max(300, bounds.maxY - bounds.minY) : 300;
+  const fitCenterX = nodes.length ? (bounds.minX + bounds.maxX) / 2 : 0;
+  const fitCenterY = nodes.length ? (bounds.minY + bounds.maxY) / 2 : 0;
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
   const dragging = useRef<{
@@ -6353,14 +6362,21 @@ function OrganizationGraph({
   } | null>(null);
   useEffect(() => {
     const scale = Math.min(
-      1.2,
-      Math.max(0.04, Math.min(viewportWidth, viewportHeight) / graphWidth),
+      1.3,
+      Math.max(
+        0.04,
+        Math.min(
+          Math.max(240, viewportWidth - 96) / contentWidth,
+          Math.max(240, viewportHeight - 96) / contentHeight,
+        ),
+      ),
     );
     setView({ x: 0, y: 0, scale });
   }, [
     viewportWidth,
     viewportHeight,
-    graphWidth,
+    contentWidth,
+    contentHeight,
     selection.kind,
     selection.kind === "all" ? "" : selection.id,
     fitToken,
@@ -6394,7 +6410,7 @@ function OrganizationGraph({
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
   }, [viewportHeight]);
-  const transform = `translate(${viewportWidth / 2 + view.x} ${viewportHeight / 2 + view.y}) scale(${view.scale}) translate(${-center} ${-center})`;
+  const transform = `translate(${viewportWidth / 2 + view.x} ${viewportHeight / 2 + view.y}) scale(${view.scale}) translate(${-fitCenterX} ${-fitCenterY})`;
   return (
     <svg
       ref={svgRef}
@@ -6473,9 +6489,9 @@ function OrganizationGraph({
         <AnimatePresence initial={false}>
           {nodes.map((node) => {
             const interactive = true;
-            const width = node.kind === "company" ? 210 : node.kind === "domain" ? 160 : 220;
+            const width = node.kind === "company" ? 230 : node.kind === "domain" ? 190 : 260;
             const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
-            const height = node.kind === "contact" ? contactHeight(node.subtitle ?? "") : 50;
+            const height = node.kind === "contact" ? contactHeight(node.subtitle ?? "") : 58;
             const activate = (anchor: Element) => {
               if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
               else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
@@ -6547,29 +6563,29 @@ function OrganizationGraph({
                 />
                 <text
                   x="0"
-                  y={node.subtitle ? (node.kind === "contact" ? 28 : 25) : height / 2 + 5}
+                  y={node.subtitle ? 29 : height / 2 + 6}
                   textAnchor="middle"
-                  fontSize={node.kind === "contact" ? 14 : 15}
+                  fontSize={node.kind === "contact" ? 17 : 18}
                   fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
                   fill="var(--foreground)"
                   className="pointer-events-none"
                 >
-                  {node.label.length > (node.kind === "company" ? 26 : 25)
-                    ? `${node.label.slice(0, node.kind === "company" ? 25 : 24)}…`
+                  {node.label.length > (node.kind === "company" ? 23 : 25)
+                    ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
                     : node.label}
                 </text>
                 {node.subtitle && (
                   <text
                     x="0"
-                    y={node.kind === "contact" ? 50 : 43}
+                    y={node.kind === "contact" ? 54 : 45}
                     textAnchor="middle"
-                    fontSize="11"
+                    fontSize="14"
                     fill="var(--muted-foreground)"
                     className="pointer-events-none"
                   >
                     {node.kind === "contact"
                       ? descriptionLines.map((line, index) => (
-                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 15 : 0}>
+                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
                             {line}
                           </tspan>
                         ))
@@ -6584,8 +6600,8 @@ function OrganizationGraph({
           {companies.length === 0 && (
             <motion.text
               key="empty"
-              x={graphWidth / 2}
-              y={graphHeight / 2 + 35}
+              x={fitCenterX}
+              y={fitCenterY + 35}
               textAnchor="middle"
               fill="var(--muted-foreground)"
               initial={{ opacity: 0 }}
