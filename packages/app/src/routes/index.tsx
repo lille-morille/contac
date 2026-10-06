@@ -3648,12 +3648,23 @@ function ContactCard({
 }
 function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data }) {
   const assignee = data.members.find((member) => member.userId === c.assigneeId);
+  const company = data.companies.find((item) => item.id === c.companyId);
   return (
     <div className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-card transition hover:border-primary/30 hover:shadow-card-hover">
       <span className="flex items-start justify-between gap-2">
-        <span className="flex min-w-0 items-start gap-2 text-sm font-semibold">
-          <ContactStatusIcon status={c.status} />
-          <span>{c.name}</span>
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="inline-flex max-w-full shrink-0 items-center gap-2 text-sm font-semibold">
+            <ContactStatusIcon status={c.status} />
+            <span className="truncate">{c.name}</span>
+          </span>
+          {company && (
+            <span
+              className="max-w-full shrink-0 truncate text-xs text-muted-foreground"
+              title={company.name}
+            >
+              {company.name}
+            </span>
+          )}
         </span>
         <span className="shrink-0" title={assignee?.name ?? "Uten ansvarlig"}>
           <Avatar
