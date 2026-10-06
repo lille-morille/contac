@@ -6,7 +6,6 @@ import {
   aiSuggestions,
   aiUsage,
   checkinAiSettings,
-  classMemberships,
   companies,
   companyDomains,
   contactActivities,
@@ -14,7 +13,6 @@ import {
   contacts,
   domainTags,
   groupAiSummaries,
-  organizations,
   personTags,
 } from "@contac/core/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
@@ -25,15 +23,6 @@ import { normalizeDomainName, resolveDomainProposal } from "./ai-domain.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 export const defaultModels = { low: "openai/gpt-4.1-nano", medium: "openai/gpt-4.1-mini" };
-async function isClassAdmin(deps: ApiDeps, orgId: string, userId: string) {
-  const [member] = await deps.db
-    .select({ role: classMemberships.role })
-    .from(classMemberships)
-    .innerJoin(organizations, eq(organizations.classId, classMemberships.classId))
-    .where(and(eq(organizations.id, orgId), eq(classMemberships.userId, userId)))
-    .limit(1);
-  return member?.role === "admin";
-}
 export const aiFeatures = [
   "stikkord",
   "contact_fields",
@@ -58,6 +47,42 @@ export const featureMode = (
     ? (settings.modes[feature] as AiMode)
     : "off";
 };
+export function remainingSuggestion(
+  feature: string,
+  payload: Record<string, unknown>,
+  handled: Set<string>,
+) {
+  if (feature === "stikkord") return null;
+  const key = feature === "contact_fields" ? "fields" : "hierarchy";
+  const proposed = { ...((payload[key] as Record<string, unknown>) ?? {}) };
+  for (const field of handled) {
+    delete proposed[field];
+    if (field === "newDomainName") delete proposed.newDomainDescription;
+  }
+  const hasRemaining = Object.entries(proposed).some(
+    ([field, value]) =>
+      field !== "newDomainDescription" &&
+      value !== null &&
+      value !== undefined &&
+      value !== "" &&
+      (!Array.isArray(value) || value.length > 0),
+  );
+  return hasRemaining ? { ...payload, [key]: proposed } : null;
+}
+export function partitionSafeAutoFields(
+  proposed: Record<string, string>,
+  current: { email?: string | null; phone?: string | null; description?: string | null },
+) {
+  const automatic: Record<string, string> = {};
+  const pending: Record<string, string> = {};
+  for (const [key, value] of Object.entries(proposed)) {
+    const existing = current[key as "email" | "phone" | "description"]?.trim() ?? "";
+    if (existing.toLocaleLowerCase("nb-NO") === value.trim().toLocaleLowerCase("nb-NO")) continue;
+    if (existing) pending[key] = value;
+    else automatic[key] = value;
+  }
+  return { automatic, pending };
+}
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const clean = (value: unknown, limit = 200) =>
   typeof value === "string" ? value.trim().slice(0, limit) : "";
@@ -442,39 +467,6 @@ async function generateContact(
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
   if (!conversations.length && feature !== "hierarchy")
     throw new Error("Ingen tillatte samtaler å bruke");
-  const missingFields: string[] = (["email", "phone", "description"] as const).filter(
-    (key) => !person.contact[key]?.trim(),
-  );
-  if (
-    trigger === "automatic" &&
-    mode === "safe_auto" &&
-    feature === "contact_fields" &&
-    !missingFields.length
-  )
-    return null;
-  let missingHierarchyFields: string[] | null = null;
-  if (trigger === "automatic" && mode === "safe_auto" && feature === "hierarchy") {
-    const [existingTags, existingDomains] = await Promise.all([
-      deps.db
-        .select({ id: contactPersonTags.tagId })
-        .from(contactPersonTags)
-        .where(and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId))),
-      deps.db
-        .select({ id: companyDomains.domainId })
-        .from(companyDomains)
-        .where(
-          and(
-            eq(companyDomains.orgId, orgId),
-            eq(companyDomains.companyId, person.contact.companyId),
-          ),
-        ),
-    ]);
-    missingHierarchyFields = [
-      ...(!existingTags.length ? ["personTagIds"] : []),
-      ...(!existingDomains.length ? ["domainIds", "newDomainName", "newDomainDescription"] : []),
-    ];
-    if (!missingHierarchyFields.length) return null;
-  }
   const base = {
     contact: {
       name: person.contact.name,
@@ -496,7 +488,7 @@ async function generateContact(
     system =
       "Lag svært korte norske stikkord om viktigste funn for kontakten, maks 300 tegn. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields") {
-    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys ${mode === "safe_auto" ? missingFields.join(", ") : "email, phone, description"}, evidence. Ukjente felter utelates. ${mode === "safe_auto" ? "Ikke returner felter som allerede er fylt ut." : ""} description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
+    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys email, phone, description, evidence. Ukjente felter utelates. Foreslå også et felt som allerede er fylt ut dersom samtalen gir konkret belegg for en annen verdi; den nye verdien skal da gjennomgås av en bruker. description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
   }
   if (feature === "hierarchy") {
     const [companyRows, domainRows, tagRows] = await Promise.all([
@@ -531,7 +523,7 @@ async function generateContact(
         personTags: tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå domener og persontagger. Returner KUN JSON med ${missingHierarchyFields?.join(", ") ?? "companyId, domainIds, newDomainName, newDomainDescription, personTagIds"}, evidence. Bruk bare eksisterende ID-er i options. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå domener og persontagger. Returner KUN JSON med companyId, domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Bruk bare eksisterende ID-er i options. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -558,8 +550,7 @@ async function generateContact(
     );
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;
     for (const key of Object.keys(fields)) {
-      if (mode === "safe_auto" && !missingFields.includes(key)) delete fields[key];
-      else if (
+      if (
         String(person.contact[key as "email" | "phone" | "description"] ?? "")
           .trim()
           .toLocaleLowerCase("nb-NO") === String(fields[key]).trim().toLocaleLowerCase("nb-NO")
@@ -614,14 +605,18 @@ async function generateContact(
         ? raw.personTagIds.filter((item) => validTags.some((row) => row.id === item))
         : [],
     };
-    if (missingHierarchyFields) {
-      const hierarchy = suggestion.hierarchy as Record<string, unknown>;
-      for (const key of Object.keys(hierarchy))
-        if (!missingHierarchyFields.includes(key)) hierarchy[key] = key.endsWith("Ids") ? [] : null;
-    }
   }
   if (feature === "contact_fields" && !Object.keys(suggestion.fields as object).length) return null;
-  if (feature === "stikkord" && raw.text === person.contact.stikkord?.trim()) return null;
+  if (
+    feature === "stikkord" &&
+    String(raw.text).trim().toLocaleLowerCase("nb-NO") ===
+      String(person.contact.stikkord ?? "")
+        .trim()
+        .toLocaleLowerCase("nb-NO")
+  )
+    return null;
+  let hasExistingTags = false;
+  let hasExistingDomains = false;
   if (feature === "hierarchy") {
     const hierarchy = suggestion.hierarchy as Record<string, unknown>;
     const [existingTags, existingDomains] = await Promise.all([
@@ -642,6 +637,8 @@ async function generateContact(
     const sameSet = (proposed: unknown, existing: string[]) =>
       Array.isArray(proposed) &&
       [...proposed].sort().join("\u0000") === [...existing].sort().join("\u0000");
+    hasExistingTags = existingTags.length > 0;
+    hasExistingDomains = existingDomains.length > 0;
     if (
       sameSet(
         hierarchy.personTagIds,
@@ -664,6 +661,71 @@ async function generateContact(
     )
       return null;
   }
+  const [latestContactFields] =
+    feature === "contact_fields" && mode === "safe_auto"
+      ? await deps.db
+          .select({
+            email: contacts.email,
+            phone: contacts.phone,
+            description: contacts.description,
+          })
+          .from(contacts)
+          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
+      : [];
+  const contactFieldParts =
+    feature === "contact_fields" && mode === "safe_auto"
+      ? partitionSafeAutoFields(
+          suggestion.fields as Record<string, string>,
+          latestContactFields ?? person.contact,
+        )
+      : null;
+  const pendingContactFields = contactFieldParts?.pending ?? null;
+  const autoContactFields = contactFieldParts?.automatic ?? null;
+  if (
+    contactFieldParts &&
+    !Object.keys(contactFieldParts.automatic).length &&
+    !Object.keys(contactFieldParts.pending).length
+  )
+    return null;
+  const proposedHierarchy =
+    feature === "hierarchy" ? (suggestion.hierarchy as Record<string, unknown>) : null;
+  const autoHierarchy =
+    proposedHierarchy && mode === "safe_auto"
+      ? {
+          companyId: null,
+          personTagIds: hasExistingTags ? [] : proposedHierarchy.personTagIds,
+          domainIds: hasExistingDomains ? [] : proposedHierarchy.domainIds,
+          newDomainName: hasExistingDomains ? null : proposedHierarchy.newDomainName,
+          newDomainDescription: hasExistingDomains ? null : proposedHierarchy.newDomainDescription,
+        }
+      : null;
+  const pendingHierarchy =
+    proposedHierarchy && mode === "safe_auto"
+      ? {
+          companyId: proposedHierarchy.companyId,
+          personTagIds: hasExistingTags ? proposedHierarchy.personTagIds : [],
+          domainIds: hasExistingDomains ? proposedHierarchy.domainIds : [],
+          newDomainName: hasExistingDomains ? proposedHierarchy.newDomainName : null,
+          newDomainDescription: hasExistingDomains ? proposedHierarchy.newDomainDescription : null,
+        }
+      : null;
+  const hasHierarchyValues = (value: Record<string, unknown> | null) =>
+    !!value &&
+    (!!value.companyId ||
+      !!value.newDomainName ||
+      (Array.isArray(value.personTagIds) && value.personTagIds.length > 0) ||
+      (Array.isArray(value.domainIds) && value.domainIds.length > 0));
+  const shouldAutoApply =
+    mode === "dangerous" ||
+    (mode === "safe_auto" &&
+      (feature === "contact_fields"
+        ? !!Object.keys(autoContactFields ?? {}).length
+        : feature === "hierarchy"
+          ? hasHierarchyValues(autoHierarchy)
+          : !person.contact.stikkord?.trim()));
+  if (autoContactFields)
+    suggestion.fields = shouldAutoApply ? autoContactFields : pendingContactFields;
+  if (autoHierarchy) suggestion.hierarchy = shouldAutoApply ? autoHierarchy : pendingHierarchy;
   const [row] = await deps.db
     .insert(aiSuggestions)
     .values({
@@ -672,10 +734,10 @@ async function generateContact(
       feature,
       sourceVersion: version,
       payload: suggestion,
-      status: ["safe_auto", "dangerous"].includes(mode) ? "applied" : "pending",
+      status: shouldAutoApply ? "applied" : "pending",
     })
     .returning();
-  if (["safe_auto", "dangerous"].includes(mode)) {
+  if (shouldAutoApply) {
     const [fresh] = await deps.db
       .select()
       .from(contacts)
@@ -769,6 +831,25 @@ async function generateContact(
         : null;
       void applied;
     }
+  }
+  if (
+    shouldAutoApply &&
+    ((pendingContactFields && Object.keys(pendingContactFields).length) ||
+      hasHierarchyValues(pendingHierarchy))
+  ) {
+    const pendingVersion = (await contactContext(deps, orgId, contactId)).version;
+    await deps.db.insert(aiSuggestions).values({
+      orgId,
+      contactId,
+      feature,
+      sourceVersion: pendingVersion,
+      payload: {
+        ...suggestion,
+        ...(pendingContactFields ? { fields: pendingContactFields } : {}),
+        ...(pendingHierarchy ? { hierarchy: pendingHierarchy } : {}),
+      },
+      status: "pending",
+    });
   }
   return row;
 }
@@ -890,7 +971,6 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const contactId = id.safeParse(c.req.param("id"));
     if (!contactId.success) return c.json({ error: "Invalid contact" }, 400);
     const orgId = c.get("org").id;
-    const canViewEdits = await isClassAdmin(deps, orgId, c.get("user").id);
     const [suggestions, edits] = await Promise.all([
       deps.db
         .select()
@@ -898,14 +978,12 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .where(and(eq(aiSuggestions.orgId, orgId), eq(aiSuggestions.contactId, contactId.data)))
         .orderBy(desc(aiSuggestions.createdAt))
         .limit(30),
-      canViewEdits
-        ? deps.db
-            .select()
-            .from(aiEditLog)
-            .where(and(eq(aiEditLog.orgId, orgId), eq(aiEditLog.contactId, contactId.data)))
-            .orderBy(desc(aiEditLog.createdAt))
-            .limit(30)
-        : Promise.resolve([]),
+      deps.db
+        .select()
+        .from(aiEditLog)
+        .where(and(eq(aiEditLog.orgId, orgId), eq(aiEditLog.contactId, contactId.data)))
+        .orderBy(desc(aiEditLog.createdAt))
+        .limit(30),
     ]);
     const context = await contactContext(deps, orgId, contactId.data).catch(() => null);
     return c.json({
@@ -1044,31 +1122,57 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       );
     if (!Object.keys(patch).length && !changedTags)
       return c.json({ error: "Ingen endringer valgt" }, 400);
+    const remaining = remainingSuggestion(suggestion.feature, suggestion.payload, selected);
     await deps.db
       .update(aiSuggestions)
-      .set({ status: "applied" })
+      .set(remaining ? { payload: remaining } : { status: "applied" })
       .where(eq(aiSuggestions.id, suggestion.id));
-    return c.json({ applied: true });
+    return c.json({ applied: true, remaining: !!remaining });
   });
   app.post("/v1/org/ai/suggestions/:id/dismiss", async (c) => {
     const suggestionId = id.safeParse(c.req.param("id"));
     if (!suggestionId.success) return c.json({ error: "Invalid suggestion" }, 400);
-    const [row] = await deps.db
-      .update(aiSuggestions)
-      .set({ status: "dismissed" })
+    const parsed = z
+      .object({
+        field: z
+          .enum([
+            "stikkord",
+            "email",
+            "phone",
+            "description",
+            "companyId",
+            "domainIds",
+            "newDomainName",
+            "personTagIds",
+          ])
+          .optional(),
+      })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "Ugyldig forslag" }, 400);
+    const [suggestion] = await deps.db
+      .select()
+      .from(aiSuggestions)
       .where(
         and(
           eq(aiSuggestions.id, suggestionId.data),
           eq(aiSuggestions.orgId, c.get("org").id),
           eq(aiSuggestions.status, "pending"),
         ),
-      )
+      );
+    if (!suggestion) return c.json({ error: "Suggestion not found" }, 404);
+    const remaining = parsed.data.field
+      ? remainingSuggestion(suggestion.feature, suggestion.payload, new Set([parsed.data.field]))
+      : null;
+    const [row] = await deps.db
+      .update(aiSuggestions)
+      .set(remaining ? { payload: remaining } : { status: "dismissed" })
+      .where(and(eq(aiSuggestions.id, suggestion.id), eq(aiSuggestions.status, "pending")))
       .returning();
-    return row ? c.json({ dismissed: true }) : c.json({ error: "Suggestion not found" }, 404);
+    return row
+      ? c.json({ dismissed: true, remaining: !!remaining })
+      : c.json({ error: "Suggestion not found" }, 404);
   });
   app.post("/v1/org/ai/edits/:id/revert", async (c) => {
-    if (!(await isClassAdmin(deps, c.get("org").id, c.get("user").id)))
-      return c.json({ error: "Class admin access required" }, 403);
     const editId = id.safeParse(c.req.param("id"));
     if (!editId.success) return c.json({ error: "Invalid edit" }, 400);
     const [edit] = await deps.db

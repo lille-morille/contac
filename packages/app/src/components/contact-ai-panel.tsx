@@ -5,7 +5,6 @@ import { request } from "../lib/api.ts";
 import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
-import { Checkbox } from "./ui/checkbox.tsx";
 
 type Feature = "stikkord" | "contact_fields" | "hierarchy";
 type Suggestion = {
@@ -75,21 +74,16 @@ export function ContactAiPanel({
   companies,
   domains,
   tags,
-  personTagIds,
-  domainIds,
 }: {
   contact: Contact;
   companies: Item[];
   domains: Item[];
   tags: Item[];
-  personTagIds: string[];
-  domainIds: string[];
 }) {
-  const { org, classSpace } = useOrg();
+  const { org } = useOrg();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [selection, setSelection] = useState<Record<string, string[]>>({});
   const settings = useQuery({
     queryKey: ["checkin-ai", org?.id],
     queryFn: () =>
@@ -110,12 +104,6 @@ export function ContactAiPanel({
     refetchInterval: 30_000,
   });
   const data = { companies, domains, tags };
-  const currentValue = (key: string) =>
-    key === "personTagIds"
-      ? personTagIds
-      : key === "domainIds"
-        ? domainIds
-        : contact[key as keyof Contact];
   async function action(path: string, body: unknown) {
     if (!org) return;
     setBusy(true);
@@ -133,12 +121,11 @@ export function ContactAiPanel({
       setBusy(false);
     }
   }
-  const pending = state.data?.suggestions.filter((item) => item.status === "pending") ?? [];
   return (
     <Card className="p-5">
       <div className="flex items-center gap-2">
         <Bot size={17} className="text-primary" />
-        <h2 className="font-semibold">AI-forslag</h2>
+        <h2 className="font-semibold">AI-verktøy</h2>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         Kun tillatte samtaler brukes. Delte notater og ubesvarte anrop brukes aldri.
@@ -192,127 +179,7 @@ export function ContactAiPanel({
           feltforslag.
         </p>
       )}
-      {pending.length > 0 && (
-        <div className="mt-5 space-y-3">
-          <h3 className="text-sm font-semibold">Forslag til gjennomgang</h3>
-          {pending.map((item) => {
-            const payload = item.payload;
-            const hierarchy = payload.hierarchy as Record<string, unknown> | undefined;
-            const proposed =
-              item.feature === "stikkord"
-                ? { stikkord: payload.text }
-                : item.feature === "contact_fields"
-                  ? ((payload.fields as Record<string, unknown>) ?? {})
-                  : (hierarchy ?? {});
-            const keys = Object.keys(proposed).filter((key) => {
-              if (key === "newDomainDescription") return false;
-              const next = proposed[key];
-              if (next === null || next === undefined || next === "") return false;
-              if (Array.isArray(next) && !next.length) return false;
-              const current = currentValue(key);
-              if (Array.isArray(next) && Array.isArray(current))
-                return [...next].sort().join("\u0000") !== [...current].sort().join("\u0000");
-              return (
-                String(next).trim().toLocaleLowerCase("nb-NO") !==
-                String(current ?? "")
-                  .trim()
-                  .toLocaleLowerCase("nb-NO")
-              );
-            });
-            if (!keys.length) return null;
-            const selected = selection[item.id] ?? keys;
-            return (
-              <div key={item.id} className="rounded-xl border border-border p-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <strong>{labels[item.feature]}</strong>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(item.createdAt).toLocaleString("nb-NO")}
-                  </span>
-                </div>
-                {!!payload.model && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {String(payload.model)} ·{" "}
-                    {(() => {
-                      const usage = payload.usage as {
-                        prompt_tokens?: number;
-                        completion_tokens?: number;
-                        cost?: number;
-                      } | null;
-                      return usage
-                        ? `${(usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0)} tokens · ${typeof usage.cost === "number" ? `${usage.cost.toFixed(5)} USD` : "ukjent kostnad"}`
-                        : "bruk ikke rapportert";
-                    })()}
-                  </p>
-                )}
-                {item.stale && (
-                  <p className="mt-1 text-xs text-warn">
-                    Kilden er endret siden forslaget ble laget. Kontroller innholdet før du bruker
-                    det.
-                  </p>
-                )}
-                {!!payload.evidence && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Begrunnelse: {String(payload.evidence)}
-                  </p>
-                )}
-                <div className="mt-2 space-y-2">
-                  {keys.map((key) => (
-                    <label key={key} className="flex items-start gap-2 rounded-lg bg-muted/50 p-2">
-                      <Checkbox
-                        aria-label={`Bruk forslag for ${labels[key] ?? key}`}
-                        checked={selected.includes(key)}
-                        onCheckedChange={(checked) =>
-                          setSelection((prev) => ({
-                            ...prev,
-                            [item.id]: checked
-                              ? [...selected, key]
-                              : selected.filter((value) => value !== key),
-                          }))
-                        }
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-xs font-medium">{labels[key] ?? key}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          Nå: {display(currentValue(key), key, data)}
-                        </span>
-                        <span className="block break-words">
-                          Forslag: {display(proposed[key], key, data)}
-                        </span>
-                        {key === "newDomainName" &&
-                          typeof proposed.newDomainDescription === "string" && (
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              Kriterier: {proposed.newDomainDescription}
-                            </span>
-                          )}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busy || !selected.length}
-                    onClick={() =>
-                      void action(`/org/ai/suggestions/${item.id}/apply`, { fields: selected })
-                    }
-                  >
-                    Bruk valgte
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void action(`/org/ai/suggestions/${item.id}/dismiss`, {})}
-                  >
-                    Avvis
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {classSpace?.role === "admin" && !!state.data?.edits.length && (
+      {!!state.data?.edits.length && (
         <details className="mt-5 border-t border-border pt-3">
           <summary className="cursor-pointer text-sm font-medium">
             Endringslogg · {state.data.edits.length}
@@ -374,5 +241,153 @@ export function ContactAiPanel({
         </p>
       )}
     </Card>
+  );
+}
+
+type SuggestionField =
+  | "email"
+  | "phone"
+  | "description"
+  | "companyId"
+  | "personTagIds"
+  | "domainIds"
+  | "stikkord";
+
+export function ContactAiFieldSuggestions({
+  contactId,
+  field,
+  currentValue,
+  companies,
+  domains,
+  tags,
+}: {
+  contactId: string;
+  field: SuggestionField;
+  currentValue: string | string[] | null;
+  companies: Item[];
+  domains: Item[];
+  tags: Item[];
+}) {
+  const { org } = useOrg();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const state = useQuery({
+    queryKey: ["contact-ai", org?.id, contactId],
+    queryFn: () => request<{ suggestions: Suggestion[] }>(`/org/ai/contacts/${contactId}`, org!.id),
+    enabled: !!org,
+    refetchInterval: 30_000,
+  });
+  const data = { companies, domains, tags };
+  const sameValue = (proposed: unknown) =>
+    Array.isArray(proposed) && Array.isArray(currentValue)
+      ? [...proposed].sort().join("\u0000") === [...currentValue].sort().join("\u0000")
+      : String(proposed ?? "")
+          .trim()
+          .toLocaleLowerCase("nb-NO") ===
+        String(currentValue ?? "")
+          .trim()
+          .toLocaleLowerCase("nb-NO");
+  const proposals = (state.data?.suggestions ?? []).flatMap((item) => {
+    if (item.status !== "pending") return [];
+    const values =
+      item.feature === "stikkord"
+        ? { stikkord: item.payload.text }
+        : item.feature === "contact_fields"
+          ? ((item.payload.fields as Record<string, unknown>) ?? {})
+          : ((item.payload.hierarchy as Record<string, unknown>) ?? {});
+    const keys = field === "domainIds" ? ["domainIds", "newDomainName"] : [field];
+    return keys.flatMap((key) => {
+      const value = values[key];
+      if (value === null || value === undefined || value === "") return [];
+      if (Array.isArray(value) && !value.length) return [];
+      if (key !== "newDomainName" && sameValue(value)) return [];
+      return [{ item, key, value }];
+    });
+  });
+  async function act(id: string, key: string, decision: "apply" | "dismiss", stale: boolean) {
+    if (!org) return;
+    if (
+      decision === "apply" &&
+      stale &&
+      !window.confirm("Kilden er endret siden forslaget ble laget. Bruke forslaget likevel?")
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(
+        `/org/ai/suggestions/${id}/${decision}`,
+        org.id,
+        decision === "apply" ? { fields: [key] } : { field: key },
+      );
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["contact-ai", org.id, contactId] }),
+        qc.invalidateQueries({ queryKey: ["contact-data", org.id] }),
+      ]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke behandle forslaget.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!proposals.length && !error) return null;
+  return (
+    <div className="space-y-2 py-1">
+      {proposals.map(({ item, key, value }) => (
+        <div
+          key={`${item.id}:${key}`}
+          className="rounded-lg border border-primary/25 bg-primary-soft/40 p-2 text-xs"
+        >
+          <div className="flex items-start gap-1.5">
+            <Sparkles size={13} className="mt-0.5 shrink-0 text-primary" />
+            <span className="min-w-0 break-words">
+              <strong>Forslag: </strong>
+              {key === "newDomainName" ? "Nytt domene: " : ""}
+              {display(value, key, data)}
+            </span>
+          </div>
+          {key === "newDomainName" && typeof item.payload.hierarchy === "object" && (
+            <p className="mt-1 text-muted-foreground">
+              {String(
+                (item.payload.hierarchy as Record<string, unknown>).newDomainDescription ?? "",
+              )}
+            </p>
+          )}
+          {!!item.payload.evidence && (
+            <p className="mt-1 break-words text-muted-foreground">
+              Kilde: {String(item.payload.evidence)}
+            </p>
+          )}
+          {item.stale && (
+            <p className="mt-1 text-warn">
+              Kilden er endret. Kontroller forslaget før du bruker det.
+            </p>
+          )}
+          <div className="mt-2 flex gap-2">
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => void act(item.id, key, "apply", item.stale)}
+            >
+              Bruk
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void act(item.id, key, "dismiss", item.stale)}
+            >
+              Avvis
+            </Button>
+          </div>
+        </div>
+      ))}
+      {error && (
+        <p role="alert" className="text-xs text-risk">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

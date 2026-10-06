@@ -68,7 +68,7 @@ import { SemanticSearch } from "../components/semantic-search.tsx";
 import type { SearchResult } from "../components/semantic-search.tsx";
 import { CommandPalette, type PaletteItem } from "../components/command-palette.tsx";
 import { TeamAiSettings } from "../components/team-ai-settings.tsx";
-import { ContactAiPanel } from "../components/contact-ai-panel.tsx";
+import { ContactAiPanel, ContactAiFieldSuggestions } from "../components/contact-ai-panel.tsx";
 import { GroupAiSummary } from "../components/group-ai-summary.tsx";
 import { LoiPanel } from "../components/loi-panel.tsx";
 import { TeamLoiSettings } from "../components/team-loi-settings.tsx";
@@ -4174,6 +4174,33 @@ function ContactDetail({
       </div>
     );
   const company = data.companies.find((x) => x.id === c.companyId);
+  const personTagIds = data.contactPersonTags
+    .filter((tag) => tag.contactId === c.id)
+    .map((tag) => tag.tagId);
+  const domainIds = data.companyDomains
+    .filter((link) => link.companyId === c.companyId)
+    .map((link) => link.domainId);
+  const aiField = (
+    field:
+      | "email"
+      | "phone"
+      | "description"
+      | "companyId"
+      | "personTagIds"
+      | "domainIds"
+      | "stikkord",
+    currentValue: string | string[] | null,
+  ) =>
+    c.status === "duplicate" ? null : (
+      <ContactAiFieldSuggestions
+        contactId={c.id}
+        field={field}
+        currentValue={currentValue}
+        companies={data.companies}
+        domains={data.domains}
+        tags={data.personTags}
+      />
+    );
   const timeline = data.activities
     .filter((a) => data.activityContacts.some((x) => x.activityId === a.id && x.contactId === c.id))
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
@@ -4295,52 +4322,64 @@ function ContactDetail({
                 />
               </ContactDetailField>
               <ContactDetailField icon={Building2} label="Organisasjon">
-                <ContactOrganizationPicker
-                  contact={c}
-                  companies={data.companies}
-                  mutate={mutate}
-                  disabled={c.status === "duplicate"}
-                />
+                <div>
+                  <ContactOrganizationPicker
+                    contact={c}
+                    companies={data.companies}
+                    mutate={mutate}
+                    disabled={c.status === "duplicate"}
+                  />
+                  {aiField("companyId", c.companyId)}
+                </div>
               </ContactDetailField>
               <ContactDetailField icon={Mail} label="E-post">
-                <InlineText
-                  value={c.email}
-                  className={detailFieldClass}
-                  disabled={c.status === "duplicate"}
-                  ariaLabel="E-post"
-                  onSave={(email, old) =>
-                    void mutate(`/contacts/${c.id}`, { email, expected: { email: old } })
-                  }
-                />
+                <div>
+                  <InlineText
+                    value={c.email}
+                    className={detailFieldClass}
+                    disabled={c.status === "duplicate"}
+                    ariaLabel="E-post"
+                    onSave={(email, old) =>
+                      void mutate(`/contacts/${c.id}`, { email, expected: { email: old } })
+                    }
+                  />
+                  {aiField("email", c.email)}
+                </div>
               </ContactDetailField>
               <ContactDetailField icon={Phone} label="Telefon">
-                <InlineText
-                  value={c.phone}
-                  className={detailFieldClass}
-                  disabled={c.status === "duplicate"}
-                  ariaLabel="Telefon"
-                  onSave={(phone, old) =>
-                    void mutate(`/contacts/${c.id}`, { phone, expected: { phone: old } })
-                  }
-                />
+                <div>
+                  <InlineText
+                    value={c.phone}
+                    className={detailFieldClass}
+                    disabled={c.status === "duplicate"}
+                    ariaLabel="Telefon"
+                    onSave={(phone, old) =>
+                      void mutate(`/contacts/${c.id}`, { phone, expected: { phone: old } })
+                    }
+                  />
+                  {aiField("phone", c.phone)}
+                </div>
               </ContactDetailField>
               <ContactDetailField
                 icon={AlignLeft}
                 label="Kort beskrivelse"
                 className="sm:col-span-2"
               >
-                <InlineText
-                  value={c.description}
-                  className={detailFieldClass}
-                  disabled={c.status === "duplicate"}
-                  ariaLabel="Kort beskrivelse"
-                  onSave={(description, old) =>
-                    void mutate(`/contacts/${c.id}`, {
-                      description,
-                      expected: { description: old },
-                    })
-                  }
-                />
+                <div>
+                  <InlineText
+                    value={c.description}
+                    className={detailFieldClass}
+                    disabled={c.status === "duplicate"}
+                    ariaLabel="Kort beskrivelse"
+                    onSave={(description, old) =>
+                      void mutate(`/contacts/${c.id}`, {
+                        description,
+                        expected: { description: old },
+                      })
+                    }
+                  />
+                  {aiField("description", c.description)}
+                </div>
               </ContactDetailField>
               <ContactDetailField icon={Tags} label="Persontagger" className="sm:col-span-2">
                 <div className="flex flex-wrap gap-2 py-1">
@@ -4392,6 +4431,23 @@ function ContactDetail({
                     />
                   )}
                 </div>
+                {aiField("personTagIds", personTagIds)}
+              </ContactDetailField>
+              <ContactDetailField icon={TagIcon} label="Domener" className="sm:col-span-2">
+                <div className="flex flex-wrap gap-1.5 py-1">
+                  {domainIds.map((id) => {
+                    const domain = data.domains.find((item) => item.id === id);
+                    return domain ? (
+                      <Badge key={id} variant="neutral">
+                        {domain.name}
+                      </Badge>
+                    ) : null;
+                  })}
+                  {!domainIds.length && (
+                    <span className="text-xs text-muted-foreground">Ingen domener</span>
+                  )}
+                </div>
+                {aiField("domainIds", domainIds)}
               </ContactDetailField>
             </div>
           </Card>
@@ -4413,19 +4469,18 @@ function ContactDetail({
             disabled={c.status === "duplicate"}
             focusedPassage={focusedActivityId === "additional_info" ? focusedPassage : null}
           />
-          <StikkordEditor contact={c} mutate={mutate} busy={busy} />
+          <StikkordEditor
+            contact={c}
+            mutate={mutate}
+            busy={busy}
+            suggestions={aiField("stikkord", c.stikkord)}
+          />
           {c.status !== "duplicate" && (
             <ContactAiPanel
               contact={c}
               companies={data.companies}
               domains={data.domains}
               tags={data.personTags}
-              personTagIds={data.contactPersonTags
-                .filter((tag) => tag.contactId === c.id)
-                .map((tag) => tag.tagId)}
-              domainIds={data.companyDomains
-                .filter((link) => link.companyId === c.companyId)
-                .map((link) => link.domainId)}
             />
           )}
           {c.status !== "duplicate" && (
@@ -5024,10 +5079,12 @@ function StikkordEditor({
   contact,
   mutate,
   busy,
+  suggestions,
 }: {
   contact: Contact;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
+  suggestions: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(contact.stikkord ?? "");
@@ -5120,6 +5177,7 @@ function StikkordEditor({
           {contact.stikkord || <span className="text-muted-foreground">Ingen stikkord ennå.</span>}
         </p>
       )}
+      {suggestions}
     </Card>
   );
 }

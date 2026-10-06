@@ -60,7 +60,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | C3: complete wrapped map descriptions, contact tags in popover, selected domain chip contrast | Done | `03d060e` |
 | C5: organization and domain group-summary regression for shared and excluded activities | Done | `acd0261` |
 | 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | `858df26` |
-| A1 and C2: linkable workspace URLs, map focus, filters, search, Back/Forward, and invalid-link fallbacks | Done; live browser session not verified here | This commit |
+| A1 and C2: linkable workspace URLs, map focus, filters, search, Back/Forward, and invalid-link fallbacks | Done; live browser session not verified here | `bae3697` |
+| B4: inline AI suggestions with per-field decisions, safe-auto review, manual tools, and team-wide audit access | Done; live model output not verified here | This commit |
 
 ## A. Navigation and daily work
 

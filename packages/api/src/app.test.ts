@@ -42,9 +42,10 @@ describe("API access boundary", () => {
   });
   it("rejects a user who is not a member of the requested organization", async () => {
     const app = createApp(deps(true), "http://localhost:3000");
+    const browserToken = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({ aud: "authenticated" })).toString("base64url")}.signature`;
     const res = await app.request("/v1/org/conversations", {
       headers: {
-        Authorization: "Bearer valid",
+        Authorization: `Bearer ${browserToken}`,
         "x-org-id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       },
     });
