@@ -23,6 +23,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
+| Settings navigation: one Innstillinger sidebar entry, profile/team/class tabs, and team switcher at top of team tab | Done | This commit |
 | Remove the Lim inn kontaktinformasjon button and its unused clipboard parsing path from new contact | Done | This commit |
 | Hide Tilleggsinformasjon when a contact has no entries | Done | `f7bba60` |
 | Contact AI: remove the standalone tools card and manual generation, preserve inline referrals and Restore history, migrate manual contact modes to automatic suggestions | Done in code; production migration verified 2026-10-06; browser acceptance pending | `0746b0f` |
@@ -98,6 +99,7 @@ The implementation of review units A–F and spec 07 is complete in this checkou
 7. **Sidebar.** Remove the separate clipboard-paste button beside `Ny kontakt` and the `Lim inn kontaktinformasjon` button inside the new-contact form. The `Ny kontakt` action itself remains. Rename `Hjem` to `Kontaktlogg`. Place `Duplikate kontakter` alongside the other contact destinations when it is visible. Remove the displayed `Kontakter` and `Oversikt` section headings.
 8. **Sidebar inbox.** Clicking the `Innboks` button opens a flyout attached to the sidebar's right edge instead of a centered dialog. The command-palette Inbox action and the `i` shortcut from spec 07 open the same flyout. Keep its count, reminders, inbound email suggestions, cross-team requests, and empty state. When the actionable item count is zero, render the Inbox button without its prominent outline and do not show a `0` count pill; when the count is positive, give the button its outlined/emphasized treatment and show the count. Count due reminders, inbound suggestions, access requests, and class-admin inbox items as the current button does. The flyout has its own scrolling, does not resize the sidebar or require a modal backdrop, and closes from the button, Escape, or navigation to another destination. On narrow screens it must fit the viewport without becoming inaccessible or pushing content off-screen.
 9. **Dark sidebar edge.** In dark mode, remove the visible border/shadow outline on the sidebar's top, bottom, and left edges. Keep the right-side separation from main content as needed. Apply this only to the sidebar, leaving the shared `.glass` styling of dialogs, menus, and other components and the light-mode sidebar unchanged.
+10. **Settings navigation.** Use one `Innstillinger` entry at the bottom of the sidebar in place of the separate profile, team, and classroom entries. Show `Min profil`, the active team's name, and `Klasserom` (class admins only) as tabs on the settings page. Keep direct links to each existing settings URL working. Put the workspace team switcher at the top of the team tab, and keep the current tab open when switching teams.
 
 The Linear-like shortcut system is in [spec 07](07-keyboard-shortcuts.md). The existing ⌘K/Ctrl+K palette continues to work in this unit.
 

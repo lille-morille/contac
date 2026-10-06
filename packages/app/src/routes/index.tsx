@@ -876,7 +876,7 @@ function Home() {
   });
   useEffect(() => {
     if (page === "class_settings" && state.user?.onboarded && state.classSpace?.role !== "admin")
-      setPage("contacts");
+      setPage("profile");
   }, [page, state.user?.onboarded, state.classSpace?.role]);
   useEffect(() => {
     setContact(
@@ -1400,14 +1400,14 @@ function Home() {
   const activeSidebarItem =
     selectedId && favorites.some((contact) => contact.id === selectedId)
       ? `favorite:${selectedId}`
-      : page;
+      : page === "team_settings" || page === "class_settings"
+        ? "profile"
+        : page;
   const shortcutNavigation = [
     ...contactNav.map(([id]) => id),
     ...overviewNav.map(([id]) => id),
     ...favorites.map((contact) => `favorite:${contact.id}`),
     "profile",
-    "team_settings",
-    ...(state.classSpace?.role === "admin" ? ["class_settings"] : []),
   ];
   const lastNavigationKey = useRef(0);
   useEffect(() => {
@@ -1661,7 +1661,7 @@ function Home() {
     {
       id: "page:profile",
       group: "pages",
-      title: "Profil",
+      title: "Min profil",
       detail: state.user?.name ?? undefined,
       searchText: "min profil konto innstillinger",
       icon: UserRound,
@@ -1670,7 +1670,7 @@ function Home() {
     {
       id: "page:team_settings",
       group: "pages" as const,
-      title: "Teaminnstillinger",
+      title: org.name,
       searchText: "team AI LOI",
       icon: Settings2,
       run: () => go("team_settings"),
@@ -1680,7 +1680,7 @@ function Home() {
           {
             id: "page:class_settings",
             group: "pages" as const,
-            title: "Klasseinnstillinger",
+            title: "Klasserom",
             searchText: "klasse admin team invitasjon",
             icon: GraduationCap,
             run: () => go("class_settings"),
@@ -1867,7 +1867,7 @@ function Home() {
           </button>
           <button
             type="button"
-            className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${page === "profile" ? "bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
+            className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${["profile", "team_settings", "class_settings"].includes(page) ? "bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
             onClick={() => go("profile")}
           >
             <Avatar
@@ -1877,31 +1877,9 @@ function Home() {
             />
             <span className="min-w-0">
               <span className="block truncate font-medium">{state.user?.name ?? "Bruker"}</span>
-              <span className="block text-xs text-muted-foreground">Profil</span>
+              <span className="block text-xs text-muted-foreground">Innstillinger</span>
             </span>
           </button>
-          <Select
-            value={org.id}
-            onValueChange={selectTeam}
-            items={state.organizations.map((o) => ({ value: o.id, label: o.name }))}
-            aria-label="Team"
-          />
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${page === "team_settings" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
-            onClick={() => go("team_settings")}
-          >
-            <Settings2 size={16} /> Teaminnstillinger
-          </button>
-          {state.classSpace?.role === "admin" && (
-            <button
-              type="button"
-              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${page === "class_settings" ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
-              onClick={() => go("class_settings")}
-            >
-              <GraduationCap size={16} /> Klasseinnstillinger
-            </button>
-          )}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -2097,7 +2075,14 @@ function Home() {
             }}
           />
         ) : page === "profile" || page === "team_settings" || page === "class_settings" ? (
-          <Settings section={page} state={state} mutate={mutate} busy={busy} />
+          <Settings
+            section={page}
+            state={state}
+            mutate={mutate}
+            busy={busy}
+            onSectionChange={go}
+            onSelectTeam={selectTeam}
+          />
         ) : page === "organizations" ? (
           <OrganizationMap
             key={organizationTarget.nonce}
@@ -7282,11 +7267,15 @@ function Settings({
   state,
   mutate,
   busy,
+  onSectionChange,
+  onSelectTeam,
 }: {
   section: "profile" | "team_settings" | "class_settings";
   state: ReturnType<typeof useOrg>;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
+  onSectionChange: (section: Page) => void;
+  onSelectTeam: (id: string) => void;
 }) {
   const [teamName, setTeamName] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
@@ -7335,13 +7324,46 @@ function Settings({
   );
   return (
     <div className="max-w-3xl space-y-5">
-      <h1 className="sr-only">
-        {section === "profile"
-          ? "Profil"
-          : section === "team_settings"
-            ? "Teaminnstillinger"
-            : "Klasseinnstillinger"}
-      </h1>
+      <h1 className="text-2xl font-semibold">Innstillinger</h1>
+      <nav aria-label="Innstillinger" className="flex flex-wrap gap-1 border-b border-border">
+        {(
+          [
+            ["profile", "Min profil"],
+            ["team_settings", state.org?.name ?? "Team"],
+            ...(state.classSpace?.role === "admin" ? [["class_settings", "Klasserom"]] : []),
+          ] as ["profile" | "team_settings" | "class_settings", string][]
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-current={section === id ? "page" : undefined}
+            className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${section === id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            onClick={() => onSectionChange(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {section === "team_settings" && state.org && (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <h2 className="font-semibold">Aktivt team</h2>
+            <p className="text-sm text-muted-foreground">Velg hvilket team du vil arbeide i.</p>
+          </div>
+          <Select
+            value={state.org.id}
+            onValueChange={(id) => {
+              setInviteUrl("");
+              setReportError("");
+              setReportMessage("");
+              onSelectTeam(id);
+            }}
+            items={state.organizations.map((team) => ({ value: team.id, label: team.name }))}
+            aria-label="Aktivt team"
+            className="min-w-52"
+          />
+        </Card>
+      )}
       {section === "profile" && <ProfileEditor />}
       {section === "profile" && <ProfileAgentAccess />}
       {section === "profile" && (
