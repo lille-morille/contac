@@ -14,6 +14,7 @@ import {
   Copy,
   GraduationCap,
   Inbox,
+  Keyboard,
   LayoutGrid,
   List,
   ListFilter,
@@ -554,6 +555,7 @@ function Home() {
   const [createdHighlightId, setCreatedHighlightId] = useState<string | null>(null);
   const [createdNotice, setCreatedNotice] = useState<{ id: string; hidden: boolean } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [searchNavigation, setSearchNavigation] = useState<{
     query: string;
@@ -1093,6 +1095,15 @@ function Home() {
     (classInboxQuery.data?.length ?? 0);
   const paletteItems: PaletteItem[] = [
     {
+      id: "action:shortcuts",
+      group: "actions",
+      title: "Tastatursnarveier",
+      detail: "Vis tilgjengelige snarveier",
+      searchText: "hjelp keyboard shortcuts",
+      icon: Keyboard,
+      run: () => setShortcutHelpOpen(true),
+    },
+    {
       id: "action:new-contact",
       group: "actions",
       title: "Ny kontakt",
@@ -1280,6 +1291,69 @@ function Home() {
     selectedId && favorites.some((contact) => contact.id === selectedId)
       ? `favorite:${selectedId}`
       : page;
+  const shortcutNavigation = [
+    ...contactNav.map(([id]) => id),
+    ...overviewNav.map(([id]) => id),
+    ...favorites.map((contact) => `favorite:${contact.id}`),
+    "profile",
+    "team_settings",
+    ...(state.classSpace?.role === "admin" ? ["class_settings"] : []),
+  ];
+  const lastNavigationKey = useRef(0);
+  useEffect(() => {
+    if (!canOpenCommand) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, [contenteditable], [role="combobox"]') ||
+        document.querySelector('[role="dialog"], [role="menu"]') ||
+        commandOpen ||
+        createOpen ||
+        shortcutHelpOpen
+      )
+        return;
+      const key = event.key.toLowerCase();
+      if (key === "?") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setShortcutHelpOpen(true);
+      } else if (key === "c") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setPaste("");
+        setCreateOpen(true);
+      } else if (key === "i") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setInboxOpen(true);
+      } else if (["w", "k", "s", "j"].includes(key)) {
+        if (key === "s" && selectedId) return;
+        if (event.timeStamp - lastNavigationKey.current < 95) return;
+        lastNavigationKey.current = event.timeStamp;
+        event.preventDefault();
+        const current = shortcutNavigation.indexOf(activeSidebarItem);
+        const next =
+          (current + (key === "w" || key === "k" ? -1 : 1) + shortcutNavigation.length) %
+          shortcutNavigation.length;
+        const destination = shortcutNavigation[next];
+        if (destination?.startsWith("favorite:")) {
+          go("contacts");
+          setSelectedId(destination.slice("favorite:".length));
+        } else if (destination) go(destination as Page);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
   return (
     <div className="min-h-screen lg:flex">
       <aside className="glass workspace-sidebar flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">
@@ -1397,6 +1471,13 @@ function Home() {
           )}
         </div>
         <div className="mt-4 shrink-0 space-y-1 border-t border-border pt-3">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
+            onClick={() => setShortcutHelpOpen(true)}
+          >
+            <Keyboard size={16} /> Tastatursnarveier <kbd className="ml-auto text-xs">?</kbd>
+          </button>
           <button
             type="button"
             className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${page === "profile" ? "bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
@@ -1768,6 +1849,26 @@ function Home() {
         onFullSearch={(query) => openFullSearch(query)}
         onSearchResult={openPaletteSearchResult}
       />
+      <Dialog open={shortcutHelpOpen} onOpenChange={setShortcutHelpOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogTitle>Tastatursnarveier</DialogTitle>
+          <DialogDescription>Snarveier virker når du ikke skriver i et felt.</DialogDescription>
+          <div className="mt-4 grid grid-cols-[1fr_auto] gap-x-5 gap-y-2 text-sm">
+            <span>Forrige / neste side</span>
+            <kbd>W/K · S/J</kbd>
+            <span>Ny kontakt</span>
+            <kbd>C</kbd>
+            <span>Innboks</span>
+            <kbd>I</kbd>
+            <span>Vis denne hjelpen</span>
+            <kbd>?</kbd>
+            <span>Åpne kommandomeny</span>
+            <kbd>⌘K / Ctrl+K</kbd>
+            <span>Lukk meny eller dialog</span>
+            <kbd>Esc</kbd>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogTitle>Ny kontakt</DialogTitle>

@@ -58,7 +58,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | C1: outward organization map with background panning, trackpad navigation, zoom, and fit | Done | `51510ed` |
 | C2: map toolbar removal, focused-domain back action, in-place creation and summary | Done; URL focus remains with A1 | `7088901` |
 | C3: complete wrapped map descriptions, contact tags in popover, selected domain chip contrast | Done | `03d060e` |
-| C5: organization and domain group-summary regression for shared and excluded activities | Done | This commit |
+| C5: organization and domain group-summary regression for shared and excluded activities | Done | `acd0261` |
+| 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | This commit |
 
 ## A. Navigation and daily work
 
