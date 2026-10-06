@@ -289,6 +289,11 @@
   box-shadow: none;
 }
 
+:root[data-theme="dark"] .sidebar-active-pill,
+:root[data-theme="dark"] .sidebar-settings-active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
 /*
  * Stronger glass for floating popups that open WITHOUT a dimming backdrop
  * (dropdowns/selects, menus, popovers, tooltips). Dialogs/sheets sit on a

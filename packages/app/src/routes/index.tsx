@@ -610,7 +610,7 @@ function SidebarActivePill() {
     <motion.span
       layoutId="sidebar-active-pill"
       transition={sidebarSpring}
-      className="absolute inset-0 rounded-xl bg-card shadow-sm"
+      className="sidebar-active-pill absolute inset-0 rounded-xl bg-card shadow-sm"
       aria-hidden
     />
   );
@@ -1893,7 +1893,7 @@ function Home() {
           </button>
           <button
             type="button"
-            className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${["profile", "team_settings", "class_settings"].includes(page) ? "bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
+            className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${["profile", "team_settings", "class_settings"].includes(page) ? "sidebar-settings-active bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
             onClick={() => go("profile")}
           >
             <Avatar
