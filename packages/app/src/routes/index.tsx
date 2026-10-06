@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlignLeft,
+  ArrowLeft,
   ArrowDownAZ,
   ArrowDownWideNarrow,
   Building2,
@@ -5632,12 +5633,6 @@ function OrganizationMap({
     id: string;
     anchor: Element;
   } | null>(null);
-  const [domainOpen, setDomainOpen] = useState(false);
-  const [companyOpen, setCompanyOpen] = useState(false);
-  const [domainSearch, setDomainSearch] = useState("");
-  const [companySearch, setCompanySearch] = useState("");
-  const [domainActiveIndex, setDomainActiveIndex] = useState(0);
-  const [companyActiveIndex, setCompanyActiveIndex] = useState(0);
   const [domainDialogOpen, setDomainDialogOpen] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [newDomainDescription, setNewDomainDescription] = useState("");
@@ -5668,8 +5663,6 @@ function OrganizationMap({
   function chooseSelection(next: OrganizationSelection) {
     setActiveNode(null);
     setSelection(next);
-    setDomainOpen(false);
-    setCompanyOpen(false);
   }
   const selectedCompany =
     selection.kind === "company"
@@ -5711,25 +5704,9 @@ function OrganizationMap({
   const loiCompany = loiCompanyId
     ? (data.companies.find((candidate) => candidate.id === loiCompanyId) ?? null)
     : null;
-  const filteredDomains = data.domains.filter((domain) =>
-    domain.name.toLocaleLowerCase("nb-NO").includes(domainSearch.trim().toLocaleLowerCase("nb-NO")),
-  );
-  const filteredCompanies = data.companies.filter((candidate) =>
-    candidate.name
-      .toLocaleLowerCase("nb-NO")
-      .includes(companySearch.trim().toLocaleLowerCase("nb-NO")),
-  );
-  const showCreateDomain =
-    !domainSearch.trim() ||
-    !data.domains.some(
-      (domain) =>
-        domain.name.trim().normalize("NFKC").toLocaleLowerCase("nb-NO") ===
-        domainSearch.trim().normalize("NFKC").toLocaleLowerCase("nb-NO"),
-    );
   function openCreateDomain() {
-    setNewDomain(domainSearch.trim());
+    setNewDomain("");
     setNewDomainDescription("");
-    setDomainOpen(false);
     setDomainDialogOpen(true);
   }
 
@@ -5760,206 +5737,6 @@ function OrganizationMap({
   return (
     <div className="relative flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
       <h1 className="sr-only">Organisasjoner</h1>
-      <div className="flex flex-wrap items-center justify-end gap-4">
-        <nav aria-label="Filtrer organisasjonsgrafen" className="flex flex-wrap items-center gap-2">
-          <Popover
-            open={domainOpen}
-            onOpenChange={(open) => {
-              setDomainOpen(open);
-              if (open) {
-                setCompanyOpen(false);
-                setDomainSearch("");
-                setDomainActiveIndex(0);
-              }
-            }}
-          >
-            <PopoverTrigger
-              type="button"
-              className="inline-flex h-9 min-w-36 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-sm shadow-sm hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <TagIcon size={15} className="text-muted-foreground" />
-              <span className="max-w-36 truncate">{selectedDomain?.name ?? "Domener"}</span>
-              <ChevronDown size={14} className="text-muted-foreground" />
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-2">
-              <Input
-                autoFocus
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={domainOpen}
-                aria-controls="organization-domain-options"
-                aria-activedescendant={
-                  domainActiveIndex < filteredDomains.length
-                    ? `organization-domain-${filteredDomains[domainActiveIndex]?.id}`
-                    : showCreateDomain
-                      ? "organization-domain-create"
-                      : undefined
-                }
-                aria-label="Søk i domener"
-                placeholder="Søk eller opprett domene …"
-                value={domainSearch}
-                onChange={(event) => {
-                  setDomainSearch(event.target.value);
-                  setDomainActiveIndex(0);
-                }}
-                onKeyDown={(event) => {
-                  const count = filteredDomains.length + (showCreateDomain ? 1 : 0);
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    if (count)
-                      setDomainActiveIndex(
-                        (current) =>
-                          (current + (event.key === "ArrowDown" ? 1 : -1) + count) % count,
-                      );
-                  } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    const picked = filteredDomains[domainActiveIndex];
-                    if (picked) chooseSelection({ kind: "domain", id: picked.id });
-                    else if (showCreateDomain) openCreateDomain();
-                  }
-                }}
-              />
-              <div
-                id="organization-domain-options"
-                role="listbox"
-                className="mt-2 max-h-64 overflow-y-auto"
-              >
-                {filteredDomains.map((domain, index) => (
-                  <button
-                    key={domain.id}
-                    id={`organization-domain-${domain.id}`}
-                    role="option"
-                    aria-selected={domainActiveIndex === index}
-                    type="button"
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-muted ${domainActiveIndex === index ? "bg-muted" : ""}`}
-                    onMouseEnter={() => setDomainActiveIndex(index)}
-                    onClick={() => chooseSelection({ kind: "domain", id: domain.id })}
-                  >
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: colors[domain.color] }}
-                    />
-                    <span className="truncate">{domain.name}</span>
-                  </button>
-                ))}
-                {!filteredDomains.length && (
-                  <p className="px-2 py-2 text-xs text-muted-foreground">Ingen treff.</p>
-                )}
-              </div>
-              {showCreateDomain && (
-                <button
-                  id="organization-domain-create"
-                  type="button"
-                  className={`mt-1 flex w-full items-center gap-2 rounded-lg border-t border-border px-2 py-2 text-left text-sm text-primary hover:bg-primary-soft ${domainActiveIndex === filteredDomains.length ? "bg-primary-soft" : ""}`}
-                  onMouseEnter={() => setDomainActiveIndex(filteredDomains.length)}
-                  onClick={openCreateDomain}
-                >
-                  <Plus size={15} />{" "}
-                  {domainSearch.trim() ? `Opprett «${domainSearch.trim()}»` : "Nytt domene"}
-                </button>
-              )}
-            </PopoverContent>
-          </Popover>
-          <Button size="sm" variant="outline" onClick={() => chooseSelection({ kind: "all" })}>
-            Vis alt
-          </Button>
-          <Popover
-            open={companyOpen}
-            onOpenChange={(open) => {
-              setCompanyOpen(open);
-              if (open) {
-                setDomainOpen(false);
-                setCompanySearch("");
-                setCompanyActiveIndex(0);
-              }
-            }}
-          >
-            <PopoverTrigger
-              type="button"
-              className="inline-flex h-9 min-w-40 items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 text-sm shadow-sm hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <Building2 size={15} className="text-muted-foreground" />
-              <span className="max-w-40 truncate">{selectedCompany?.name ?? "Organisasjoner"}</span>
-              <ChevronDown size={14} className="text-muted-foreground" />
-            </PopoverTrigger>
-            <PopoverContent className="w-72 p-2">
-              <Input
-                autoFocus
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={companyOpen}
-                aria-controls="organization-company-options"
-                aria-activedescendant={
-                  filteredCompanies[companyActiveIndex]
-                    ? `organization-company-${filteredCompanies[companyActiveIndex].id}`
-                    : undefined
-                }
-                aria-label="Søk i organisasjoner"
-                placeholder="Søk i organisasjoner …"
-                value={companySearch}
-                onChange={(event) => {
-                  setCompanySearch(event.target.value);
-                  setCompanyActiveIndex(0);
-                }}
-                onKeyDown={(event) => {
-                  const count = filteredCompanies.length;
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    if (count)
-                      setCompanyActiveIndex(
-                        (current) =>
-                          (current + (event.key === "ArrowDown" ? 1 : -1) + count) % count,
-                      );
-                  } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    const picked = filteredCompanies[companyActiveIndex];
-                    if (picked) chooseSelection({ kind: "company", id: picked.id });
-                  }
-                }}
-              />
-              <div
-                id="organization-company-options"
-                role="listbox"
-                className="mt-2 max-h-72 overflow-y-auto"
-              >
-                {filteredCompanies.map((candidate, index) => (
-                  <button
-                    key={candidate.id}
-                    id={`organization-company-${candidate.id}`}
-                    role="option"
-                    aria-selected={companyActiveIndex === index}
-                    type="button"
-                    className={`block w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-muted ${companyActiveIndex === index ? "bg-muted" : ""}`}
-                    onMouseEnter={() => setCompanyActiveIndex(index)}
-                    onClick={() => chooseSelection({ kind: "company", id: candidate.id })}
-                  >
-                    {candidate.name}
-                  </button>
-                ))}
-                {!filteredCompanies.length && (
-                  <p className="px-2 py-2 text-xs text-muted-foreground">Ingen treff.</p>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-          {(selectedCompany || selectedDomain) && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                setSummaryScope(
-                  selectedCompany
-                    ? { kind: "company", id: selectedCompany.id, name: selectedCompany.name }
-                    : { kind: "domain", id: selectedDomain!.id, name: selectedDomain!.name },
-                )
-              }
-            >
-              <Sparkles size={15} /> Oppsummer samtaler fra{" "}
-              {selectedCompany?.name ?? selectedDomain?.name}
-            </Button>
-          )}
-        </nav>
-      </div>
       <section
         ref={graphRef}
         className="relative min-h-[560px] min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-card"
@@ -5982,6 +5759,28 @@ function OrganizationMap({
           fitToken={fitToken}
           zoomAction={zoomAction}
         />
+        {selection.kind !== "all" && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="absolute left-3 top-3 bg-card shadow-card"
+            onClick={() => chooseSelection({ kind: "all" })}
+          >
+            <ArrowLeft size={15} /> Vis alt
+          </Button>
+        )}
+        {selection.kind === "all" && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="absolute bottom-3 left-3 bg-card shadow-card"
+            onClick={openCreateDomain}
+          >
+            <Plus size={15} /> Nytt domene
+          </Button>
+        )}
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-card">
           <Button
             type="button"
@@ -6018,6 +5817,16 @@ function OrganizationMap({
       {selectedDomain && (
         <div className="absolute bottom-5 left-5 z-10 w-[min(360px,calc(100%-40px))] max-h-[40vh] overflow-y-auto rounded-xl border border-border bg-card p-3 shadow-card">
           <TagDescription tag={selectedDomain} pathPrefix="/domains" mutate={mutate} busy={busy} />
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 w-full"
+            onClick={() =>
+              setSummaryScope({ kind: "domain", id: selectedDomain.id, name: selectedDomain.name })
+            }
+          >
+            <Sparkles size={14} /> Oppsummer samtaler fra {selectedDomain.name}
+          </Button>
         </div>
       )}
       <Popover
