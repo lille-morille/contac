@@ -6,7 +6,6 @@ import { copyText } from "../lib/clipboard.ts";
 import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
-import { Select } from "./ui/select.tsx";
 
 type AgentAccess = { teamId: string | null; teamName: string | null; connectionCount: number };
 const MCP_URL = "https://api.contac.plingapp.no/mcp";
@@ -21,6 +20,8 @@ export function agentInstructions(teamName: string, teamId: string) {
   return `## Contac agent access
 
 Expected Contac team: **${safeName}** (\`${teamId}\`).
+
+The Contac connection follows the team currently selected in the Contac workspace. Switching teams there also switches existing agent connections. This block records the team selected when it was copied; copy an updated block after switching teams.
 
 Contac is the team's contact and conversation log. The connection accesses exactly one selected team at a time. Call \`get_team_identity\` before any other Contac tool in every new conversation or session. Compare its \`teamId\` with \`${teamId}\`. If verification fails or the IDs differ, tell the user which team is connected when known, and stop using Contac. A changed team name is a human-readable cross-check; the immutable ID decides the match.
 
@@ -38,26 +39,13 @@ export function ProfileAgentAccess() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const access = useQuery({
-    queryKey: ["profile-agent-access", state.user?.id],
+    queryKey: ["profile-agent-access", state.user?.id, state.org?.id],
     queryFn: () => request<AgentAccess>("/profile/agent-access"),
     enabled: !!state.user?.id,
   });
-  const team = state.organizations.find((item) => item.id === access.data?.teamId);
-  const instructions = team ? agentInstructions(team.name, team.id) : "";
-
-  async function selectTeam(teamId: string) {
-    setBusy(true);
-    setError("");
-    try {
-      await request("/profile/agent-team", undefined, { teamId });
-      await access.refetch();
-      setCopied("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const team = state.org;
+  const synchronized = !!team && access.data?.teamId === team.id;
+  const instructions = synchronized ? agentInstructions(team.name, team.id) : "";
   async function revoke() {
     setBusy(true);
     setError("");
@@ -87,19 +75,9 @@ export function ProfileAgentAccess() {
         <h2 className="font-semibold">Agenttilgang</h2>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Velg ett team for dine agenttilkoblinger. Eksisterende tilkoblinger bytter team straks du
-        endrer valget. Gi agenten nye instruksjoner etter et bytte.
+        Agenttilgangen følger teamet du har valgt i Contac. Bytt team øverst på teamfanen i
+        Innstillinger; eksisterende agenttilkoblinger bytter da team også.
       </p>
-      <div className="mt-4 max-w-sm">
-        <Select
-          value={team?.id ?? ""}
-          onValueChange={(id) => void selectTeam(id)}
-          items={state.organizations.map((item) => ({ value: item.id, label: item.name }))}
-          placeholder="Velg team"
-          aria-label="Team for agenttilgang"
-          disabled={busy || access.isLoading}
-        />
-      </div>
       {team && (
         <>
           <p className="mt-3 text-sm">
@@ -147,25 +125,32 @@ export function ProfileAgentAccess() {
               </Button>
             </div>
           </div>
-          <div className="mt-5">
-            <h3 className="text-sm font-semibold">Instruksjoner til CLAUDE.md eller AGENTS.md</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Kopier blokken inn i agentens prosjektinstruksjoner. Den inneholder team-ID, men ingen
-              hemmeligheter.
+          {!synchronized && !access.isError && (
+            <p role="status" className="mt-3 text-sm text-muted-foreground">
+              Bekrefter at agenttilgangen følger valgt team …
             </p>
-            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted p-3 text-xs">
-              {instructions}
-            </pre>
-            <Button
-              className="mt-2"
-              size="sm"
-              variant="outline"
-              onClick={() => void copy(instructions, "instructions")}
-            >
-              {copied === "instructions" ? <Check size={14} /> : <Copy size={14} />} Kopier
-              instruksjoner
-            </Button>
-          </div>
+          )}
+          {synchronized && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold">Instruksjoner til CLAUDE.md eller AGENTS.md</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Kopier blokken inn i agentens prosjektinstruksjoner. Den inneholder team-ID, men
+                ingen hemmeligheter.
+              </p>
+              <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted p-3 text-xs">
+                {instructions}
+              </pre>
+              <Button
+                className="mt-2"
+                size="sm"
+                variant="outline"
+                onClick={() => void copy(instructions, "instructions")}
+              >
+                {copied === "instructions" ? <Check size={14} /> : <Copy size={14} />} Kopier
+                instruksjoner
+              </Button>
+            </div>
+          )}
           {(access.data?.connectionCount ?? 0) > 0 && (
             <Button
               className="mt-5"

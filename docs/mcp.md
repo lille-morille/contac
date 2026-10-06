@@ -1,12 +1,13 @@
 # Contac MCP for personal agents
 
 The remote Streamable HTTP endpoint is `https://api.contac.plingapp.no/mcp`.
-Agent access belongs to a user. In **Profil → Agenttilgang**, select exactly one
-team you belong to, then connect Claude or Codex with OAuth. There is no team
-API key. The same existing OAuth connection follows a changed team selection
-on its next request. **Koble fra mine agenter** revokes every personal client
-connection; the next MCP request is denied. Team membership is checked on
-every request.
+Agent access belongs to a user and follows the team currently selected in the
+Contac workspace. Switch teams at the top of **Innstillinger → [team name]**;
+there is no separate agent team picker. The same existing OAuth connection
+follows a changed workspace team selection on its next request. There is no
+team API key. **Koble fra mine agenter** revokes every personal client
+connection; the next MCP request is denied. Team membership or classroom-admin
+access is checked on every request.
 
 ## Install
 
@@ -39,7 +40,7 @@ and the Auth Site URL `https://contac.plingapp.no` with authorization path
 `/oauth/consent`. The API serves protected-resource metadata at
 `https://api.contac.plingapp.no/.well-known/oauth-protected-resource/mcp`.
 Set `MCP_PUBLIC_BASE_URL` for staging if its API origin differs. A user must
-have selected a team before approving OAuth consent. The OAuth grant is bound
+have selected a workspace team before approving OAuth consent. The OAuth grant is bound
 to that user and client, not to a named team token.
 
 Migration 0042 removes all old named team tokens and token-bound OAuth grants.
@@ -85,10 +86,11 @@ members. It is included in the owning team's local search and `get_contact`,
 but excluded from built-in AI and deterministic YAML export. Keep it factual
 and separate from the team's shared note.
 
-The profile instructions are generated from the selected team's current name
-and immutable ID. They contain no credentials. If the selected team changes,
+The profile instructions are generated from the workspace's currently selected
+team name and immutable ID, and explicitly say that the connection follows the
+workspace team. They contain no credentials. If the selected team changes,
 previously copied instructions continue to expect the old ID and cause a safe
-stop until replaced.
+stop until replaced. Re-copy the block after switching teams.
 
 Official setup references: [Codex MCP CLI](https://developers.openai.com/learn/docs-mcp),
 [Claude custom connectors](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp),

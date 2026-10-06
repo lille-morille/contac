@@ -1,4 +1,10 @@
-import { mcpUserConnections, memberships, profiles } from "@contac/core/db";
+import {
+  classMemberships,
+  mcpUserConnections,
+  memberships,
+  organizations,
+  profiles,
+} from "@contac/core/db";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -52,13 +58,26 @@ export const mcpOauthToolMeta = () => ({
   securitySchemes: [{ type: "oauth2" as const, scopes: ["openid", "email"] }],
 });
 
-async function hasTeamAccess(deps: ApiDeps, userId: string, orgId: string) {
+export async function hasTeamAccess(deps: ApiDeps, userId: string, orgId: string) {
   const [member] = await deps.db
     .select({ userId: memberships.userId })
     .from(memberships)
     .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)))
     .limit(1);
-  return !!member;
+  if (member) return true;
+  const [classAdmin] = await deps.db
+    .select({ userId: classMemberships.userId })
+    .from(organizations)
+    .innerJoin(classMemberships, eq(classMemberships.classId, organizations.classId))
+    .where(
+      and(
+        eq(organizations.id, orgId),
+        eq(classMemberships.userId, userId),
+        eq(classMemberships.role, "admin"),
+      ),
+    )
+    .limit(1);
+  return !!classAdmin;
 }
 
 export async function resolveAgentTeam(
@@ -147,10 +166,7 @@ export function registerMcpOauthRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrig
       .where(eq(profiles.id, user.id))
       .limit(1);
     if (!profile?.orgId || !(await hasTeamAccess(deps, user.id, profile.orgId)))
-      return c.json(
-        { error: "Velg et team du er medlem av under Profil → Agenttilgang først" },
-        403,
-      );
+      return c.json({ error: "Velg et team i Contac før du kobler til agenten" }, 403);
 
     try {
       const details = await supabaseOAuthRequest(

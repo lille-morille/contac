@@ -39,7 +39,7 @@ function Invite() {
           token,
         });
         await refresh();
-        select(result.orgId);
+        await select(result.orgId);
         void navigate({ to: "/" });
       } else if (!issued) {
         const result = await request<{ recoveryCode: string }>("/invitations/join", undefined, {

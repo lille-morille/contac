@@ -13,17 +13,17 @@ import {
   organizations,
   personTags,
   mcpUserConnections,
-  memberships,
   profiles,
   workspaceFiles,
 } from "@contac/core/db";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { runContactAutomations } from "./ai.ts";
 import {
   authorizeMcpOauth,
+  hasTeamAccess,
   mcpOauthChallenge,
   mcpOauthToolMeta,
   registerMcpOauthRoutes,
@@ -703,21 +703,20 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
       connectionCount: connections.length,
     });
   });
-  app.post("/v1/profile/agent-team", async (c) => {
+  const selectTeam = async (c: Context<ApiEnv>) => {
     const parsed = z.object({ teamId: uuid }).safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "Choose a team" }, 400);
     const userId = c.get("user").id;
-    const [member] = await deps.db
-      .select({ id: memberships.id })
-      .from(memberships)
-      .where(and(eq(memberships.orgId, parsed.data.teamId), eq(memberships.userId, userId)));
-    if (!member) return c.json({ error: "You must be a member of this team" }, 403);
+    if (!(await hasTeamAccess(deps, userId, parsed.data.teamId)))
+      return c.json({ error: "You do not have access to this team" }, 403);
     await deps.db
       .update(profiles)
       .set({ agentTeamId: parsed.data.teamId, updatedAt: new Date() })
       .where(eq(profiles.id, userId));
     return c.json({ teamId: parsed.data.teamId });
-  });
+  };
+  app.post("/v1/profile/selected-team", selectTeam);
+  app.post("/v1/profile/agent-team", selectTeam);
   app.post("/v1/profile/agent-revoke", async (c) => {
     await deps.db.delete(mcpUserConnections).where(eq(mcpUserConnections.userId, c.get("user").id));
     return c.json({ revoked: true });

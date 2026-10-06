@@ -133,7 +133,7 @@ function OAuthConsent() {
         <CardHeader>
           <CardTitle className="text-2xl">Koble en agent til Contac</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Godkjenn tilgangen med kontoen din og teamet du har valgt under Profil → Agenttilgang.
+            Godkjenn tilgangen med kontoen din. Agenten følger teamet som er valgt i Contac.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -174,12 +174,12 @@ function OAuthConsent() {
               </div>
               {agentAccess?.teamId ? (
                 <p className="rounded-xl bg-primary-soft p-3 text-sm">
-                  Valgt team: <strong>{agentAccess.teamName}</strong> ({agentAccess.teamId}).
-                  Endring av team i profilen gjelder også eksisterende tilkoblinger.
+                  Valgt team: <strong>{agentAccess.teamName}</strong> ({agentAccess.teamId}). Bytter
+                  du team i Contac, følger eksisterende tilkoblinger med.
                 </p>
               ) : (
                 <p role="alert" className="rounded-xl bg-warn-soft p-3 text-sm">
-                  Velg et team under Profil → Agenttilgang i Contac før du godkjenner.
+                  Velg et team i Contac før du godkjenner.
                 </p>
               )}
               <div className="flex flex-wrap gap-2">

@@ -212,6 +212,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
         profileEmail: profiles.profileEmail,
         avatarPath: profiles.avatarPath,
         onboardedAt: profiles.onboardedAt,
+        selectedTeamId: profiles.agentTeamId,
       })
       .from(profiles)
       .where(eq(profiles.id, user.id))
@@ -226,6 +227,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       },
       class: classRow ?? null,
       organizations: memberRows,
+      selectedTeamId: profile?.selectedTeamId ?? null,
     });
   });
 

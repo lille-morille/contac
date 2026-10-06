@@ -1,7 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { mcpUserConnections, memberships, profiles } from "@contac/core/db";
-import { mcpOauthChallenge, registerMcpOauthRoutes, resolveAgentTeam } from "./mcp-oauth.ts";
+import {
+  classMemberships,
+  mcpUserConnections,
+  memberships,
+  organizations,
+  profiles,
+} from "@contac/core/db";
+import { registerMcpRoutes } from "./mcp.ts";
+import {
+  hasTeamAccess,
+  mcpOauthChallenge,
+  registerMcpOauthRoutes,
+  resolveAgentTeam,
+} from "./mcp-oauth.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -9,10 +21,18 @@ const teamA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const teamB = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const clientId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
-function makeDeps(options: { teamId?: string | null; member?: boolean; connected?: boolean } = {}) {
+function makeDeps(
+  options: {
+    teamId?: string | null;
+    member?: boolean;
+    classAdmin?: boolean;
+    connected?: boolean;
+  } = {},
+) {
   const state = {
     teamId: options.teamId === undefined ? teamA : options.teamId,
     member: options.member ?? true,
+    classAdmin: options.classAdmin ?? false,
     connected: options.connected ?? true,
   };
   const inserted: unknown[] = [];
@@ -27,12 +47,23 @@ function makeDeps(options: { teamId?: string | null; member?: boolean; connected
                 ? [{ userId }]
                 : [],
         }),
-        innerJoin: () => ({
+        innerJoin: (joined: unknown) => ({
           where: () => ({
             limit: async () =>
-              table === mcpUserConnections && state.connected ? [{ orgId: state.teamId }] : [],
+              table === mcpUserConnections && state.connected
+                ? [{ orgId: state.teamId }]
+                : table === organizations && joined === classMemberships && state.classAdmin
+                  ? [{ userId }]
+                  : [],
           }),
         }),
+      }),
+    }),
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          if (table === profiles) state.teamId = values.agentTeamId as string;
+        },
       }),
     }),
     insert: (table: unknown) => ({
@@ -87,6 +118,53 @@ describe("personal MCP OAuth consent", () => {
     state.member = true;
     state.connected = false;
     expect(await resolveAgentTeam(deps, userId, clientId)).toBeNull();
+  });
+
+  it("uses the workspace team selection for existing agent connections", async () => {
+    const { deps, state } = makeDeps();
+    const app = new Hono<ApiEnv>();
+    app.use("/v1/*", async (c, next) => {
+      c.set("user", { id: userId, email: "person@accounts.contac.invalid" });
+      await next();
+    });
+    registerMcpRoutes(app, deps, "https://contac.plingapp.no");
+    const response = await app.request("/v1/profile/selected-team", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teamId: teamB }),
+    });
+    expect(response.status).toBe(200);
+    expect(state.teamId).toBe(teamB);
+    expect(await resolveAgentTeam(deps, userId, clientId)).toEqual({
+      orgId: teamB,
+      createdBy: userId,
+    });
+  });
+
+  it("does not switch the workspace or agent to a team without access", async () => {
+    const { deps, state } = makeDeps({ member: false });
+    const app = new Hono<ApiEnv>();
+    app.use("/v1/*", async (c, next) => {
+      c.set("user", { id: userId, email: "person@accounts.contac.invalid" });
+      await next();
+    });
+    registerMcpRoutes(app, deps, "https://contac.plingapp.no");
+    const response = await app.request("/v1/profile/selected-team", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teamId: teamB }),
+    });
+    expect(response.status).toBe(403);
+    expect(state.teamId).toBe(teamA);
+  });
+
+  it("lets a class admin select a class team without direct membership", async () => {
+    const { deps } = makeDeps({ member: false, classAdmin: true });
+    expect(await hasTeamAccess(deps, userId, teamA)).toBe(true);
+    expect(await resolveAgentTeam(deps, userId, clientId)).toEqual({
+      orgId: teamA,
+      createdBy: userId,
+    });
   });
 
   it("requires a selected team and current membership before consent", async () => {

@@ -921,6 +921,8 @@ function Home() {
   const { layout, filters, sortKey } = viewSettings;
   const restoringUrl = useRef(false);
   const lastWorkspaceUrl = useRef<string | null>(null);
+  const pendingTeamRestore = useRef<string | null>(null);
+  const [urlSyncNonce, setUrlSyncNonce] = useState(0);
   useEffect(() => {
     const onPopState = () => {
       const location = readWorkspaceLocation(window.location.search);
@@ -944,14 +946,33 @@ function Home() {
       setFeedNonce((current) => current + 1);
       setLibraryNonce((current) => current + 1);
       setDrafts((current) => ({ ...current, home: location.view }));
-      if (location.team && state.organizations.some((team) => team.id === location.team))
-        state.select(location.team);
+      if (
+        location.team &&
+        location.team !== org?.id &&
+        state.organizations.some((team) => team.id === location.team)
+      ) {
+        pendingTeamRestore.current = location.team;
+        void state
+          .select(location.team)
+          .then(() => {
+            if (pendingTeamRestore.current === location.team) pendingTeamRestore.current = null;
+          })
+          .catch((cause) => {
+            if (pendingTeamRestore.current !== location.team) return;
+            pendingTeamRestore.current = null;
+            restoringUrl.current = false;
+            lastWorkspaceUrl.current = null;
+            setError(cause instanceof Error ? cause.message : String(cause));
+            setUrlSyncNonce((current) => current + 1);
+          });
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [state]);
   useEffect(() => {
     if (!org || !viewScope || draftScope !== viewScope) return;
+    if (pendingTeamRestore.current && pendingTeamRestore.current !== org.id) return;
     const next = workspaceSearch({
       team: org.id,
       page,
@@ -985,6 +1006,7 @@ function Home() {
     viewSettings,
     librarySearch,
     feedFilters,
+    urlSyncNonce,
   ]);
   const activeControls =
     [filters.status, filters.assigneeId, filters.companyId, filters.domainId, filters.tagId].filter(
@@ -1347,20 +1369,24 @@ function Home() {
       nonce: current.nonce + 1,
     }));
   }
-  function selectTeam(id: string) {
-    setComposerShortcut(null);
-    setInboxOpen(false);
-    setCreatedHighlightId(null);
-    setCreatedNotice(null);
-    setFiltersOpen(false);
-    setDraftScope(null);
-    setDrafts({});
-    setSelectedId(null);
-    setOrganizationTarget((current) => ({
-      focus: { kind: "all", id: null },
-      nonce: current.nonce + 1,
-    }));
-    state.select(id);
+  async function selectTeam(id: string) {
+    try {
+      await state.select(id);
+      setComposerShortcut(null);
+      setInboxOpen(false);
+      setCreatedHighlightId(null);
+      setCreatedNotice(null);
+      setFiltersOpen(false);
+      setDraftScope(null);
+      setDrafts({});
+      setSelectedId(null);
+      setOrganizationTarget((current) => ({
+        focus: { kind: "all", id: null },
+        nonce: current.nonce + 1,
+      }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke bytte team.");
+    }
   }
   function showContactLayout(next: "board" | "list") {
     go("contacts");
@@ -7291,7 +7317,7 @@ function Settings({
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
   onSectionChange: (section: Page) => void;
-  onSelectTeam: (id: string) => void;
+  onSelectTeam: (id: string) => Promise<void>;
 }) {
   const [teamName, setTeamName] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
@@ -7304,7 +7330,7 @@ function Settings({
     try {
       const row = await request<{ id: string }>("/organizations", undefined, { name: teamName });
       await state.refresh();
-      state.select(row.id);
+      await state.select(row.id);
       setTeamName("");
       setMessage("Team opprettet. Lag en invitasjon til teamet.");
     } catch (cause) {
@@ -7485,7 +7511,13 @@ function Settings({
               <button
                 key={o.id}
                 className="mr-2 rounded-lg bg-muted px-3 py-1"
-                onClick={() => state.select(o.id)}
+                onClick={() =>
+                  void state
+                    .select(o.id)
+                    .catch((cause) =>
+                      setMessage(cause instanceof Error ? cause.message : String(cause)),
+                    )
+                }
               >
                 {o.name}
               </button>
