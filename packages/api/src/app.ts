@@ -37,6 +37,10 @@ const invitationInput = z.object({});
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const accountEmail = (id: string) => `${id}@accounts.contac.invalid`;
 const accountCode = (id: string, password: string) => `cc1.${id}.${password}`;
+const invitationIsActive = (
+  invite: { acceptedAt: Date | null; expiresAt: Date | null } | undefined,
+) =>
+  !!invite && (invite.expiresAt === null || (!invite.acceptedAt && invite.expiresAt >= new Date()));
 
 async function createAccount(deps: ApiDeps, name: string) {
   const email = accountEmail(crypto.randomUUID());
@@ -114,8 +118,8 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       .innerJoin(organizations, eq(organizations.id, invitations.orgId))
       .where(eq(invitations.tokenHash, hash(c.req.param("token"))))
       .limit(1);
-    if (!invite || invite.acceptedAt || invite.expiresAt < new Date())
-      return c.json({ error: "Invitation is invalid or expired" }, 404);
+    if (!invite || !invitationIsActive(invite))
+      return c.json({ error: "Invitation is invalid" }, 404);
     return c.json({ teamName: invite.teamName });
   });
   app.post("/v1/invitations/join", async (c) => {
@@ -128,17 +132,19 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       .from(invitations)
       .where(eq(invitations.tokenHash, hash(body.data.token)))
       .limit(1);
-    if (!invite || invite.acceptedAt || invite.expiresAt < new Date())
-      return c.json({ error: "Invitation is invalid or expired" }, 404);
+    if (!invite || !invitationIsActive(invite))
+      return c.json({ error: "Invitation is invalid" }, 404);
     const account = await createAccount(deps, body.data.name);
     try {
       await deps.db.transaction(async (tx) => {
-        const [claimed] = await tx
-          .update(invitations)
-          .set({ acceptedAt: new Date() })
-          .where(and(eq(invitations.id, invite.id), isNull(invitations.acceptedAt)))
-          .returning();
-        if (!claimed) throw new Error("Invitation already used");
+        if (invite.expiresAt !== null) {
+          const [claimed] = await tx
+            .update(invitations)
+            .set({ acceptedAt: new Date() })
+            .where(and(eq(invitations.id, invite.id), isNull(invitations.acceptedAt)))
+            .returning();
+          if (!claimed) throw new Error("Invitation already used");
+        }
         const [team] = await tx
           .select({ classId: organizations.classId })
           .from(organizations)
@@ -387,18 +393,19 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
         .limit(1);
       if (
         !invitation ||
-        invitation.acceptedAt ||
-        invitation.expiresAt < new Date() ||
+        !invitationIsActive(invitation) ||
         (invitation.email && invitation.email.toLowerCase() !== user.email.toLowerCase())
       )
-        return c.json({ error: "Invitation invalid or expired" }, 400);
+        return c.json({ error: "Invitation invalid" }, 400);
       await deps.db.transaction(async (tx) => {
-        const [claimed] = await tx
-          .update(invitations)
-          .set({ acceptedAt: new Date() })
-          .where(and(eq(invitations.id, invitation.id), isNull(invitations.acceptedAt)))
-          .returning();
-        if (!claimed) throw new Error("Invitation already used");
+        if (invitation.expiresAt !== null) {
+          const [claimed] = await tx
+            .update(invitations)
+            .set({ acceptedAt: new Date() })
+            .where(and(eq(invitations.id, invitation.id), isNull(invitations.acceptedAt)))
+            .returning();
+          if (!claimed) throw new Error("Invitation already used");
+        }
         const [team] = await tx
           .select({ classId: organizations.classId })
           .from(organizations)
@@ -442,12 +449,8 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       role: "admin",
       tokenHash: hash(token),
       invitedBy: c.get("user").id,
-      expiresAt: new Date(Date.now() + 7 * 86400_000),
     });
-    return c.json(
-      { inviteUrl: `${appOrigin}/invite?token=${encodeURIComponent(token)}`, expiresInDays: 7 },
-      201,
-    );
+    return c.json({ inviteUrl: `${appOrigin}/invite?token=${encodeURIComponent(token)}` }, 201);
   });
   registerContactRoutes(app, deps);
   registerActivityFeatureRoutes(app, deps);

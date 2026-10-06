@@ -112,7 +112,7 @@ export const invitations = pgTable(
     role: membershipRole("role").notNull().default("admin"),
     tokenHash: text("token_hash").notNull().unique(),
     invitedBy: uuid("invited_by").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: createdAt(),
   },

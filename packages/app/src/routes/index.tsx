@@ -7625,7 +7625,7 @@ function Settings({
     <Card className="p-5">
       <h2 className="font-semibold">Inviter til {state.org.name}</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Lenken kan brukes én gang og utløper om sju dager. Del den bare med den som skal bli med.
+        Lenken kan brukes av flere og utløper ikke. Del den bare med dem som skal bli med i teamet.
       </p>
       <Button className="mt-4" disabled={busy} onClick={() => void invite()}>
         Lag invitasjonslenke

@@ -75,7 +75,7 @@ function Invite() {
           <form className="space-y-4" onSubmit={(e) => void submit(e)}>
             {!token || info.error ? (
               <p role="alert" className="text-destructive">
-                Ugyldig eller utløpt invitasjon.
+                Ugyldig eller utløpt invitasjonslenke. Be teamet om en ny lenke.
               </p>
             ) : null}
             {!session && !issued && (
