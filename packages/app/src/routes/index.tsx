@@ -1353,6 +1353,139 @@ function Home() {
       setError("Kunne ikke lese utklippstavlen. Gi nettleseren tilgang og prøv igjen.");
     }
   }
+  const contactNav: [Page, string, typeof LayoutGrid][] = [
+    ["contacts", "Kontaktlogg", LayoutGrid],
+    ["contacted", "Sist kontaktet", CalendarDays],
+    ...(data.contacts.some((contact) => contact.status === "duplicate")
+      ? ([["duplicates", "Duplikate kontakter", Copy]] as [Page, string, typeof LayoutGrid][])
+      : []),
+    ...(deletedContacts.length
+      ? ([["deleted", "Slettede kontakter", Trash2]] as [Page, string, typeof LayoutGrid][])
+      : []),
+  ];
+  const overviewNav: [Page, string, typeof LayoutGrid][] = [
+    ["library", "Sitater", BookOpen],
+    ["organizations", "Organisasjoner", Building2],
+  ];
+  const favorites = data.favoriteContactIds
+    .map((id) => data.contacts.find((contact) => contact.id === id))
+    .filter((contact): contact is Contact => !!contact && contact.status !== "duplicate");
+  const activeSidebarItem =
+    selectedId && favorites.some((contact) => contact.id === selectedId)
+      ? `favorite:${selectedId}`
+      : page;
+  const shortcutNavigation = [
+    ...contactNav.map(([id]) => id),
+    ...overviewNav.map(([id]) => id),
+    ...favorites.map((contact) => `favorite:${contact.id}`),
+    "profile",
+    "team_settings",
+    ...(state.classSpace?.role === "admin" ? ["class_settings"] : []),
+  ];
+  const lastNavigationKey = useRef(0);
+  useEffect(() => {
+    if (!canOpenCommand) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, [contenteditable], [role="combobox"]') ||
+        document.querySelector('[role="dialog"], [role="menu"]') ||
+        commandOpen ||
+        createOpen ||
+        shortcutHelpOpen ||
+        shortcutChooser ||
+        contactMenu
+      )
+        return;
+      const key = event.key.toLowerCase();
+      const focusedItem = target?.closest<HTMLElement>("[data-contact-item]");
+      const hoveredItem = document.querySelector<HTMLElement>("[data-contact-item]:hover");
+      const contactItem = focusedItem ?? hoveredItem;
+      const targetContact = selectedId
+        ? chosen
+        : data.contacts.find((contact) => contact.id === contactItem?.dataset.contactItem);
+      if (
+        (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
+        contactItem &&
+        targetContact &&
+        !selectedId
+      ) {
+        event.preventDefault();
+        const rect = contactItem.getBoundingClientRect();
+        setContactMenu({
+          contactId: targetContact.id,
+          x: rect.left + Math.min(rect.width, 32),
+          y: rect.top + Math.min(rect.height, 32),
+          returnFocus: focusedItem?.querySelector("button") ?? (focusedItem as HTMLElement),
+        });
+        return;
+      }
+      if (
+        targetContact &&
+        !event.repeat &&
+        (selectedId
+          ? ["r", "e", "a", "s", "f", "d"]
+          : ["a", "i", "l", "s", "f", "r", "e", "d"]
+        ).includes(key)
+      ) {
+        event.preventDefault();
+        const detailFocus = selectedId
+          ? document.querySelector<HTMLElement>(
+              key === "a"
+                ? '[aria-label="Ansvarlig"]'
+                : key === "s"
+                  ? '[aria-label="Status"]'
+                  : "[data-contact-detail-actions] button",
+            )
+          : null;
+        runContactShortcut(
+          targetContact,
+          key,
+          detailFocus ?? focusedItem?.querySelector("button") ?? focusedItem ?? target,
+        );
+        return;
+      }
+      if (key === "?") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setShortcutHelpOpen(true);
+      } else if (key === "c") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setPaste("");
+        setCreateOpen(true);
+      } else if (key === "i") {
+        if (event.repeat) return;
+        event.preventDefault();
+        setInboxOpen(true);
+      } else if (["w", "k", "s", "j"].includes(key)) {
+        if (key === "s" && selectedId) return;
+        if (event.timeStamp - lastNavigationKey.current < 95) return;
+        lastNavigationKey.current = event.timeStamp;
+        event.preventDefault();
+        const current = shortcutNavigation.indexOf(activeSidebarItem);
+        const next =
+          (current + (key === "w" || key === "k" ? -1 : 1) + shortcutNavigation.length) %
+          shortcutNavigation.length;
+        const destination = shortcutNavigation[next];
+        if (destination?.startsWith("favorite:")) {
+          go("contacts");
+          setSelectedId(destination.slice("favorite:".length));
+        } else if (destination) go(destination as Page);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
   if (auth.loading || state.loading)
     return (
       <main className="grid min-h-screen place-items-center text-muted-foreground">
@@ -1389,20 +1522,6 @@ function Home() {
       </main>
     );
   if (!org) return <NoTeam />;
-  const contactNav: [Page, string, typeof LayoutGrid][] = [
-    ["contacts", "Kontaktlogg", LayoutGrid],
-    ["contacted", "Sist kontaktet", CalendarDays],
-    ...(data.contacts.some((contact) => contact.status === "duplicate")
-      ? ([["duplicates", "Duplikate kontakter", Copy]] as [Page, string, typeof LayoutGrid][])
-      : []),
-    ...(deletedContacts.length
-      ? ([["deleted", "Slettede kontakter", Trash2]] as [Page, string, typeof LayoutGrid][])
-      : []),
-  ];
-  const overviewNav: [Page, string, typeof LayoutGrid][] = [
-    ["library", "Sitater", BookOpen],
-    ["organizations", "Organisasjoner", Building2],
-  ];
   const inboxCount =
     dueReminders.length +
     (inboxQuery.data?.suggestions.length ?? 0) +
@@ -1598,125 +1717,6 @@ function Home() {
       }),
     ),
   ];
-  const favorites = data.favoriteContactIds
-    .map((id) => data.contacts.find((contact) => contact.id === id))
-    .filter((contact): contact is Contact => !!contact && contact.status !== "duplicate");
-  const activeSidebarItem =
-    selectedId && favorites.some((contact) => contact.id === selectedId)
-      ? `favorite:${selectedId}`
-      : page;
-  const shortcutNavigation = [
-    ...contactNav.map(([id]) => id),
-    ...overviewNav.map(([id]) => id),
-    ...favorites.map((contact) => `favorite:${contact.id}`),
-    "profile",
-    "team_settings",
-    ...(state.classSpace?.role === "admin" ? ["class_settings"] : []),
-  ];
-  const lastNavigationKey = useRef(0);
-  useEffect(() => {
-    if (!canOpenCommand) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.isComposing ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      )
-        return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (
-        target?.isContentEditable ||
-        target?.closest('input, textarea, select, [contenteditable], [role="combobox"]') ||
-        document.querySelector('[role="dialog"], [role="menu"]') ||
-        commandOpen ||
-        createOpen ||
-        shortcutHelpOpen ||
-        shortcutChooser ||
-        contactMenu
-      )
-        return;
-      const key = event.key.toLowerCase();
-      const focusedItem = target?.closest<HTMLElement>("[data-contact-item]");
-      const hoveredItem = document.querySelector<HTMLElement>("[data-contact-item]:hover");
-      const contactItem = focusedItem ?? hoveredItem;
-      const targetContact = selectedId
-        ? chosen
-        : data.contacts.find((contact) => contact.id === contactItem?.dataset.contactItem);
-      if (
-        (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
-        contactItem &&
-        targetContact &&
-        !selectedId
-      ) {
-        event.preventDefault();
-        const rect = contactItem.getBoundingClientRect();
-        setContactMenu({
-          contactId: targetContact.id,
-          x: rect.left + Math.min(rect.width, 32),
-          y: rect.top + Math.min(rect.height, 32),
-          returnFocus: focusedItem?.querySelector("button") ?? (focusedItem as HTMLElement),
-        });
-        return;
-      }
-      if (
-        targetContact &&
-        !event.repeat &&
-        (selectedId
-          ? ["r", "e", "a", "s", "f", "d"]
-          : ["a", "i", "l", "s", "f", "r", "e", "d"]
-        ).includes(key)
-      ) {
-        event.preventDefault();
-        const detailFocus = selectedId
-          ? document.querySelector<HTMLElement>(
-              key === "a"
-                ? '[aria-label="Ansvarlig"]'
-                : key === "s"
-                  ? '[aria-label="Status"]'
-                  : "[data-contact-detail-actions] button",
-            )
-          : null;
-        runContactShortcut(
-          targetContact,
-          key,
-          detailFocus ?? focusedItem?.querySelector("button") ?? focusedItem ?? target,
-        );
-        return;
-      }
-      if (key === "?") {
-        if (event.repeat) return;
-        event.preventDefault();
-        setShortcutHelpOpen(true);
-      } else if (key === "c") {
-        if (event.repeat) return;
-        event.preventDefault();
-        setPaste("");
-        setCreateOpen(true);
-      } else if (key === "i") {
-        if (event.repeat) return;
-        event.preventDefault();
-        setInboxOpen(true);
-      } else if (["w", "k", "s", "j"].includes(key)) {
-        if (key === "s" && selectedId) return;
-        if (event.timeStamp - lastNavigationKey.current < 95) return;
-        lastNavigationKey.current = event.timeStamp;
-        event.preventDefault();
-        const current = shortcutNavigation.indexOf(activeSidebarItem);
-        const next =
-          (current + (key === "w" || key === "k" ? -1 : 1) + shortcutNavigation.length) %
-          shortcutNavigation.length;
-        const destination = shortcutNavigation[next];
-        if (destination?.startsWith("favorite:")) {
-          go("contacts");
-          setSelectedId(destination.slice("favorite:".length));
-        } else if (destination) go(destination as Page);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
   return (
     <div className="min-h-screen lg:flex">
       <aside className="glass workspace-sidebar flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">

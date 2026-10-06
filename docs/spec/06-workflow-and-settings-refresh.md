@@ -23,7 +23,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Production recovery: apply migrations 0032–0044, preserve old position and department text, and fix the API rollout around host port 25 | Done; production database and API verified 2026-10-06 | This commit |
+| Production React #310: run workspace keyboard hooks before loading and sign-in returns | Done in code; signed-in browser verification pending | This commit |
+| Production recovery: apply migrations 0032–0044, preserve old position and department text, and fix the API rollout around host port 25 | Done; production database and API verified 2026-10-06 | `10a8736` |
 | Email draft mailto link: percent-encode spaces for desktop mail apps | Done | `b26e9ad` |
 | Reviewed specs 06 and 07 recorded | Done | `4fa200b` |
 | A8–A9: sidebar inbox flyout, empty-state button styling, dark sidebar edge | Done | `6d325e2` |
