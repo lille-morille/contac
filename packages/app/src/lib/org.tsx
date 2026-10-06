@@ -54,8 +54,10 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       setUser(result.user);
       setClassSpace(result.class);
       const remembered = localStorage.getItem(KEY);
+      const linkedTeam = new URLSearchParams(window.location.search).get("team");
       setSelected(
         (current) =>
+          result.organizations.find((o) => o.id === linkedTeam)?.id ??
           result.organizations.find((o) => o.id === current)?.id ??
           result.organizations.find((o) => o.id === remembered)?.id ??
           result.organizations[0]?.id ??

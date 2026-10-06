@@ -27,10 +27,12 @@ export function SemanticSearch({
   onOpen,
   initialQuery = "",
   initialShared = null,
+  onQueryChange,
 }: {
   onOpen: (contactId: string, activityId: string | null, passage: string, query: string) => void;
   initialQuery?: string;
   initialShared?: SearchResult | null;
+  onQueryChange?: (query: string) => void;
 }) {
   const { org } = useOrg();
   const [text, setText] = useState(initialQuery);
@@ -60,6 +62,7 @@ export function SemanticSearch({
         onSubmit={(event) => {
           event.preventDefault();
           setSubmitted(text.trim());
+          onQueryChange?.(text.trim());
         }}
       >
         <Input

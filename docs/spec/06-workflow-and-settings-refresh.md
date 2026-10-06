@@ -59,7 +59,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | C2: map toolbar removal, focused-domain back action, in-place creation and summary | Done; URL focus remains with A1 | `7088901` |
 | C3: complete wrapped map descriptions, contact tags in popover, selected domain chip contrast | Done | `03d060e` |
 | C5: organization and domain group-summary regression for shared and excluded activities | Done | `acd0261` |
-| 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | This commit |
+| 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | `858df26` |
+| A1 and C2: linkable workspace URLs, map focus, filters, search, Back/Forward, and invalid-link fallbacks | Done; live browser session not verified here | This commit |
 
 ## A. Navigation and daily work
 

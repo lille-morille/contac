@@ -292,6 +292,109 @@ function normalizeFilters(input: Record<string, unknown>): Filters {
 type SortKey = "updated" | "name" | "last_contacted" | "created";
 type ViewSettings = { layout: "board" | "list"; filters: Filters; sortKey: SortKey };
 const defaultViewSettings: ViewSettings = { layout: "board", filters: {}, sortKey: "updated" };
+type MapFocus = { kind: "all" | "company" | "domain"; id: string | null };
+type WorkspaceLocation = {
+  team: string | null;
+  page: Page;
+  contact: string | null;
+  activity: string | null;
+  passage: string | null;
+  query: string;
+  mapFocus: MapFocus;
+  view: ViewSettings;
+  hasViewParams: boolean;
+  librarySearch: string;
+  feed: { assignee: string | null; search: string; conversationsOnly: boolean };
+};
+const workspacePages: Page[] = [
+  "contacts",
+  "contacted",
+  "search",
+  "duplicates",
+  "organizations",
+  "library",
+  "profile",
+  "team_settings",
+  "class_settings",
+];
+export function readWorkspaceLocation(search: string): WorkspaceLocation {
+  const params = new URLSearchParams(search);
+  const uuid = (value: string | null) =>
+    value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+      ? value
+      : null;
+  const rawPage = params.get("page") as Page;
+  const page = workspacePages.includes(rawPage) ? rawPage : "contacts";
+  const sort = params.get("sort") as SortKey;
+  const filters: Filters = {
+    status: params.getAll("status").filter((value) => statuses.some(([key]) => key === value)),
+    assigneeId: params.getAll("assignee"),
+    companyId: params.getAll("company"),
+    domainId: params.getAll("domain"),
+    tagId: params.getAll("tag"),
+  };
+  return {
+    team: params.get("team"),
+    page,
+    contact: uuid(params.get("contact")),
+    activity: ["note", "additional_info"].includes(params.get("activity") ?? "")
+      ? params.get("activity")
+      : uuid(params.get("activity")),
+    passage: params.get("passage"),
+    query: params.get("q") ?? "",
+    mapFocus: uuid(params.get("mapDomain"))
+      ? { kind: "domain", id: uuid(params.get("mapDomain")) }
+      : uuid(params.get("mapCompany"))
+        ? { kind: "company", id: uuid(params.get("mapCompany")) }
+        : { kind: "all", id: null },
+    view: {
+      layout: params.get("layout") === "list" ? "list" : "board",
+      sortKey: ["updated", "name", "last_contacted", "created"].includes(sort) ? sort : "updated",
+      filters,
+    },
+    hasViewParams: ["layout", "sort", "status", "assignee", "company", "domain", "tag"].some(
+      (key) => params.has(key),
+    ),
+    librarySearch: params.get("quoteQ") ?? "",
+    feed: {
+      assignee: params.get("feedAssignee"),
+      search: params.get("feedQ") ?? "",
+      conversationsOnly: params.get("feedAll") !== "1",
+    },
+  };
+}
+export function workspaceSearch(location: WorkspaceLocation): string {
+  const params = new URLSearchParams();
+  if (location.team) params.set("team", location.team);
+  params.set("page", location.page);
+  if (location.contact) params.set("contact", location.contact);
+  if (location.activity) params.set("activity", location.activity);
+  if (location.passage) params.set("passage", location.passage);
+  if (location.query) params.set("q", location.query);
+  if (location.mapFocus.kind === "domain" && location.mapFocus.id)
+    params.set("mapDomain", location.mapFocus.id);
+  if (location.mapFocus.kind === "company" && location.mapFocus.id)
+    params.set("mapCompany", location.mapFocus.id);
+  if (location.page === "library" && location.librarySearch)
+    params.set("quoteQ", location.librarySearch);
+  if (location.page === "contacted") {
+    if (location.feed.assignee) params.set("feedAssignee", location.feed.assignee);
+    if (location.feed.search) params.set("feedQ", location.feed.search);
+    if (!location.feed.conversationsOnly) params.set("feedAll", "1");
+  }
+  if (location.view.layout !== "board") params.set("layout", location.view.layout);
+  if (location.view.sortKey !== "updated") params.set("sort", location.view.sortKey);
+  for (const [field, key] of [
+    ["status", "status"],
+    ["assigneeId", "assignee"],
+    ["companyId", "company"],
+    ["domainId", "domain"],
+    ["tagId", "tag"],
+  ] as const) {
+    for (const value of location.view.filters[field] ?? []) params.append(key, value);
+  }
+  return `?${params.toString()}`;
+}
 function readViewDrafts(key: string): Record<string, ViewSettings> {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null") as {
@@ -544,14 +647,17 @@ function SidebarNavSection({
   );
 }
 function Home() {
+  const initialLocation = useRef(
+    readWorkspaceLocation(typeof window === "undefined" ? "" : window.location.search),
+  ).current;
   const auth = useAuth();
   const { theme, setTheme } = useTheme();
   const state = useOrg();
   const org = state.org;
   const qc = useQueryClient();
   const { setContact } = useTeamRealtime();
-  const [page, setPage] = useState<Page>("contacts");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>(initialLocation.page);
+  const [selectedId, setSelectedId] = useState<string | null>(initialLocation.contact);
   const [createdHighlightId, setCreatedHighlightId] = useState<string | null>(null);
   const [createdNotice, setCreatedNotice] = useState<{ id: string; hidden: boolean } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -561,11 +667,15 @@ function Home() {
     query: string;
     shared: SearchResult | null;
     nonce: number;
-  }>({ query: "", shared: null, nonce: 0 });
+  }>({ query: initialLocation.query, shared: null, nonce: 0 });
   const [organizationTarget, setOrganizationTarget] = useState<{
-    id: string | null;
+    focus: MapFocus;
     nonce: number;
-  }>({ id: null, nonce: 0 });
+  }>({ focus: initialLocation.mapFocus, nonce: 0 });
+  const [librarySearch, setLibrarySearch] = useState(initialLocation.librarySearch);
+  const [feedFilters, setFeedFilters] = useState(initialLocation.feed);
+  const [feedNonce, setFeedNonce] = useState(0);
+  const [libraryNonce, setLibraryNonce] = useState(0);
   const [inboxOpen, setInboxOpen] = useState(false);
   const inboxPanelRef = useRef<HTMLElement>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -578,9 +688,11 @@ function Home() {
   );
   const [now, setNow] = useState(() => Date.now());
   const [paste, setPaste] = useState("");
-  const [focusedActivityId, setFocusedActivityId] = useState<string | null>(null);
-  const [focusedPassage, setFocusedPassage] = useState<string | null>(null);
-  const [focusedQuery, setFocusedQuery] = useState<string | null>(null);
+  const [focusedActivityId, setFocusedActivityId] = useState<string | null>(
+    initialLocation.activity,
+  );
+  const [focusedPassage, setFocusedPassage] = useState<string | null>(initialLocation.passage);
+  const [focusedQuery, setFocusedQuery] = useState<string | null>(initialLocation.query);
   const canOpenCommand = !!auth.session && !!state.user?.onboarded && !!org;
   useEffect(() => {
     if (!canOpenCommand) return;
@@ -602,18 +714,6 @@ function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [inboxOpen]);
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("contact")) {
-        setSelectedId(params.get("contact"));
-        setFocusedActivityId(params.get("activity"));
-        setFocusedPassage(params.get("passage"));
-        setFocusedQuery(params.get("q"));
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
   const [error, setError] = useState("");
   const [scalarConflict, setScalarConflict] = useState<{
     path: string;
@@ -621,7 +721,9 @@ function Home() {
     current: Record<string, unknown>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, ViewSettings>>({});
+  const [drafts, setDrafts] = useState<Record<string, ViewSettings>>(
+    initialLocation.hasViewParams ? { home: initialLocation.view } : {},
+  );
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const query = useQuery({
     queryKey: ["contact-data", org?.id, "core"],
@@ -663,12 +765,39 @@ function Home() {
     refetchInterval: 60_000,
   });
   const data: Data = { ...emptyData, ...query.data, ...activityQuery.data, ...personalQuery.data };
+  useEffect(() => {
+    if (!query.isSuccess) return;
+    const valid = {
+      assigneeId: new Set(["unassigned", ...data.members.map((member) => member.userId)]),
+      companyId: new Set(data.companies.map((company) => company.id)),
+      domainId: new Set(data.domains.map((domain) => domain.id)),
+      tagId: new Set(data.personTags.map((tag) => tag.id)),
+    };
+    setDrafts((current) => {
+      if (!current.home) return current;
+      const filters = { ...current.home.filters };
+      let changed = false;
+      for (const key of ["assigneeId", "companyId", "domainId", "tagId"] as const) {
+        const before = filters[key] ?? [];
+        const after = before.filter((id) => valid[key].has(id));
+        if (after.length !== before.length) {
+          filters[key] = after;
+          changed = true;
+        }
+      }
+      return changed ? { ...current, home: { ...current.home, filters } } : current;
+    });
+  }, [query.isSuccess, data.members, data.companies, data.domains, data.personTags]);
   const productSettings = useQuery({
     queryKey: ["loi-settings", org?.id],
     queryFn: () => request<{ businessName: string }>("/org/loi-settings", org!.id),
     enabled: !!org && !!state.user?.onboarded,
     refetchInterval: 60_000,
   });
+  useEffect(() => {
+    if (page === "class_settings" && state.user?.onboarded && state.classSpace?.role !== "admin")
+      setPage("contacts");
+  }, [page, state.user?.onboarded, state.classSpace?.role]);
   useEffect(() => {
     setContact(
       selectedId && data.contacts.some((item) => item.id === selectedId) ? selectedId : null,
@@ -693,9 +822,13 @@ function Home() {
       setDraftScope(null);
       return;
     }
-    setDrafts(readViewDrafts(viewScope));
+    const saved = readViewDrafts(viewScope);
+    const linked = readWorkspaceLocation(window.location.search);
+    const linkedView =
+      linked.hasViewParams && (!linked.team || linked.team === org?.id) ? linked.view : null;
+    setDrafts(linkedView ? { ...saved, home: linkedView } : saved);
     setDraftScope(viewScope);
-  }, [viewScope]);
+  }, [viewScope, org?.id]);
   useEffect(() => {
     if (!viewScope || draftScope !== viewScope) return;
     try {
@@ -706,6 +839,73 @@ function Home() {
   }, [viewScope, draftScope, drafts]);
   const viewSettings = drafts.home ?? defaultViewSettings;
   const { layout, filters, sortKey } = viewSettings;
+  const restoringUrl = useRef(false);
+  const lastWorkspaceUrl = useRef<string | null>(null);
+  useEffect(() => {
+    const onPopState = () => {
+      const location = readWorkspaceLocation(window.location.search);
+      restoringUrl.current = true;
+      setPage(location.page);
+      setSelectedId(location.contact);
+      setFocusedActivityId(location.activity);
+      setFocusedPassage(location.passage);
+      setFocusedQuery(location.query);
+      setSearchNavigation((current) => ({
+        query: location.query,
+        shared: null,
+        nonce: current.nonce + 1,
+      }));
+      setOrganizationTarget((current) => ({
+        focus: location.mapFocus,
+        nonce: current.nonce + 1,
+      }));
+      setLibrarySearch(location.librarySearch);
+      setFeedFilters(location.feed);
+      setFeedNonce((current) => current + 1);
+      setLibraryNonce((current) => current + 1);
+      setDrafts((current) => ({ ...current, home: location.view }));
+      if (location.team && state.organizations.some((team) => team.id === location.team))
+        state.select(location.team);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [state]);
+  useEffect(() => {
+    if (!org || !viewScope || draftScope !== viewScope) return;
+    const next = workspaceSearch({
+      team: org.id,
+      page,
+      contact: selectedId,
+      activity: selectedId ? focusedActivityId : null,
+      passage: selectedId ? focusedPassage : null,
+      query: selectedId ? (focusedQuery ?? "") : page === "search" ? searchNavigation.query : "",
+      mapFocus: organizationTarget.focus,
+      view: viewSettings,
+      hasViewParams: true,
+      librarySearch,
+      feed: feedFilters,
+    });
+    const current = window.location.search;
+    if (restoringUrl.current || lastWorkspaceUrl.current === null) {
+      restoringUrl.current = false;
+      if (next !== current) window.history.replaceState(null, "", next);
+    } else if (next !== current) window.history.pushState(null, "", next);
+    lastWorkspaceUrl.current = next;
+  }, [
+    org?.id,
+    viewScope,
+    draftScope,
+    page,
+    selectedId,
+    focusedActivityId,
+    focusedPassage,
+    focusedQuery,
+    searchNavigation.query,
+    organizationTarget.focus,
+    viewSettings,
+    librarySearch,
+    feedFilters,
+  ]);
   const activeControls =
     [filters.status, filters.assigneeId, filters.companyId, filters.domainId, filters.tagId].filter(
       (value) => value?.length,
@@ -972,10 +1172,11 @@ function Home() {
     setFocusedActivityId(null);
     setFocusedPassage(null);
     setFocusedQuery(null);
-    if (typeof window !== "undefined" && window.location.search)
-      window.history.replaceState(null, "", window.location.pathname);
     if (next === "organizations")
-      setOrganizationTarget((current) => ({ id: null, nonce: current.nonce + 1 }));
+      setOrganizationTarget((current) => ({
+        focus: { kind: "all", id: null },
+        nonce: current.nonce + 1,
+      }));
     setPage(next);
   }
   function openFullSearch(query: string, shared: SearchResult | null = null) {
@@ -999,16 +1200,13 @@ function Home() {
     );
     setFocusedPassage(result.passage);
     setFocusedQuery(query);
-    const params = new URLSearchParams();
-    params.set("contact", result.contactId);
-    if (result.activityId) params.set("activity", result.activityId);
-    params.set("passage", result.passage);
-    params.set("q", query);
-    window.history.replaceState(null, "", `?${params.toString()}`);
   }
   function openOrganization(id: string) {
     go("organizations");
-    setOrganizationTarget((current) => ({ id, nonce: current.nonce + 1 }));
+    setOrganizationTarget((current) => ({
+      focus: { kind: "company", id },
+      nonce: current.nonce + 1,
+    }));
   }
   function selectTeam(id: string) {
     setInboxOpen(false);
@@ -1018,7 +1216,10 @@ function Home() {
     setDraftScope(null);
     setDrafts({});
     setSelectedId(null);
-    setOrganizationTarget((current) => ({ id: null, nonce: current.nonce + 1 }));
+    setOrganizationTarget((current) => ({
+      focus: { kind: "all", id: null },
+      nonce: current.nonce + 1,
+    }));
     state.select(id);
   }
   function showContactLayout(next: "board" | "list") {
@@ -1253,7 +1454,6 @@ function Home() {
             setSelectedId(contact.id);
             setFocusedActivityId(null);
             setFocusedPassage(null);
-            window.history.replaceState(null, "", window.location.pathname);
           },
         };
       }),
@@ -1587,6 +1787,7 @@ function Home() {
           <ContactDetail
             key={chosen?.id}
             contact={chosen}
+            missing={query.isSuccess && !chosen}
             data={data}
             favorite={chosen ? data.favoriteContactIds.includes(chosen.id) : false}
             mutate={mutate}
@@ -1595,7 +1796,6 @@ function Home() {
               setFocusedActivityId(null);
               setFocusedPassage(null);
               setFocusedQuery(null);
-              window.history.replaceState(null, "", window.location.pathname);
             }}
             onOpen={(id) => {
               setSelectedId(id);
@@ -1610,6 +1810,9 @@ function Home() {
           />
         ) : page === "library" ? (
           <LibraryPage
+            key={libraryNonce}
+            initialSearch={librarySearch}
+            onSearchChange={setLibrarySearch}
             onOpen={(contactId, activityId) => {
               setFocusedActivityId(activityId ?? "note");
               setSelectedId(contactId);
@@ -1620,23 +1823,21 @@ function Home() {
             key={searchNavigation.nonce}
             initialQuery={searchNavigation.query}
             initialShared={searchNavigation.shared}
+            onQueryChange={(query) => setSearchNavigation((current) => ({ ...current, query }))}
             onOpen={(contactId, activityId, passage, query) => {
               setSelectedId(contactId);
               setFocusedActivityId(activityId);
               setFocusedPassage(passage);
               setFocusedQuery(query);
-              const params = new URLSearchParams();
-              params.set("contact", contactId);
-              if (activityId) params.set("activity", activityId);
-              params.set("passage", passage);
-              params.set("q", query);
-              window.history.replaceState(null, "", `?${params.toString()}`);
             }}
           />
         ) : page === "contacted" ? (
           <ActivityFeed
+            key={feedNonce}
             data={data}
             currentUserId={state.user?.id ?? ""}
+            initialFilters={feedFilters}
+            onFiltersChange={setFeedFilters}
             onOpenActivity={(contactId, activityId) => {
               setFocusedActivityId(activityId);
               setSelectedId(contactId);
@@ -1647,7 +1848,9 @@ function Home() {
         ) : page === "organizations" ? (
           <OrganizationMap
             key={organizationTarget.nonce}
-            initialCompanyId={organizationTarget.id}
+            initialFocus={organizationTarget.focus}
+            onFocusChange={(focus) => setOrganizationTarget((current) => ({ ...current, focus }))}
+            loaded={query.isSuccess}
             data={data}
             mutate={mutate}
             onOpenContact={setSelectedId}
@@ -2112,12 +2315,16 @@ function NoTeam() {
 }
 function LibraryPage({
   onOpen,
+  initialSearch,
+  onSearchChange,
 }: {
   onOpen: (contactId: string, activityId: string | null) => void;
+  initialSearch: string;
+  onSearchChange: (value: string) => void;
 }) {
   const { org } = useOrg();
   const qc = useQueryClient();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const library = useQuery({
@@ -2146,7 +2353,10 @@ function LibraryPage({
       <Input
         className="max-w-sm"
         value={search}
-        onChange={(event) => setSearch(event.target.value)}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          onSearchChange(event.target.value);
+        }}
         placeholder="Søk i sitater …"
         aria-label="Søk i sitater"
       />
@@ -2236,14 +2446,18 @@ function ActivityFeed({
   data,
   currentUserId,
   onOpenActivity,
+  initialFilters,
+  onFiltersChange,
 }: {
   data: Data;
   currentUserId: string;
   onOpenActivity: (contactId: string, activityId: string) => void;
+  initialFilters: WorkspaceLocation["feed"];
+  onFiltersChange: React.Dispatch<React.SetStateAction<WorkspaceLocation["feed"]>>;
 }) {
-  const [assigneeId, setAssigneeId] = useState(currentUserId);
-  const [conversationsOnly, setConversationsOnly] = useState(true);
-  const [search, setSearch] = useState("");
+  const [assigneeId, setAssigneeId] = useState(initialFilters.assignee ?? currentUserId);
+  const [conversationsOnly, setConversationsOnly] = useState(initialFilters.conversationsOnly);
+  const [search, setSearch] = useState(initialFilters.search);
   const currentMember = data.members.find((member) => member.userId === currentUserId);
   const entries = data.activities
     .filter((activity) => !conversationsOnly || activity.kind !== "missed_phone")
@@ -2291,7 +2505,10 @@ function ActivityFeed({
           <Select
             className="w-full"
             value={assigneeId}
-            onValueChange={setAssigneeId}
+            onValueChange={(value) => {
+              setAssigneeId(value);
+              onFiltersChange((current) => ({ ...current, assignee: value }));
+            }}
             aria-label="Filtrer aktiviteter etter kontaktansvarlig"
             items={[
               {
@@ -2321,7 +2538,10 @@ function ActivityFeed({
           Søk
           <Input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              onFiltersChange((current) => ({ ...current, search: event.target.value }));
+            }}
             placeholder="Søk i samtaler, kontakter og organisasjoner …"
             aria-label="Søk i aktiviteter"
           />
@@ -2329,7 +2549,10 @@ function ActivityFeed({
         <label className="flex h-9 items-center gap-2 whitespace-nowrap text-sm">
           <Checkbox
             checked={conversationsOnly}
-            onCheckedChange={setConversationsOnly}
+            onCheckedChange={(checked) => {
+              setConversationsOnly(checked);
+              onFiltersChange((current) => ({ ...current, conversationsOnly: checked }));
+            }}
             aria-label="Bare samtaler"
           />
           Bare samtaler
@@ -3872,6 +4095,7 @@ function ContactOrganizationPicker({
 
 function ContactDetail({
   contact: c,
+  missing,
   data,
   favorite,
   mutate,
@@ -3885,6 +4109,7 @@ function ContactDetail({
   onEnableNotifications,
 }: {
   contact: Contact | null;
+  missing: boolean;
   data: Data;
   favorite: boolean;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
@@ -3939,9 +4164,14 @@ function ContactDetail({
   }, [focusedActivityId, focusedPassage, focusedQuery, contactId]);
   if (!c)
     return (
-      <Button variant="ghost" onClick={onBack}>
-        Tilbake
-      </Button>
+      <div className="space-y-3">
+        <h1 className="text-xl font-semibold">
+          {missing ? "Kontakten finnes ikke i dette teamet" : "Laster kontakt …"}
+        </h1>
+        <Button variant="ghost" onClick={onBack}>
+          <ArrowLeft size={16} /> Tilbake
+        </Button>
+      </div>
     );
   const company = data.companies.find((x) => x.id === c.companyId);
   const timeline = data.activities
@@ -5753,20 +5983,26 @@ function OrganizationGraph({
 }
 
 function OrganizationMap({
-  initialCompanyId,
+  initialFocus,
+  onFocusChange,
+  loaded,
   data,
   mutate,
   onOpenContact,
   busy,
 }: {
-  initialCompanyId?: string | null;
+  initialFocus: MapFocus;
+  onFocusChange: (focus: MapFocus) => void;
+  loaded: boolean;
   data: Data;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   onOpenContact: (id: string) => void;
   busy: boolean;
 }) {
   const [selection, setSelection] = useState<OrganizationSelection>(
-    initialCompanyId ? { kind: "company", id: initialCompanyId } : { kind: "all" },
+    initialFocus.kind !== "all" && initialFocus.id
+      ? { kind: initialFocus.kind, id: initialFocus.id }
+      : { kind: "all" },
   );
   const [activeNode, setActiveNode] = useState<{
     kind: "company" | "contact";
@@ -5790,6 +6026,18 @@ function OrganizationMap({
   const [zoomAction, setZoomAction] = useState({ sequence: 0, factor: 1 });
 
   useEffect(() => {
+    if (!loaded || selection.kind === "all") return;
+    const valid =
+      selection.kind === "domain"
+        ? data.domains.some((domain) => domain.id === selection.id)
+        : data.companies.some((company) => company.id === selection.id);
+    if (!valid) {
+      setSelection({ kind: "all" });
+      onFocusChange({ kind: "all", id: null });
+    }
+  }, [loaded, selection, data.domains, data.companies, onFocusChange]);
+
+  useEffect(() => {
     const element = graphRef.current;
     if (!element) return;
     const observer = new ResizeObserver(() => {
@@ -5803,6 +6051,7 @@ function OrganizationMap({
   function chooseSelection(next: OrganizationSelection) {
     setActiveNode(null);
     setSelection(next);
+    onFocusChange(next.kind === "all" ? { kind: "all", id: null } : next);
   }
   const selectedCompany =
     selection.kind === "company"
