@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, ExternalLink, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { request } from "../lib/api.ts";
+import { buildMailtoUrl } from "../lib/mailto.ts";
 import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
@@ -138,12 +139,7 @@ export function EmailComposer({
       const row = await save();
       if (kind === "open") {
         await request(`/org/email-drafts/${row.id}/opened`, org.id, {});
-        const params = new URLSearchParams();
-        if (row.ccEmails.length) params.set("cc", row.ccEmails.join(","));
-        if (row.bccEmails.length) params.set("bcc", row.bccEmails.join(","));
-        if (row.subject) params.set("subject", row.subject);
-        if (row.body) params.set("body", row.body);
-        window.location.href = `mailto:${row.toEmails.map(encodeURIComponent).join(",")}?${params}`;
+        window.location.href = buildMailtoUrl(row);
       } else if (kind === "sent") {
         await request(`/org/email-drafts/${row.id}/mark-sent`, org.id, {});
         await onActivity();
