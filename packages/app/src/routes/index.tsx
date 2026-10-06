@@ -721,6 +721,13 @@ function Home() {
   );
   const [focusedPassage, setFocusedPassage] = useState<string | null>(initialLocation.passage);
   const [focusedQuery, setFocusedQuery] = useState<string | null>(initialLocation.query);
+  const closeContactDetail = useCallback(() => {
+    setComposerShortcut(null);
+    setSelectedId(null);
+    setFocusedActivityId(null);
+    setFocusedPassage(null);
+    setFocusedQuery(null);
+  }, []);
   const canOpenCommand = !!auth.session && !!state.user?.onboarded && !!org;
   useEffect(() => {
     if (!canOpenCommand) return;
@@ -742,6 +749,41 @@ function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [inboxOpen]);
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (
+        commandOpen ||
+        createOpen ||
+        shortcutHelpOpen ||
+        shortcutChooser ||
+        contactMenu ||
+        inboxOpen ||
+        document.querySelector('[role="dialog"], [role="menu"]')
+      )
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target?.isContentEditable ||
+        target?.closest("input, textarea, select, [contenteditable]")
+      )
+        return;
+      event.preventDefault();
+      closeContactDetail();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    selectedId,
+    commandOpen,
+    createOpen,
+    shortcutHelpOpen,
+    shortcutChooser,
+    contactMenu,
+    inboxOpen,
+    closeContactDetail,
+  ]);
   const [error, setError] = useState("");
   const [scalarConflict, setScalarConflict] = useState<{
     path: string;
@@ -1990,7 +2032,7 @@ function Home() {
                 Kontakten og historikken er bevart. Gjenopprett for å fortsette arbeidet.
               </p>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setSelectedId(null)}>
+                <Button variant="outline" onClick={closeContactDetail}>
                   <ArrowLeft size={16} /> Tilbake
                 </Button>
                 <Button
@@ -2008,13 +2050,7 @@ function Home() {
               data={data}
               favorite={chosen ? data.favoriteContactIds.includes(chosen.id) : false}
               mutate={mutate}
-              onBack={() => {
-                setComposerShortcut(null);
-                setSelectedId(null);
-                setFocusedActivityId(null);
-                setFocusedPassage(null);
-                setFocusedQuery(null);
-              }}
+              onBack={closeContactDetail}
               onOpen={(id) => {
                 setSelectedId(id);
                 setFocusedActivityId(null);

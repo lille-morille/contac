@@ -23,7 +23,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Call and email shortcuts scroll contact detail to the opened composer | Done in code; browser acceptance pending | This commit |
+| Escape closes contact detail and returns to the previous workspace view when no editor or overlay is active | Done in code; browser acceptance pending | This commit |
+| Call and email shortcuts scroll contact detail to the opened composer | Done in code; browser acceptance pending | `2638f30` |
 | Kanban cards: remove the double hover ring and retain keyboard focus styling | Done | `df67551` |
 | Production React #310: run workspace keyboard hooks before loading and sign-in returns | Done; signed-in browser verified 2026-10-06 | `6f6b944` |
 | Production recovery: apply migrations 0032–0044, preserve old position and department text, and fix the API rollout around host port 25 | Done; production database and API verified 2026-10-06 | `10a8736` |
