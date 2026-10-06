@@ -42,7 +42,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -6279,6 +6279,8 @@ function wrapMapDescription(description: string): string[] {
   return lines;
 }
 
+const graphSpring = { type: "spring" as const, stiffness: 230, damping: 19, mass: 0.85 };
+
 function OrganizationGraph({
   data,
   companies,
@@ -6304,6 +6306,8 @@ function OrganizationGraph({
   fitToken: number;
   zoomAction: { sequence: number; factor: number };
 }) {
+  const reducedMotion = useReducedMotion();
+  const transition = reducedMotion ? { duration: 0 } : graphSpring;
   const selectionId = selection.kind === "all" ? null : selection.id;
   const { domains, nodes, edges, contentWidth, contentHeight, fitCenterX, fitCenterY } =
     useMemo(() => {
@@ -6580,126 +6584,161 @@ function OrganizationGraph({
         }}
       />
       <g transform={transform}>
-        {edges.map((edge) => (
-          <path
-            key={edge.id}
-            d={edge.path}
-            stroke={edge.color}
-            fill="none"
-            strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            pointerEvents="none"
-          />
-        ))}
-        {nodes.map((node) => {
-          const interactive = true;
-          const width = node.width;
-          const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
-          const height = node.height;
-          const companyColor = companyStatusColors[node.status ?? "ingen"];
-          const activate = (anchor: Element) => {
-            if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
-            else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
-          };
-          return (
-            <g
-              key={node.id}
-              transform={`translate(${node.x} ${node.y})`}
-              className={interactive ? "cursor-pointer" : undefined}
-              role={interactive ? "button" : undefined}
-              tabIndex={interactive ? 0 : undefined}
-              aria-label={
-                interactive
-                  ? node.kind === "contact"
-                    ? `Vis kontaktkort for ${node.label}`
-                    : `Vis ${node.label}`
-                  : undefined
-              }
-              onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
-              onKeyDown={
-                interactive
-                  ? (event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        activate(event.currentTarget);
-                      }
-                    }
-                  : undefined
-              }
-            >
-              <rect
-                x={-width / 2}
-                y={-height / 2}
-                width={width}
-                height={height}
-                rx="12"
-                fill={
-                  node.kind === "domain"
-                    ? "var(--card)"
-                    : node.kind === "company"
-                      ? node.status === "ingen"
-                        ? "var(--card)"
-                        : `color-mix(in srgb, ${companyColor} 24%, var(--card))`
-                      : "var(--muted)"
-                }
-                stroke={
-                  node.kind === "domain"
-                    ? colors[node.color ?? "blue"]
-                    : node.kind === "company"
-                      ? companyColor
-                      : node.kind === "contact" &&
-                          activeNode?.kind === "contact" &&
-                          activeNode.id === node.entityId
-                        ? "var(--primary)"
-                        : "var(--border)"
-                }
-                strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
+        <AnimatePresence initial={false}>
+          {edges.map((edge) =>
+            edge.points.length === 2 ? (
+              <motion.line
+                key={`line:${edge.id}`}
+                initial={{ opacity: 0, x1: edge.x1, y1: edge.y1, x2: edge.x1, y2: edge.y1 }}
+                animate={{ opacity: 1, x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2 }}
+                exit={{ opacity: 0 }}
+                transition={transition}
+                stroke={edge.color}
+                strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
+                strokeLinecap="round"
+                pointerEvents="none"
               />
-              <text
-                x="0"
-                y={node.subtitle ? -height / 2 + 29 : 6}
-                textAnchor="middle"
-                fontSize={node.kind === "contact" ? 17 : 18}
-                fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
-                fill="var(--foreground)"
-                className="pointer-events-none"
+            ) : (
+              <motion.path
+                key={`route:${edge.id}:${edge.path}`}
+                d={edge.path}
+                initial={{ opacity: 0, pathLength: 0 }}
+                animate={{ opacity: 1, pathLength: 1 }}
+                exit={{ opacity: 0 }}
+                transition={transition}
+                stroke={edge.color}
+                fill="none"
+                strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                pointerEvents="none"
+              />
+            ),
+          )}
+        </AnimatePresence>
+        <AnimatePresence initial={false}>
+          {nodes.map((node) => {
+            const interactive = true;
+            const width = node.width;
+            const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
+            const height = node.height;
+            const companyColor = companyStatusColors[node.status ?? "ingen"];
+            const activate = (anchor: Element) => {
+              if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
+              else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
+            };
+            return (
+              <motion.g
+                key={node.id}
+                initial={{ opacity: 0, x: node.x, y: node.y - 30, scale: 0.8 }}
+                animate={{ opacity: 1, x: node.x, y: node.y, scale: 1 }}
+                exit={{ opacity: 0, y: node.y - 24, scale: 0.8 }}
+                whileHover={!reducedMotion ? { scale: 1.055 } : undefined}
+                whileTap={!reducedMotion ? { scale: 0.97 } : undefined}
+                transition={transition}
+                className={interactive ? "cursor-pointer" : undefined}
+                role={interactive ? "button" : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                aria-label={
+                  interactive
+                    ? node.kind === "contact"
+                      ? `Vis kontaktkort for ${node.label}`
+                      : `Vis ${node.label}`
+                    : undefined
+                }
+                onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
+                onKeyDown={
+                  interactive
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          activate(event.currentTarget);
+                        }
+                      }
+                    : undefined
+                }
+                style={{ transformBox: "fill-box", transformOrigin: "center" }}
               >
-                {node.label.length > (node.kind === "company" ? 23 : 25)
-                  ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
-                  : node.label}
-              </text>
-              {node.subtitle && (
+                <rect
+                  x={-width / 2}
+                  y={-height / 2}
+                  width={width}
+                  height={height}
+                  rx="12"
+                  fill={
+                    node.kind === "domain"
+                      ? "var(--card)"
+                      : node.kind === "company"
+                        ? node.status === "ingen"
+                          ? "var(--card)"
+                          : `color-mix(in srgb, ${companyColor} 24%, var(--card))`
+                        : "var(--muted)"
+                  }
+                  stroke={
+                    node.kind === "domain"
+                      ? colors[node.color ?? "blue"]
+                      : node.kind === "company"
+                        ? companyColor
+                        : node.kind === "contact" &&
+                            activeNode?.kind === "contact" &&
+                            activeNode.id === node.entityId
+                          ? "var(--primary)"
+                          : "var(--border)"
+                  }
+                  strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
+                />
                 <text
                   x="0"
-                  y={-height / 2 + 54}
+                  y={node.subtitle ? -height / 2 + 29 : 6}
                   textAnchor="middle"
-                  fontSize="14"
-                  fill="var(--muted-foreground)"
+                  fontSize={node.kind === "contact" ? 17 : 18}
+                  fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
+                  fill="var(--foreground)"
                   className="pointer-events-none"
                 >
-                  {node.kind === "contact"
-                    ? descriptionLines.map((line, index) => (
-                        <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
-                          {line}
-                        </tspan>
-                      ))
-                    : node.subtitle}
+                  {node.label.length > (node.kind === "company" ? 23 : 25)
+                    ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
+                    : node.label}
                 </text>
-              )}
-            </g>
-          );
-        })}
-        {companies.length === 0 && (
-          <text
-            x={fitCenterX}
-            y={fitCenterY + 35}
-            textAnchor="middle"
-            fill="var(--muted-foreground)"
-          >
-            Ingen organisasjoner i dette utvalget.
-          </text>
-        )}
+                {node.subtitle && (
+                  <text
+                    x="0"
+                    y={-height / 2 + 54}
+                    textAnchor="middle"
+                    fontSize="14"
+                    fill="var(--muted-foreground)"
+                    className="pointer-events-none"
+                  >
+                    {node.kind === "contact"
+                      ? descriptionLines.map((line, index) => (
+                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
+                            {line}
+                          </tspan>
+                        ))
+                      : node.subtitle}
+                  </text>
+                )}
+              </motion.g>
+            );
+          })}
+        </AnimatePresence>
+        <AnimatePresence initial={false}>
+          {companies.length === 0 && (
+            <motion.text
+              key="empty"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={transition}
+              x={fitCenterX}
+              y={fitCenterY + 35}
+              textAnchor="middle"
+              fill="var(--muted-foreground)"
+            >
+              Ingen organisasjoner i dette utvalget.
+            </motion.text>
+          )}
+        </AnimatePresence>
       </g>
     </svg>
   );
