@@ -3647,7 +3647,6 @@ function ContactCard({
   );
 }
 function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data }) {
-  const company = data.companies.find((x) => x.id === c.companyId);
   const assignee = data.members.find((member) => member.userId === c.assigneeId);
   return (
     <div className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-card transition hover:border-primary/30 hover:shadow-card-hover">
@@ -3664,7 +3663,11 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
           />
         </span>
       </span>
-      <span className="block truncate text-xs text-muted-foreground">{company?.name}</span>
+      {c.description && (
+        <p className="mt-1 line-clamp-3 break-words text-xs leading-relaxed text-muted-foreground">
+          {c.description}
+        </p>
+      )}
       {c.stikkord && (
         <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/85">
           {c.stikkord.slice(0, 300)}

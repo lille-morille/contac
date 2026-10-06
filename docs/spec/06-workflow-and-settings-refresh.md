@@ -23,6 +23,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
+| Kanban cards: show Kort beskrivelse under the name and Stikkord beneath it instead of the organization | Done in code; browser acceptance pending | This commit |
 | MCP contact creation: cap Kort beskrivelse at 500 characters in single and batch tools, document concise agent input, and repair batch validation | Done in code; live client acceptance pending | This commit |
 | Klasserom: class admin can issue a replacement recovery code for a member of their class | Done in code; browser acceptance pending | This commit |
 | Organization map: restore spring motion for nodes and animated links after routing rewrite | Done in code; browser acceptance pending | This commit |
