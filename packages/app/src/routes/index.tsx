@@ -629,7 +629,7 @@ function SidebarNavSection({
   onSelect: (page: Page) => void;
 }) {
   return (
-    <section className="mt-5">
+    <section className="mt-1">
       <h2 className="sr-only">{title}</h2>
       <nav className="space-y-1" aria-label={title}>
         {items.map(([key, label, Icon]) => {
@@ -1819,14 +1819,8 @@ function Home() {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <SidebarNavSection
-            title="Kontakter"
-            items={contactNav}
-            activeItem={activeSidebarItem}
-            onSelect={go}
-          />
-          <SidebarNavSection
-            title="Oversikt"
-            items={overviewNav}
+            title="Navigasjon"
+            items={[...contactNav, ...overviewNav]}
             activeItem={activeSidebarItem}
             onSelect={go}
           />
