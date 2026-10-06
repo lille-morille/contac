@@ -77,6 +77,7 @@ import {
 import { GroupAiSummary } from "../components/group-ai-summary.tsx";
 import { LoiPanel } from "../components/loi-panel.tsx";
 import { TeamLoiSettings } from "../components/team-loi-settings.tsx";
+import { ClassRecoverySettings } from "../components/class-recovery-settings.tsx";
 import { LiveText } from "../components/live-text.tsx";
 import { CrossTeamOverlap } from "../components/cross-team-overlap.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../components/inbox-items.tsx";
@@ -7910,6 +7911,9 @@ function Settings({
             </p>
           )}
         </Card>
+      )}
+      {section === "class_settings" && state.classSpace?.role === "admin" && (
+        <ClassRecoverySettings classId={state.classSpace.classId} />
       )}
       <Dialog
         open={!!deletingTeam}

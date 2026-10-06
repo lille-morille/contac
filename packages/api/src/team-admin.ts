@@ -1,5 +1,6 @@
-import { classMemberships, organizations, workspaceFiles } from "@contac/core/db";
-import { and, eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { classMemberships, organizations, profiles, workspaceFiles } from "@contac/core/db";
+import { and, asc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
@@ -8,6 +9,63 @@ const teamIdSchema = z.uuid();
 const teamNameSchema = z.string().trim().min(2).max(100);
 
 export function registerTeamAdminRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
+  async function adminClassId(userId: string) {
+    const [admin] = await deps.db
+      .select({ classId: classMemberships.classId })
+      .from(classMemberships)
+      .where(and(eq(classMemberships.userId, userId), eq(classMemberships.role, "admin")))
+      .limit(1);
+    return admin?.classId ?? null;
+  }
+
+  app.get("/v1/class/members", async (c) => {
+    const classId = await adminClassId(c.get("user").id);
+    if (!classId) return c.json({ error: "Class admin access required" }, 403);
+    const rows = await deps.db
+      .select({
+        userId: classMemberships.userId,
+        role: classMemberships.role,
+        name: profiles.fullName,
+        email: profiles.profileEmail,
+      })
+      .from(classMemberships)
+      .leftJoin(profiles, eq(profiles.id, classMemberships.userId))
+      .where(eq(classMemberships.classId, classId))
+      .orderBy(asc(profiles.fullName), asc(classMemberships.userId));
+    c.header("Cache-Control", "no-store");
+    return c.json(rows);
+  });
+
+  app.post("/v1/class/members/:userId/recovery-code", async (c) => {
+    const targetId = teamIdSchema.safeParse(c.req.param("userId"));
+    if (!targetId.success) return c.json({ error: "Ugyldig bruker-ID." }, 400);
+    const classId = await adminClassId(c.get("user").id);
+    if (!classId) return c.json({ error: "Class admin access required" }, 403);
+    const [target] = await deps.db
+      .select({ userId: classMemberships.userId })
+      .from(classMemberships)
+      .where(and(eq(classMemberships.classId, classId), eq(classMemberships.userId, targetId.data)))
+      .limit(1);
+    if (!target) return c.json({ error: "Brukeren finnes ikke i klassen." }, 404);
+
+    const { data: account, error: lookupError } = await deps.supabase.auth.admin.getUserById(
+      targetId.data,
+    );
+    if (lookupError || !account.user) return c.json({ error: "Kunne ikke finne kontoen." }, 502);
+    const loginId = /^([\da-f-]{36})@accounts\.contac\.invalid$/i.exec(
+      account.user.email ?? "",
+    )?.[1];
+    if (!loginId) return c.json({ error: "Kontoen kan ikke bruke gjenopprettingskoder." }, 409);
+
+    const password = randomBytes(32).toString("base64url");
+    const { error: updateError } = await deps.supabase.auth.admin.updateUserById(targetId.data, {
+      password,
+    });
+    if (updateError) return c.json({ error: "Kunne ikke lage ny gjenopprettingskode." }, 502);
+    c.header("Cache-Control", "no-store");
+    return c.json({ recoveryCode: `cc1.${loginId}.${password}` });
+  });
+
   async function adminTeam(teamId: string, userId: string) {
     const [team] = await deps.db
       .select({ id: organizations.id, classId: organizations.classId, name: organizations.name })

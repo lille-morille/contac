@@ -337,6 +337,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
     const password = randomBytes(32).toString("base64url");
     const { error } = await deps.supabase.auth.admin.updateUserById(user.id, { password });
     if (error) return c.json({ error: "Could not rotate recovery code" }, 502);
+    c.header("Cache-Control", "no-store");
     return c.json({ recoveryCode: accountCode(user.email.split("@")[0], password) });
   });
 
