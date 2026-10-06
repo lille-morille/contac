@@ -667,6 +667,23 @@ function Home() {
   const [deletedNotice, setDeletedNotice] = useState<{ id: string; name: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [shortcutChooser, setShortcutChooser] = useState<{
+    contactId: string;
+    kind: "assignee" | "status" | "tags";
+    returnFocus: HTMLElement | null;
+  } | null>(null);
+  const [contactMenu, setContactMenu] = useState<{
+    contactId: string;
+    x: number;
+    y: number;
+    returnFocus: HTMLElement | null;
+  } | null>(null);
+  const [composerShortcut, setComposerShortcut] = useState<{
+    contactId: string;
+    kind: "phone" | "email";
+    nonce: number;
+  } | null>(null);
+  const contactMenuRef = useRef<HTMLDivElement>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [searchNavigation, setSearchNavigation] = useState<{
     query: string;
@@ -1188,7 +1205,59 @@ function Home() {
     return () => window.clearTimeout(timer);
   }, [createdNotice]);
   const chosen = data.contacts.find((c) => c.id === selectedId) ?? null;
+  function closeShortcutChooser() {
+    const returnFocus = shortcutChooser?.returnFocus;
+    setShortcutChooser(null);
+    window.setTimeout(() => returnFocus?.isConnected && returnFocus.focus(), 0);
+  }
+  function openContactComposer(contact: Contact, kind: "phone" | "email") {
+    if (contact.status === "duplicate") return;
+    setContactMenu(null);
+    setSelectedId(contact.id);
+    setComposerShortcut((previous) => ({
+      contactId: contact.id,
+      kind,
+      nonce: (previous?.nonce ?? 0) + 1,
+    }));
+  }
+  function runContactShortcut(contact: Contact, key: string, returnFocus: HTMLElement | null) {
+    if (contact.status === "duplicate" || contact.deletedAt) return;
+    setContactMenu(null);
+    if (key === "a" || key === "s" || key === "l") {
+      setShortcutChooser({
+        contactId: contact.id,
+        kind: key === "a" ? "assignee" : key === "s" ? "status" : "tags",
+        returnFocus,
+      });
+    } else if (key === "i" && state.user?.id) {
+      void mutate(`/contacts/${contact.id}`, {
+        assigneeId: contact.assigneeId === state.user.id ? null : state.user.id,
+      });
+    } else if (key === "f") {
+      void mutate(`/contacts/${contact.id}/favorite`, {
+        favorite: !data.favoriteContactIds.includes(contact.id),
+      });
+    } else if (key === "r" || key === "e") {
+      openContactComposer(contact, key === "r" ? "phone" : "email");
+    } else if (key === "d") {
+      setDeletingContact(contact);
+    }
+  }
+  useEffect(() => {
+    if (!contactMenu) return;
+    contactMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const close = (event: globalThis.PointerEvent) => {
+      if (!contactMenuRef.current?.contains(event.target as Node)) setContactMenu(null);
+    };
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
+  }, [contactMenu]);
+  useEffect(() => {
+    setContactMenu(null);
+    setShortcutChooser(null);
+  }, [page, org?.id]);
   function go(next: Page) {
+    setComposerShortcut(null);
     setInboxOpen(false);
     setCreatedHighlightId(null);
     setCreatedNotice(null);
@@ -1234,6 +1303,7 @@ function Home() {
     }));
   }
   function selectTeam(id: string) {
+    setComposerShortcut(null);
     setInboxOpen(false);
     setCreatedHighlightId(null);
     setCreatedNotice(null);
@@ -1557,10 +1627,59 @@ function Home() {
         document.querySelector('[role="dialog"], [role="menu"]') ||
         commandOpen ||
         createOpen ||
-        shortcutHelpOpen
+        shortcutHelpOpen ||
+        shortcutChooser ||
+        contactMenu
       )
         return;
       const key = event.key.toLowerCase();
+      const focusedItem = target?.closest<HTMLElement>("[data-contact-item]");
+      const hoveredItem = document.querySelector<HTMLElement>("[data-contact-item]:hover");
+      const contactItem = focusedItem ?? hoveredItem;
+      const targetContact = selectedId
+        ? chosen
+        : data.contacts.find((contact) => contact.id === contactItem?.dataset.contactItem);
+      if (
+        (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
+        contactItem &&
+        targetContact &&
+        !selectedId
+      ) {
+        event.preventDefault();
+        const rect = contactItem.getBoundingClientRect();
+        setContactMenu({
+          contactId: targetContact.id,
+          x: rect.left + Math.min(rect.width, 32),
+          y: rect.top + Math.min(rect.height, 32),
+          returnFocus: focusedItem?.querySelector("button") ?? (focusedItem as HTMLElement),
+        });
+        return;
+      }
+      if (
+        targetContact &&
+        !event.repeat &&
+        (selectedId
+          ? ["r", "e", "a", "s", "f", "d"]
+          : ["a", "i", "l", "s", "f", "r", "e", "d"]
+        ).includes(key)
+      ) {
+        event.preventDefault();
+        const detailFocus = selectedId
+          ? document.querySelector<HTMLElement>(
+              key === "a"
+                ? '[aria-label="Ansvarlig"]'
+                : key === "s"
+                  ? '[aria-label="Status"]'
+                  : "[data-contact-detail-actions] button",
+            )
+          : null;
+        runContactShortcut(
+          targetContact,
+          key,
+          detailFocus ?? focusedItem?.querySelector("button") ?? focusedItem ?? target,
+        );
+        return;
+      }
       if (key === "?") {
         if (event.repeat) return;
         event.preventDefault();
@@ -1781,6 +1900,19 @@ function Home() {
         </div>
       </aside>
       <main
+        onContextMenu={(event) => {
+          if (selectedId || commandOpen || shortcutChooser) return;
+          const item = (event.target as HTMLElement).closest<HTMLElement>("[data-contact-item]");
+          const contact = data.contacts.find((row) => row.id === item?.dataset.contactItem);
+          if (!item || !contact) return;
+          event.preventDefault();
+          setContactMenu({
+            contactId: contact.id,
+            x: event.clientX,
+            y: event.clientY,
+            returnFocus: item.querySelector("button") ?? item,
+          });
+        }}
         className={
           page === "organizations" && !selectedId
             ? "flex min-w-0 flex-1 flex-col p-4 md:p-6 lg:h-screen lg:overflow-hidden"
@@ -1871,6 +2003,7 @@ function Home() {
               favorite={chosen ? data.favoriteContactIds.includes(chosen.id) : false}
               mutate={mutate}
               onBack={() => {
+                setComposerShortcut(null);
                 setSelectedId(null);
                 setFocusedActivityId(null);
                 setFocusedPassage(null);
@@ -1881,6 +2014,9 @@ function Home() {
                 setFocusedActivityId(null);
               }}
               onDelete={setDeletingContact}
+              composerShortcut={
+                composerShortcut?.contactId === chosen?.id ? composerShortcut : null
+              }
               busy={busy}
               focusedActivityId={focusedActivityId}
               focusedPassage={focusedPassage}
@@ -2112,6 +2248,7 @@ function Home() {
                 visibleStatuses={filters.status}
                 data={data}
                 onOpen={(id) => {
+                  setComposerShortcut(null);
                   setCreatedHighlightId(null);
                   setSelectedId(id);
                 }}
@@ -2124,6 +2261,7 @@ function Home() {
                 data={data}
                 mutate={mutate}
                 onOpen={(id) => {
+                  setComposerShortcut(null);
                   setCreatedHighlightId(null);
                   setSelectedId(id);
                 }}
@@ -2153,6 +2291,12 @@ function Home() {
             <kbd>C</kbd>
             <span>Innboks</span>
             <kbd>I</kbd>
+            <span>Kontakt: ansvarlig / meg / tagger / status</span>
+            <kbd>A / I / L / S</kbd>
+            <span>Kontakt: favoritt / ring / e-post / slett</span>
+            <kbd>F / R / E / D</kbd>
+            <span>Kontekstmeny på kontakt</span>
+            <kbd>Høyreklikk / Shift+F10</kbd>
             <span>Vis denne hjelpen</span>
             <kbd>?</kbd>
             <span>Åpne kommandomeny</span>
@@ -2162,6 +2306,158 @@ function Home() {
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!shortcutChooser} onOpenChange={(open) => !open && closeShortcutChooser()}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogTitle>
+            {shortcutChooser?.kind === "assignee"
+              ? "Velg ansvarlig"
+              : shortcutChooser?.kind === "status"
+                ? "Velg status"
+                : "Velg persontagger"}
+          </DialogTitle>
+          <DialogDescription>
+            {data.contacts.find((contact) => contact.id === shortcutChooser?.contactId)?.name}
+          </DialogDescription>
+          <div className="mt-4 space-y-1">
+            {shortcutChooser?.kind === "assignee" &&
+              assigneeOptions(data.members).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  autoFocus={option.value === ""}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    void mutate(`/contacts/${shortcutChooser.contactId}`, {
+                      assigneeId: option.value || null,
+                    });
+                    closeShortcutChooser();
+                  }}
+                >
+                  {option.icon} {option.label}
+                </button>
+              ))}
+            {shortcutChooser?.kind === "status" &&
+              statusOptions.map((option, index) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  autoFocus={index === 0}
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    void mutate(`/contacts/${shortcutChooser.contactId}`, { status: option.value });
+                    closeShortcutChooser();
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            {shortcutChooser?.kind === "tags" &&
+              data.personTags.map((tag, index) => {
+                const selected = data.contactPersonTags.some(
+                  (link) => link.contactId === shortcutChooser.contactId && link.tagId === tag.id,
+                );
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    autoFocus={index === 0}
+                    aria-pressed={selected}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => {
+                      const tagIds = data.contactPersonTags
+                        .filter(
+                          (link) =>
+                            link.contactId === shortcutChooser.contactId && link.tagId !== tag.id,
+                        )
+                        .map((link) => link.tagId);
+                      void mutate(`/contacts/${shortcutChooser.contactId}/tags`, {
+                        tagIds: selected ? tagIds : [...tagIds, tag.id],
+                      });
+                    }}
+                  >
+                    {tag.name} {selected && <Check size={16} />}
+                  </button>
+                );
+              })}
+            {shortcutChooser?.kind === "tags" && !data.personTags.length && (
+              <p className="text-sm text-muted-foreground">Ingen persontagger ennå.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+      {contactMenu &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={contactMenuRef}
+            role="menu"
+            aria-label={`Handlinger for ${data.contacts.find((contact) => contact.id === contactMenu.contactId)?.name ?? "kontakt"}`}
+            className="glass-strong fixed z-[60] max-h-[min(80vh,32rem)] w-60 overflow-y-auto rounded-xl p-1.5 shadow-xl"
+            style={{
+              left: Math.max(8, Math.min(contactMenu.x, window.innerWidth - 252)),
+              top: Math.max(8, Math.min(contactMenu.y, window.innerHeight - 420)),
+            }}
+            onKeyDown={(event) => {
+              const items = Array.from(
+                contactMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                  '[role="menuitem"]:not(:disabled)',
+                ) ?? [],
+              );
+              const index = items.indexOf(document.activeElement as HTMLButtonElement);
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setContactMenu(null);
+                contactMenu.returnFocus?.focus();
+              } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                items[
+                  (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
+                ]?.focus();
+              }
+            }}
+          >
+            {(
+              [
+                ["open", "Åpne kontakt", ""],
+                ["a", "Endre ansvarlig", "A"],
+                ["i", "Tildel meg / fjern", "I"],
+                ["l", "Endre persontagger", "L"],
+                ["s", "Endre status", "S"],
+                ["f", "Favoritt av/på", "F"],
+                ["r", "Start telefonsamtale", "R"],
+                ["e", "Skriv e-post", "E"],
+                ["d", "Slett kontakt", "D"],
+              ] as const
+            ).map(([key, label, hint]) => {
+              const contact = data.contacts.find((row) => row.id === contactMenu.contactId);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    !contact ||
+                    (contact.status === "duplicate" && key !== "open") ||
+                    (key === "i" && !state.user?.id)
+                  }
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-40"
+                  onClick={() => {
+                    if (!contact) return;
+                    if (key === "open") {
+                      setComposerShortcut(null);
+                      setSelectedId(contact.id);
+                      setContactMenu(null);
+                    } else runContactShortcut(contact, key, contactMenu.returnFocus);
+                  }}
+                >
+                  <span>{label}</span>
+                  <kbd className="text-xs text-muted-foreground">{hint}</kbd>
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
       <Dialog open={!!deletingContact} onOpenChange={(open) => !open && setDeletingContact(null)}>
         <DialogContent>
           <DialogTitle>Slett kontakt?</DialogTitle>
@@ -3072,7 +3368,7 @@ function ContactBoard({
                       data-contact-item={contact.id}
                       layout="position"
                       transition={boardSpring}
-                      className={`${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
+                      className={`rounded-xl transition-shadow hover:ring-2 hover:ring-primary/35 focus-within:ring-2 focus-within:ring-primary/60 ${drag?.id === contact.id ? "opacity-0" : ""} ${highlightId === contact.id ? "new-contact-flash" : ""}`}
                     >
                       <ContactCard
                         contact={
@@ -3469,7 +3765,7 @@ function ContactList({
               <tr
                 key={c.id}
                 data-contact-item={c.id}
-                className={`border-b border-border/70 align-top last:border-b-0 hover:bg-muted/30 ${highlightId === c.id ? "new-contact-flash" : ""}`}
+                className={`border-b border-border/70 align-top last:border-b-0 hover:bg-primary/5 focus-within:bg-primary/8 ${highlightId === c.id ? "new-contact-flash" : ""}`}
               >
                 <td className="px-4 py-3">
                   <button
@@ -3679,6 +3975,7 @@ function ActivityComposer({
   busy,
   notificationPermission,
   onEnableNotifications,
+  shortcutRequest,
 }: {
   contact: Contact;
   related: Contact[];
@@ -3687,6 +3984,7 @@ function ActivityComposer({
   busy: boolean;
   notificationPermission: NotificationPermission | "unsupported";
   onEnableNotifications: () => void;
+  shortcutRequest?: number;
 }) {
   const { user } = useOrg();
   const [mode, setMode] = useState<"phone" | "meeting" | null>(null);
@@ -3717,6 +4015,21 @@ function ActivityComposer({
     setPhoneCopyMessage("");
     setFileError("");
   }
+  useEffect(() => {
+    if (shortcutRequest) start("phone");
+  }, [shortcutRequest]);
+  useEffect(() => {
+    if (!shortcutRequest || mode !== "phone") return;
+    const timer = window.setTimeout(() => {
+      const composer = document.querySelector<HTMLElement>("[data-call-composer]");
+      composer?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center",
+      });
+      composer?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [shortcutRequest, mode]);
   async function importTranscript(file: File | undefined) {
     if (!file) return;
     if (!/\.(txt|md|srt|vtt)$/i.test(file.name)) {
@@ -3797,6 +4110,7 @@ function ActivityComposer({
         ) : (
           <motion.div
             key="activity-composer"
+            data-call-composer={mode === "phone" ? "" : undefined}
             layout="size"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -4275,6 +4589,7 @@ function ContactDetail({
   onBack,
   onOpen,
   onDelete,
+  composerShortcut,
   busy,
   focusedActivityId,
   focusedPassage,
@@ -4290,6 +4605,7 @@ function ContactDetail({
   onBack: () => void;
   onOpen: (id: string) => void;
   onDelete: (contact: Contact) => void;
+  composerShortcut: { contactId: string; kind: "phone" | "email"; nonce: number } | null;
   busy: boolean;
   focusedActivityId: string | null;
   focusedPassage: string | null;
@@ -4436,7 +4752,7 @@ function ContactDetail({
                 <p className="text-muted-foreground">{company?.name}</p>
               </div>
               {c.status !== "duplicate" && (
-                <div className="flex flex-wrap gap-2">
+                <div data-contact-detail-actions className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -4674,6 +4990,9 @@ function ContactDetail({
           {c.status !== "duplicate" && (
             <EmailComposer
               contact={c}
+              shortcutRequest={
+                composerShortcut?.kind === "email" ? composerShortcut.nonce : undefined
+              }
               onActivity={() =>
                 contactQueryClient.invalidateQueries({ queryKey: ["contact-data", state.org?.id] })
               }
@@ -4684,6 +5003,9 @@ function ContactDetail({
             {c.status !== "duplicate" && (
               <ActivityComposer
                 contact={c}
+                shortcutRequest={
+                  composerShortcut?.kind === "phone" ? composerShortcut.nonce : undefined
+                }
                 related={related}
                 assigneeName={
                   data.members.find((member) => member.userId === c.assigneeId)?.name ?? undefined

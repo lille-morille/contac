@@ -62,7 +62,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | 07: global page navigation, new contact, Inbox, and shortcut-help actions | Done; contact actions remain | `858df26` |
 | A1 and C2: linkable workspace URLs, map focus, filters, search, Back/Forward, and invalid-link fallbacks | Done; live browser session not verified here | `bae3697` |
 | B4: inline AI suggestions with per-field decisions, safe-auto review, manual tools, and team-wide audit access | Done; live model output not verified here | `b92fce5` |
-| 07: reversible contact deletion, confirmation, Undo, deleted view, restore links, and active-data filtering | Done; database migration not run here | This commit |
+| 07: reversible contact deletion, confirmation, Undo, deleted view, restore links, and active-data filtering | Done; database migration not run here | `d13a73e` |
+| 07: contact shortcuts, choosers, phone/email launch, context menu, and shortcut help | Done; live browser interaction not verified here | This commit |
 
 ## A. Navigation and daily work
 

@@ -1,7 +1,7 @@
 import { emailList, normalizeEmail } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, ExternalLink, Send } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { request } from "../lib/api.ts";
 import { useOrg } from "../lib/org.tsx";
 import { Button } from "./ui/button.tsx";
@@ -40,9 +40,11 @@ const blank = {
 export function EmailComposer({
   contact,
   onActivity,
+  shortcutRequest,
 }: {
   contact: { id: string; name: string; email: string | null; allowExternalAi: boolean };
   onActivity: () => Promise<unknown>;
+  shortcutRequest?: number;
 }) {
   const { org, user } = useOrg();
   const qc = useQueryClient();
@@ -103,6 +105,10 @@ export function EmailComposer({
     );
     setOpen(true);
   }
+  useEffect(() => {
+    if (shortcutRequest) start();
+    // Each request is a user action; contact changes remount the detail page.
+  }, [shortcutRequest]);
   async function save(): Promise<Draft> {
     if (!org) throw new Error("Velg et team");
     const fromEmail = normalizeEmail(draft.fromEmail);
