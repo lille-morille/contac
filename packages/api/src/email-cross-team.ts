@@ -1009,7 +1009,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(organizations)
       .where(eq(organizations.id, parsed.data.orgId));
     const [inbound] = await deps.db
-      .select({ classId: inboundEmails.classId })
+      .select({ classId: inboundEmails.classId, adminResolvedAt: inboundEmails.adminResolvedAt })
       .from(inboundEmails)
       .where(eq(inboundEmails.id, itemId.data));
     if (
@@ -1020,6 +1020,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       admin.classId !== inbound.classId
     )
       return c.json({ error: "Not found" }, 404);
+    if (inbound.adminResolvedAt) return c.json({ error: "Email already resolved" }, 409);
     await deps.db
       .insert(inboundSuggestions)
       .values({ inboundId: itemId.data, orgId: parsed.data.orgId, kind: "email" })
@@ -1028,6 +1029,30 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .update(inboundEmails)
       .set({ adminResolvedAt: new Date() })
       .where(eq(inboundEmails.id, itemId.data));
+    return c.json({ ok: true });
+  });
+  app.post("/v1/class/inbox/:id/dismiss", async (c) => {
+    const itemId = uuid.safeParse(c.req.param("id"));
+    if (!itemId.success) return c.json({ error: "Invalid email ID" }, 400);
+    const [admin] = await deps.db
+      .select({ classId: classMemberships.classId })
+      .from(classMemberships)
+      .where(
+        and(eq(classMemberships.userId, c.get("user").id), eq(classMemberships.role, "admin")),
+      );
+    if (!admin) return c.json({ error: "Class admin access required" }, 403);
+    const [dismissed] = await deps.db
+      .update(inboundEmails)
+      .set({ adminResolvedAt: new Date() })
+      .where(
+        and(
+          eq(inboundEmails.id, itemId.data),
+          eq(inboundEmails.classId, admin.classId),
+          isNull(inboundEmails.adminResolvedAt),
+        ),
+      )
+      .returning({ id: inboundEmails.id });
+    if (!dismissed) return c.json({ error: "Email not found in inbox" }, 404);
     return c.json({ ok: true });
   });
 }

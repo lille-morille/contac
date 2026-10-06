@@ -25,6 +25,7 @@ export function Select({
   items,
   placeholder,
   className,
+  positionerClassName,
   id,
   disabled,
   iconOnly = false,
@@ -36,6 +37,7 @@ export function Select({
   /** Shown muted in the trigger when the selected option has an empty label. */
   placeholder?: string;
   className?: string;
+  positionerClassName?: string;
   id?: string;
   disabled?: boolean;
   iconOnly?: boolean;
@@ -71,7 +73,11 @@ export function Select({
       </S.Trigger>
       <S.Portal>
         {/* z-[60]: selects must layer above dialogs (z-50). */}
-        <S.Positioner sideOffset={6} alignItemWithTrigger={false} className="z-[60]">
+        <S.Positioner
+          sideOffset={6}
+          alignItemWithTrigger={false}
+          className={cn("z-[60]", positionerClassName)}
+        >
           {/* Grows out of the trigger (--transform-origin) with a gentle spring
               overshoot on open, snappy on close — and its options cascade in
               (see select-item-in in styles.css). docs/11-design-language.md. */}

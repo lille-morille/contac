@@ -23,6 +23,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
+| Class-admin unmatched email inbox: show the team picker above the flyout and allow permanent notification dismissal while retaining the email | Done in code; browser acceptance pending | This commit |
 | Kort beskrivelse: tighten the shared contact and MCP limit to 120 characters | Done in code; live client acceptance pending | This commit |
 | Kanban cards: show Kort beskrivelse under the name and Stikkord beneath it instead of the organization | Done in code; browser acceptance pending | `19ef25a` |
 | MCP contact creation: initial 500-character cap in single and batch tools, concise agent input, and batch validation | Superseded by 120-character cap | `d3836e3` |

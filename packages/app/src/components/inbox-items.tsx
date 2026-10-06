@@ -226,10 +226,11 @@ export function InboxItems({
                   Fra: {item.fromEmail} · Til: {item.toEmails.join(", ")} · {date(item.receivedAt)}
                 </p>
                 <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap">{item.body}</p>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Select
                     aria-label="Velg team"
-                    className="max-w-56"
+                    className="min-w-40 flex-1"
+                    positionerClassName="z-[80]"
                     value={routes[item.id] ?? ""}
                     onValueChange={(value) =>
                       setRoutes((current) => ({ ...current, [item.id]: value }))
@@ -251,6 +252,14 @@ export function InboxItems({
                     }
                   >
                     Send til team
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === item.id}
+                    onClick={() => void action(`/class/inbox/${item.id}/dismiss`, {}, item.id)}
+                  >
+                    Fjern fra innboks
                   </Button>
                 </div>
               </Card>
