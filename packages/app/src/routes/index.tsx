@@ -42,7 +42,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -107,7 +107,10 @@ import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
 import { useTheme } from "../lib/theme.ts";
-import { closestSideAnchors, separateGraphNodes } from "../lib/organization-graph-layout.ts";
+import {
+  layoutOrganizationNodes,
+  routeOrganizationLink,
+} from "../lib/organization-graph-layout.ts";
 
 export const Route = createFileRoute("/")({ component: Home });
 const statusOptions = statuses.map(([value, label]) => ({
@@ -6189,8 +6192,6 @@ type OrganizationSelection =
   | { kind: "domain"; id: string }
   | { kind: "company"; id: string };
 
-const graphSpring = { type: "spring" as const, stiffness: 230, damping: 19, mass: 0.85 };
-
 function wrapMapDescription(description: string): string[] {
   const words = description
     .trim()
@@ -6230,16 +6231,15 @@ function OrganizationGraph({
   fitToken: number;
   zoomAction: { sequence: number; factor: number };
 }) {
-  const reducedMotion = useReducedMotion();
-  const transition = reducedMotion ? { duration: 0 } : graphSpring;
+  const selectionId = selection.kind === "all" ? null : selection.id;
   const { domains, nodes, edges, contentWidth, contentHeight, fitCenterX, fitCenterY } =
     useMemo(() => {
       const domains = data.domains.filter((domain) =>
         selection.kind === "domain"
-          ? domain.id === selection.id
+          ? domain.id === selectionId
           : selection.kind === "company"
             ? data.companyDomains.some(
-                (link) => link.companyId === selection.id && link.domainId === domain.id,
+                (link) => link.companyId === selectionId && link.domainId === domain.id,
               )
             : true,
       );
@@ -6368,12 +6368,12 @@ function OrganizationGraph({
           });
         });
       });
-      const nodes = separateGraphNodes(initialNodes);
+      const nodes = layoutOrganizationNodes(initialNodes, edgeLinks);
       const nodeById = new Map(nodes.map((node) => [node.id, node]));
       const edges = edgeLinks.flatMap((edge) => {
         const from = nodeById.get(edge.from);
         const to = nodeById.get(edge.to);
-        return from && to ? [{ ...edge, ...closestSideAnchors(from, to) }] : [];
+        return from && to ? [{ ...edge, ...routeOrganizationLink(from, to, nodes) }] : [];
       });
       const bounds = nodes.reduce(
         (current, node) => {
@@ -6391,7 +6391,7 @@ function OrganizationGraph({
       const fitCenterX = nodes.length ? (bounds.minX + bounds.maxX) / 2 : 0;
       const fitCenterY = nodes.length ? (bounds.minY + bounds.maxY) / 2 : 0;
       return { domains, nodes, edges, contentWidth, contentHeight, fitCenterX, fitCenterY };
-    }, [data, companies, selection.kind, selection.kind === "all" ? "" : selection.id]);
+    }, [data, companies, selection.kind, selectionId]);
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
   const dragging = useRef<{
@@ -6419,7 +6419,7 @@ function OrganizationGraph({
     contentWidth,
     contentHeight,
     selection.kind,
-    selection.kind === "all" ? "" : selection.id,
+    selectionId,
     fitToken,
   ]);
   useEffect(() => {
@@ -6437,7 +6437,7 @@ function OrganizationGraph({
       if (event.ctrlKey) {
         setView((current) => ({
           ...current,
-          scale: Math.min(3, Math.max(0.04, current.scale * Math.exp(-event.deltaY / 500))),
+          scale: Math.min(3, Math.max(0.04, current.scale * Math.exp(-event.deltaY / 320))),
         }));
       } else {
         const factor = event.deltaMode === 1 ? 18 : event.deltaMode === 2 ? viewportHeight : 1;
@@ -6477,7 +6477,7 @@ function OrganizationGraph({
         width="100%"
         height="100%"
         fill="url(#organization-graph-dots)"
-        className={dragging.current ? "cursor-grabbing" : "cursor-grab"}
+        className="cursor-grab active:cursor-grabbing"
         onClick={onCloseNode}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
@@ -6507,154 +6507,125 @@ function OrganizationGraph({
         }}
       />
       <g transform={transform}>
-        <AnimatePresence initial={false}>
-          {edges.map((edge) => (
-            <motion.line
-              key={edge.id}
-              initial={{ opacity: 0, x1: edge.x1, y1: edge.y1 - 20, x2: edge.x1, y2: edge.y1 }}
-              animate={{
-                opacity: 1,
-                x1: edge.x1,
-                y1: edge.y1,
-                x2: edge.x2,
-                y2: edge.y2,
-              }}
-              exit={{ opacity: 0, x2: edge.x1, y2: edge.y1 }}
-              transition={transition}
-              stroke={edge.color}
-              strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
-              strokeLinecap="round"
-              pointerEvents="none"
-            />
-          ))}
-        </AnimatePresence>
-        <AnimatePresence initial={false}>
-          {nodes.map((node) => {
-            const interactive = true;
-            const width = node.width;
-            const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
-            const height = node.height;
-            const activate = (anchor: Element) => {
-              if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
-              else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
-            };
-            return (
-              <motion.g
-                key={node.id}
-                initial={{
-                  opacity: 0,
-                  x: node.x,
-                  y: node.kind === "domain" ? 5 : node.y - 45,
-                  scale: 0.72,
-                }}
-                animate={{ opacity: 1, x: node.x, y: node.y, scale: 1 }}
-                exit={{ opacity: 0, y: node.kind === "domain" ? -15 : node.y - 35, scale: 0.72 }}
-                whileHover={interactive && !reducedMotion ? { scale: 1.055 } : undefined}
-                whileTap={interactive && !reducedMotion ? { scale: 0.97 } : undefined}
-                transition={transition}
-                className={interactive ? "cursor-pointer" : undefined}
-                role={interactive ? "button" : undefined}
-                tabIndex={interactive ? 0 : undefined}
-                aria-label={
-                  interactive
-                    ? node.kind === "contact"
-                      ? `Vis kontaktkort for ${node.label}`
-                      : `Vis ${node.label}`
-                    : undefined
-                }
-                onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
-                onKeyDown={
-                  interactive
-                    ? (event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          activate(event.currentTarget);
-                        }
+        {edges.map((edge) => (
+          <path
+            key={edge.id}
+            d={edge.path}
+            stroke={edge.color}
+            fill="none"
+            strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        ))}
+        {nodes.map((node) => {
+          const interactive = true;
+          const width = node.width;
+          const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
+          const height = node.height;
+          const activate = (anchor: Element) => {
+            if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
+            else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
+          };
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${node.x} ${node.y})`}
+              className={interactive ? "cursor-pointer" : undefined}
+              role={interactive ? "button" : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              aria-label={
+                interactive
+                  ? node.kind === "contact"
+                    ? `Vis kontaktkort for ${node.label}`
+                    : `Vis ${node.label}`
+                  : undefined
+              }
+              onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
+              onKeyDown={
+                interactive
+                  ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        activate(event.currentTarget);
                       }
-                    : undefined
+                    }
+                  : undefined
+              }
+            >
+              <rect
+                x={-width / 2}
+                y={-height / 2}
+                width={width}
+                height={height}
+                rx="12"
+                fill={
+                  node.kind === "domain"
+                    ? "var(--card)"
+                    : node.kind === "company"
+                      ? node.status === "ingen"
+                        ? "var(--card)"
+                        : "var(--primary-soft)"
+                      : "var(--muted)"
                 }
-                style={{ transformBox: "fill-box", transformOrigin: "center" }}
+                stroke={
+                  node.kind === "domain"
+                    ? colors[node.color ?? "blue"]
+                    : node.kind === "company"
+                      ? companyStatusColors[node.status ?? "ingen"]
+                      : node.kind === "contact" &&
+                          activeNode?.kind === "contact" &&
+                          activeNode.id === node.entityId
+                        ? "var(--primary)"
+                        : "var(--border)"
+                }
+                strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
+              />
+              <text
+                x="0"
+                y={node.subtitle ? -height / 2 + 29 : 6}
+                textAnchor="middle"
+                fontSize={node.kind === "contact" ? 17 : 18}
+                fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
+                fill="var(--foreground)"
+                className="pointer-events-none"
               >
-                <rect
-                  x={-width / 2}
-                  y={-height / 2}
-                  width={width}
-                  height={height}
-                  rx="12"
-                  fill={
-                    node.kind === "domain"
-                      ? "var(--card)"
-                      : node.kind === "company"
-                        ? node.status === "ingen"
-                          ? "var(--card)"
-                          : "var(--primary-soft)"
-                        : "var(--muted)"
-                  }
-                  stroke={
-                    node.kind === "domain"
-                      ? colors[node.color ?? "blue"]
-                      : node.kind === "company"
-                        ? companyStatusColors[node.status ?? "ingen"]
-                        : node.kind === "contact" &&
-                            activeNode?.kind === "contact" &&
-                            activeNode.id === node.entityId
-                          ? "var(--primary)"
-                          : "var(--border)"
-                  }
-                  strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
-                />
+                {node.label.length > (node.kind === "company" ? 23 : 25)
+                  ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
+                  : node.label}
+              </text>
+              {node.subtitle && (
                 <text
                   x="0"
-                  y={node.subtitle ? -height / 2 + 29 : 6}
+                  y={-height / 2 + 54}
                   textAnchor="middle"
-                  fontSize={node.kind === "contact" ? 17 : 18}
-                  fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
-                  fill="var(--foreground)"
+                  fontSize="14"
+                  fill="var(--muted-foreground)"
                   className="pointer-events-none"
                 >
-                  {node.label.length > (node.kind === "company" ? 23 : 25)
-                    ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
-                    : node.label}
+                  {node.kind === "contact"
+                    ? descriptionLines.map((line, index) => (
+                        <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
+                          {line}
+                        </tspan>
+                      ))
+                    : node.subtitle}
                 </text>
-                {node.subtitle && (
-                  <text
-                    x="0"
-                    y={-height / 2 + 54}
-                    textAnchor="middle"
-                    fontSize="14"
-                    fill="var(--muted-foreground)"
-                    className="pointer-events-none"
-                  >
-                    {node.kind === "contact"
-                      ? descriptionLines.map((line, index) => (
-                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
-                            {line}
-                          </tspan>
-                        ))
-                      : node.subtitle}
-                  </text>
-                )}
-              </motion.g>
-            );
-          })}
-        </AnimatePresence>
-        <AnimatePresence>
-          {companies.length === 0 && (
-            <motion.text
-              key="empty"
-              x={fitCenterX}
-              y={fitCenterY + 35}
-              textAnchor="middle"
-              fill="var(--muted-foreground)"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={transition}
-            >
-              Ingen organisasjoner i dette utvalget.
-            </motion.text>
-          )}
-        </AnimatePresence>
+              )}
+            </g>
+          );
+        })}
+        {companies.length === 0 && (
+          <text
+            x={fitCenterX}
+            y={fitCenterY + 35}
+            textAnchor="middle"
+            fill="var(--muted-foreground)"
+          >
+            Ingen organisasjoner i dette utvalget.
+          </text>
+        )}
       </g>
     </svg>
   );
@@ -6731,10 +6702,6 @@ function OrganizationMap({
     setSelection(next);
     onFocusChange(next.kind === "all" ? { kind: "all", id: null } : next);
   }
-  const selectedCompany =
-    selection.kind === "company"
-      ? (data.companies.find((candidate) => candidate.id === selection.id) ?? null)
-      : null;
   const selectedDomain =
     selection.kind === "domain"
       ? (data.domains.find((candidate) => candidate.id === selection.id) ?? null)
@@ -6855,7 +6822,7 @@ function OrganizationMap({
             variant="ghost"
             aria-label="Zoom ut"
             onClick={() =>
-              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 0.8 }))
+              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 0.75 }))
             }
           >
             −
@@ -6874,7 +6841,7 @@ function OrganizationMap({
             variant="ghost"
             aria-label="Zoom inn"
             onClick={() =>
-              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 1.25 }))
+              setZoomAction((current) => ({ sequence: current.sequence + 1, factor: 1.33 }))
             }
           >
             +
