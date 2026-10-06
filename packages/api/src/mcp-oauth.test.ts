@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import {
   classMemberships,
   mcpUserConnections,
@@ -92,6 +93,70 @@ afterEach(() => {
 });
 
 describe("personal MCP OAuth consent", () => {
+  it("accepts Supabase OAuth audiences only with a client grant and rejects ordinary sessions", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://supabase.example.test");
+    vi.stubEnv("MCP_PUBLIC_BASE_URL", "https://api.contac.plingapp.no");
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256", use: "sig" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ keys: [jwk] }), {
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    vi.resetModules();
+    const { authorizeMcpOauth } = await import("./mcp-oauth.ts");
+    const sign = (audience: string, withClient = true) =>
+      new SignJWT({ role: "authenticated", ...(withClient ? { client_id: clientId } : {}) })
+        .setProtectedHeader({ alg: "ES256", kid: "test-key" })
+        .setIssuer("https://supabase.example.test/auth/v1")
+        .setSubject(userId)
+        .setAudience(audience)
+        .setExpirationTime("5m")
+        .sign(privateKey);
+    const tokenDeps = (connected: boolean) =>
+      ({
+        db: {
+          select: () => ({
+            from: () => ({
+              innerJoin: () => ({
+                where: () => ({ limit: async () => (connected ? [{ orgId: teamA }] : []) }),
+              }),
+              where: () => ({ limit: async () => [{ userId }] }),
+            }),
+          }),
+        },
+      }) as unknown as ApiDeps;
+    const deps = tokenDeps(true);
+    const failures: string[] = [];
+
+    expect(
+      await authorizeMcpOauth(deps, `Bearer ${await sign("authenticated")}`, (reason) =>
+        failures.push(reason),
+      ),
+      failures.join(", "),
+    ).toEqual({
+      orgId: teamA,
+      createdBy: userId,
+    });
+    expect(
+      await authorizeMcpOauth(deps, `Bearer ${await sign("https://api.contac.plingapp.no/mcp")}`),
+    ).toEqual({
+      orgId: teamA,
+      createdBy: userId,
+    });
+    expect(
+      await authorizeMcpOauth(deps, `Bearer ${await sign("authenticated", false)}`),
+    ).toBeNull();
+    expect(await authorizeMcpOauth(deps, `Bearer ${await sign("another-resource")}`)).toBeNull();
+    expect(
+      await authorizeMcpOauth(tokenDeps(false), `Bearer ${await sign("authenticated")}`),
+    ).toBeNull();
+  });
+
   it("advertises the fixed resource URL and OAuth challenge", async () => {
     const app = makeApp(makeDeps().deps);
     const metadata = await app.request("/.well-known/oauth-protected-resource/mcp");

@@ -109,15 +109,21 @@ export async function authorizeMcpOauth(
   try {
     ({ payload } = await jwtVerify(bearer, jwks, {
       issuer,
-      audience: `${baseUrl()}${resourcePath}`,
+      // Supabase OAuth access tokens normally use "authenticated". The custom
+      // access-token hook may instead bind them to this MCP resource.
+      audience: ["authenticated", `${baseUrl()}${resourcePath}`],
     }));
   } catch (error) {
     const claim =
-      error && typeof error === "object" && "claim" in error &&
+      error &&
+      typeof error === "object" &&
+      "claim" in error &&
       ["aud", "iss", "exp", "nbf", "iat"].includes(String(error.claim))
         ? `:${String(error.claim)}`
         : "";
-    onFailure?.(`token_verification_failed:${error instanceof Error ? error.name : "unknown"}${claim}`);
+    onFailure?.(
+      `token_verification_failed:${error instanceof Error ? error.name : "unknown"}${claim}`,
+    );
     return null;
   }
   if (!uuid.safeParse(payload.sub).success || !uuid.safeParse(payload.client_id).success) {

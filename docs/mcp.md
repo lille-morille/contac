@@ -52,11 +52,16 @@ commands and the team-specific `CLAUDE.md` / `AGENTS.md` instructions. The UI
 does not promise one-click installation.
 
 OAuth is provided by the Contac Supabase Auth project. Production requires the
-OAuth 2.1 server, dynamic client registration, the custom access-token hook
-`private.mcp_access_token_hook` from migration 0031, an asymmetric signing key,
+OAuth 2.1 server, dynamic client registration, an asymmetric signing key,
 and the Auth Site URL `https://contac.plingapp.no` with authorization path
 `/oauth/consent`. The API serves protected-resource metadata at
 `https://api.contac.plingapp.no/.well-known/oauth-protected-resource/mcp`.
+Supabase OAuth access tokens may use its standard `authenticated` audience or
+the MCP resource audience when `private.mcp_access_token_hook` from migration
+0031 is enabled under **Authentication → Hooks**. The API
+requires the signed OAuth `client_id`, a matching Contac user-client grant, and
+current team access in either case; a normal workspace session has no OAuth
+client ID and cannot access MCP.
 Set `MCP_PUBLIC_BASE_URL` for staging if its API origin differs. A user must
 have selected a workspace team before approving OAuth consent. The OAuth grant is bound
 to that user and client, not to a named team token.
