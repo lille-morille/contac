@@ -7382,6 +7382,7 @@ function Settings({
       )}
       {section === "team_settings" && state.org && <TeamLoiSettings />}
       {section === "team_settings" && inviteCard}
+      {section === "team_settings" && state.org && <TeamAiSettings />}
       {section === "team_settings" && state.org && (
         <Card className="p-5">
           <h2 className="font-semibold">Rapportmal</h2>
@@ -7437,7 +7438,6 @@ function Settings({
           )}
         </Card>
       )}
-      {section === "team_settings" && state.org && <TeamAiSettings />}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>

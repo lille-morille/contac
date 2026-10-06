@@ -138,6 +138,11 @@ export function TeamAiSettings() {
           onChange={(event) => setToken(event.target.value)}
         />
       </label>
+      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+        <ShieldCheck size={13} /> Nye kontakter tillater ekstern AI. Dette kan overstyres per
+        kontakt og per aktivitet. Notater sendes aldri til AI.
+      </p>
+      <TeamAiUsage embedded />
       <details className="mt-5 rounded-xl border border-border bg-card p-4">
         <summary className="cursor-pointer text-sm font-medium">Avanserte innstillinger</summary>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -206,10 +211,6 @@ export function TeamAiSettings() {
           ))}
         </div>
       </details>
-      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-        <ShieldCheck size={13} /> Nye kontakter tillater ekstern AI. Dette kan overstyres per
-        kontakt og per aktivitet. Notater sendes aldri til AI.
-      </p>
       <div className="mt-5 flex flex-wrap gap-2">
         <Button size="sm" disabled={busy || settings.isLoading} onClick={() => void save()}>
           Lagre AI-innstillinger
@@ -225,7 +226,6 @@ export function TeamAiSettings() {
           {message}
         </p>
       )}
-      <TeamAiUsage embedded />
     </Card>
   );
 }

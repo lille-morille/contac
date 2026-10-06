@@ -66,7 +66,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 | 07: contact shortcuts, choosers, phone/email launch, context menu, and shortcut help | Done; live browser interaction not verified here | `92cf9cb` |
 | B5: conversation-based referral suggestions, existing-contact match, editable creation, and source backlink | Done; live model output and migration not verified here | `b8354c2` |
 | B3: require user review for generated descriptions until representative outputs are checked | Done; live output review pending | `78c4537` |
-| 07: group shortcut help by context and highlight current-page actions | Done | This commit |
+| 07: group shortcut help by context and highlight current-page actions | Done | `301e273` |
+| F1: place AI controls and lifetime usage before advanced settings and report actions | Done | This commit |
 
 ## A. Navigation and daily work
 
