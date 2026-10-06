@@ -13,6 +13,7 @@ import {
   favoriteContacts,
   workspaceFiles,
   memberships,
+  lois,
   personTags,
   profiles,
   aiEditLog,
@@ -384,6 +385,21 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const keys = Object.keys(changes) as ("status" | "name")[];
     if (keys.some((key) => !Object.hasOwn(expected, key)))
       return c.json({ error: "Current field values are required" }, 428);
+    if (changes.name) {
+      const [existing] = await deps.db
+        .select({ id: companies.id })
+        .from(companies)
+        .where(
+          and(
+            eq(companies.orgId, c.get("org").id),
+            eq(companies.normalizedName, norm(changes.name)),
+            ne(companies.id, companyId.data),
+          ),
+        )
+        .limit(1);
+      if (existing)
+        return c.json({ error: "En organisasjon med dette navnet finnes allerede." }, 409);
+    }
     const [row] = await deps.db
       .update(companies)
       .set({
@@ -407,6 +423,44 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return latest
       ? c.json({ error: "Organization changed while you were editing", current: latest }, 409)
       : c.json({ error: "Organization not found" }, 404);
+  });
+  app.post("/v1/org/companies/:id/delete", async (c) => {
+    const companyId = id.safeParse(c.req.param("id"));
+    if (!companyId.success) return c.json({ error: "Invalid organization" }, 400);
+    const orgId = c.get("org").id;
+    const result = await deps.db.transaction(async (tx) => {
+      const [company] = await tx
+        .select({ id: companies.id })
+        .from(companies)
+        .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId.data)))
+        .for("update");
+      if (!company) return "missing" as const;
+      const [person] = await tx
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contacts.orgId, orgId), eq(contacts.companyId, companyId.data)))
+        .limit(1);
+      if (person) return "contacts" as const;
+      const [agreement] = await tx
+        .select({ id: lois.id })
+        .from(lois)
+        .where(and(eq(lois.orgId, orgId), eq(lois.companyId, companyId.data)))
+        .limit(1);
+      if (agreement) return "lois" as const;
+      await tx
+        .delete(companies)
+        .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId.data)));
+      return "deleted" as const;
+    });
+    if (result === "missing") return c.json({ error: "Organization not found" }, 404);
+    if (result === "contacts")
+      return c.json(
+        { error: "Flytt alle kontakter først. Gjenopprett slettede kontakter for å flytte dem." },
+        409,
+      );
+    if (result === "lois")
+      return c.json({ error: "Organisasjonen har en intensjonsavtale og kan ikke slettes." }, 409);
+    return c.json({ deleted: true });
   });
   app.post("/v1/org/domains", async (c) => {
     const data = await parse(

@@ -6658,6 +6658,11 @@ function OrganizationMap({
     id: string;
     anchor: Element;
   } | null>(null);
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [companyNameDraft, setCompanyNameDraft] = useState("");
+  const [companyNameError, setCompanyNameError] = useState("");
+  const [deletingCompany, setDeletingCompany] = useState<{ id: string; name: string } | null>(null);
+  const [deleteCompanyError, setDeleteCompanyError] = useState("");
   const [domainDialogOpen, setDomainDialogOpen] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [newDomainDescription, setNewDomainDescription] = useState("");
@@ -6697,8 +6702,13 @@ function OrganizationMap({
     return () => observer.disconnect();
   }, []);
 
-  function chooseSelection(next: OrganizationSelection) {
+  function closeActiveNode() {
     setActiveNode(null);
+    setEditingCompanyId(null);
+    setCompanyNameError("");
+  }
+  function chooseSelection(next: OrganizationSelection) {
+    closeActiveNode();
     setSelection(next);
     onFocusChange(next.kind === "all" ? { kind: "all", id: null } : next);
   }
@@ -6767,6 +6777,43 @@ function OrganizationMap({
       expected: { domainIds: currentIds },
     });
   }
+  async function renameCompany(event: FormEvent) {
+    event.preventDefault();
+    if (!popupCompany || editingCompanyId !== popupCompany.id) return;
+    const name = companyNameDraft.trim();
+    if (!name) {
+      setCompanyNameError("Organisasjonsnavnet kan ikke være tomt.");
+      return;
+    }
+    if (name === popupCompany.name) {
+      setEditingCompanyId(null);
+      return;
+    }
+    try {
+      await mutate(`/companies/${popupCompany.id}`, {
+        name,
+        expected: { name: popupCompany.name },
+      });
+      setEditingCompanyId(null);
+      setCompanyNameError("");
+    } catch (cause) {
+      setCompanyNameError(cause instanceof Error ? cause.message : "Kunne ikke endre navn.");
+    }
+  }
+  async function deleteCompany() {
+    if (!deletingCompany) return;
+    try {
+      await mutate(`/companies/${deletingCompany.id}/delete`, {});
+      setDeletingCompany(null);
+      closeActiveNode();
+      if (selection.kind === "company" && selection.id === deletingCompany.id)
+        chooseSelection({ kind: "all" });
+    } catch (cause) {
+      setDeleteCompanyError(
+        cause instanceof Error ? cause.message : "Kunne ikke slette organisasjonen.",
+      );
+    }
+  }
 
   return (
     <div className="relative flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
@@ -6781,12 +6828,14 @@ function OrganizationMap({
           companies={graphCompanies}
           selection={selection}
           onSelect={chooseSelection}
-          onOpenNode={(kind, id, anchor) =>
+          onOpenNode={(kind, id, anchor) => {
+            setEditingCompanyId(null);
+            setCompanyNameError("");
             setActiveNode((current) =>
               current?.kind === kind && current.id === id ? null : { kind, id, anchor },
-            )
-          }
-          onCloseNode={() => setActiveNode(null)}
+            );
+          }}
+          onCloseNode={closeActiveNode}
           activeNode={activeNode}
           viewportHeight={viewportHeight}
           viewportWidth={viewportWidth}
@@ -6866,7 +6915,7 @@ function OrganizationMap({
       <Popover
         open={!!activeNode}
         onOpenChange={(open) => {
-          if (!open) setActiveNode(null);
+          if (!open) closeActiveNode();
         }}
       >
         <PopoverContent
@@ -6877,8 +6926,52 @@ function OrganizationMap({
         >
           {popupCompany && (
             <div>
-              <div className="flex flex-wrap items-center gap-2 pr-5">
-                <h2 className="min-w-0 flex-1 text-lg font-semibold">{popupCompany.name}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                {editingCompanyId === popupCompany.id ? (
+                  <form
+                    className="flex min-w-0 flex-1 items-center gap-1"
+                    onSubmit={(event) => void renameCompany(event)}
+                  >
+                    <Input
+                      autoFocus
+                      aria-label="Organisasjonsnavn"
+                      className="min-w-0"
+                      maxLength={200}
+                      value={companyNameDraft}
+                      onChange={(event) => setCompanyNameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.stopPropagation();
+                          setEditingCompanyId(null);
+                          setCompanyNameError("");
+                        }
+                      }}
+                    />
+                    <Button
+                      type="submit"
+                      size="icon"
+                      variant="ghost"
+                      disabled={busy}
+                      aria-label="Lagre organisasjonsnavn"
+                    >
+                      <Check size={16} />
+                    </Button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded text-left text-lg font-semibold hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label={`Endre navn på ${popupCompany.name}`}
+                    title="Klikk for å endre navn"
+                    onClick={() => {
+                      setEditingCompanyId(popupCompany.id);
+                      setCompanyNameDraft(popupCompany.name);
+                      setCompanyNameError("");
+                    }}
+                  >
+                    {popupCompany.name}
+                  </button>
+                )}
                 <Select
                   value={popupCompany.status}
                   aria-label={`Status for ${popupCompany.name}`}
@@ -6900,7 +6993,33 @@ function OrganizationMap({
                     ),
                   }))}
                 />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="shrink-0 text-muted-foreground hover:text-risk"
+                  aria-label={`Slett ${popupCompany.name}`}
+                  title={
+                    data.contacts.some((contact) => contact.companyId === popupCompany.id)
+                      ? "Flytt kontaktene til en annen organisasjon først"
+                      : "Slett organisasjon"
+                  }
+                  disabled={
+                    busy || data.contacts.some((contact) => contact.companyId === popupCompany.id)
+                  }
+                  onClick={() => {
+                    setDeleteCompanyError("");
+                    setDeletingCompany({ id: popupCompany.id, name: popupCompany.name });
+                  }}
+                >
+                  <Trash2 size={16} />
+                </Button>
               </div>
+              {companyNameError && editingCompanyId === popupCompany.id && (
+                <p role="alert" className="mt-2 text-xs text-risk">
+                  {companyNameError}
+                </p>
+              )}
               <p className="mt-4 text-xs font-medium text-muted-foreground">Domener</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {data.domains.map((domain) => {
@@ -7011,6 +7130,33 @@ function OrganizationMap({
           )}
         </PopoverContent>
       </Popover>
+      <Dialog open={!!deletingCompany} onOpenChange={(open) => !open && setDeletingCompany(null)}>
+        <DialogContent>
+          <DialogTitle>Slett organisasjon?</DialogTitle>
+          <DialogDescription>
+            {deletingCompany?.name} og koblingene til domener blir slettet. Organisasjonen kan bare
+            slettes når den ikke har kontakter eller intensjonsavtaler.
+          </DialogDescription>
+          {deleteCompanyError && (
+            <p role="alert" className="mt-3 text-sm text-risk">
+              {deleteCompanyError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setDeletingCompany(null)}>
+              Avbryt
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => void deleteCompany()}
+            >
+              Slett organisasjon
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={domainDialogOpen} onOpenChange={setDomainDialogOpen}>
         <DialogContent>
           <DialogTitle>Nytt domene</DialogTitle>
