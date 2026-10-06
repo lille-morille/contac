@@ -48,24 +48,17 @@ export function closestSideAnchors(from: GraphBox, to: GraphBox) {
   const dy = to.y - from.y;
   const horizontal = Math.sign(dx) || 1;
   const vertical = Math.sign(dy) || 1;
-  const fromSides = [
-    { x: from.x + (horizontal * from.width) / 2, y: from.y },
-    { x: from.x, y: from.y + (vertical * from.height) / 2 },
-  ];
-  const toSides = [
-    { x: to.x - (horizontal * to.width) / 2, y: to.y },
-    { x: to.x, y: to.y - (vertical * to.height) / 2 },
-  ];
-  let closest = { x1: fromSides[0].x, y1: fromSides[0].y, x2: toSides[0].x, y2: toSides[0].y };
-  let distance = Infinity;
-  for (const source of fromSides) {
-    for (const target of toSides) {
-      const candidate = (source.x - target.x) ** 2 + (source.y - target.y) ** 2;
-      if (candidate < distance) {
-        distance = candidate;
-        closest = { x1: source.x, y1: source.y, x2: target.x, y2: target.y };
-      }
-    }
-  }
-  return closest;
+  // The receiving card uses the side indicated by the overall direction.
+  // If those card spans overlap, use the other axis on the source so the link
+  // does not travel through a card before reaching that receiving side.
+  const targetVertical = Math.abs(dy) >= Math.abs(dx);
+  const sourceVertical = targetVertical
+    ? Math.abs(dy) >= (from.height + to.height) / 2
+    : Math.abs(dx) < (from.width + to.width) / 2;
+  return {
+    x1: sourceVertical ? from.x : from.x + (horizontal * from.width) / 2,
+    y1: sourceVertical ? from.y + (vertical * from.height) / 2 : from.y,
+    x2: targetVertical ? to.x : to.x - (horizontal * to.width) / 2,
+    y2: targetVertical ? to.y - (vertical * to.height) / 2 : to.y,
+  };
 }
