@@ -11,6 +11,21 @@ access is checked on every request.
 
 ## Install
 
+Before connecting a client, the production Supabase project must have **OAuth 2.1
+Server** and **Dynamic Client Registration** enabled under **Authentication →
+OAuth Server**. Set its authorization path to `/oauth/consent`, and set the Auth
+Site URL to `https://contac.plingapp.no`. Check the upstream discovery document:
+
+```sh
+curl -fsS https://cgnxlvvckwuejjddcyyq.supabase.co/.well-known/oauth-authorization-server/auth/v1 \
+  | jq -e '.registration_endpoint and (.code_challenge_methods_supported | index("S256"))'
+```
+
+This must succeed before `codex mcp login`. A 404 `feature_disabled` response
+means the OAuth server is off; a missing `registration_endpoint` means dynamic
+registration is unavailable. Contac's own protected-resource metadata can
+still return 200 in either case.
+
 Codex CLI and the IDE extension share MCP configuration. These commands were
 verified against the local Codex CLI's `mcp add` and `mcp login` help:
 

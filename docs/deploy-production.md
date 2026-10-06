@@ -57,17 +57,22 @@ appears in the team inbox before relying on inbound mail.
 
 The MCP endpoint is served by the existing API container at
 `https://api.contac.plingapp.no/mcp`; it needs no separate port or DNS record.
-After deployment, a team admin can create a token in Teaminnstillinger and
-connect an agent as described in [mcp.md](mcp.md). Check that a revoked token
-returns HTTP 401 and a token from another team cannot read its contacts.
-For ChatGPT OAuth, enable the production Supabase OAuth 2.1 server and dynamic
-client registration. Set its Site URL to `https://contac.plingapp.no` and its
-authorization path to `/oauth/consent`. Enable the Custom Access Token hook
+Personal agent connections use OAuth as described in [mcp.md](mcp.md); the old
+named team-token flow has been retired. Check that a revoked connection returns
+HTTP 401 and a client cannot read a team its user cannot access.
+For Codex, Claude, and ChatGPT OAuth, enable the production Supabase OAuth 2.1
+server and dynamic client registration under Authentication → OAuth Server.
+Set the Site URL to `https://contac.plingapp.no` under Authentication → URL
+Configuration and the authorization path to `/oauth/consent` under OAuth Server.
+Enable the Custom Access Token hook
 `private.mcp_access_token_hook`. Deploy migration
 `0031_mcp_oauth_grants.sql` before enabling OAuth connections. Verify the
 resource metadata endpoint and the Supabase authorization-server discovery
-endpoint, then complete one real ChatGPT connection. The project already needs
-an asymmetric JWT signing key for the OAuth flow. The optional API variable
+endpoint; the latter must return HTTP 200 with a `registration_endpoint` and
+`S256` PKCE support. A `404 feature_disabled` there means the upstream OAuth
+server is off even if the Contac resource metadata returns 200. Then complete
+one real Codex or Claude connection. The project needs an asymmetric JWT
+signing key for the OAuth flow. The optional API variable
 `MCP_PUBLIC_BASE_URL` is the fixed external API origin; in production it is
 `https://api.contac.plingapp.no`.
 
