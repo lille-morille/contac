@@ -105,7 +105,7 @@ when other items fail. Search existing contacts first.
 
 For both creation tools, `description` (`Kort beskrivelse`) is a concise,
 evidence-based Norwegian phrase about the person's role or relevant context,
-limited to 500 characters. The API rejects a longer description; batch
+limited to 120 characters. The API rejects a longer description; batch
 creation reports an error for that item and continues with other items. Put
 longer research in `additionalInfo` instead.
 

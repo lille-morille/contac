@@ -106,20 +106,20 @@ describe("personal MCP team boundary", () => {
       expectedTeamId: teamId,
       name: "Kari Nordmann",
       companyName: "Gruve AS",
-      description: "a".repeat(501),
+      description: "a".repeat(121),
     };
     const single = await toolRequest(deps, "create_contact", contact);
-    expect(await single.text()).toContain("500");
+    expect(await single.text()).toContain("120");
 
     const batch = await toolRequest(deps, "batch_create_contacts", {
       expectedTeamId: teamId,
-      contacts: [contact, { ...contact, description: "Kort frase" }],
+      contacts: [contact, { ...contact, description: "a".repeat(120) }],
     });
     const body = await batch.text();
     const message = JSON.parse(body.match(/^data: (.*)$/m)?.[1] ?? body);
     const outcome = JSON.parse(message.result.content[0].text);
     expect(outcome.results).toEqual([
-      { index: 0, status: "error", error: expect.stringContaining("500") },
+      { index: 0, status: "error", error: expect.stringContaining("120") },
       { index: 1, status: "error", error: "valid item reached creation" },
     ]);
     expect(writes).toBe(1);

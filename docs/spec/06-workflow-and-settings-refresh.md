@@ -23,8 +23,9 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Kanban cards: show Kort beskrivelse under the name and Stikkord beneath it instead of the organization | Done in code; browser acceptance pending | This commit |
-| MCP contact creation: cap Kort beskrivelse at 500 characters in single and batch tools, document concise agent input, and repair batch validation | Done in code; live client acceptance pending | This commit |
+| Kort beskrivelse: tighten the shared contact and MCP limit to 120 characters | Done in code; live client acceptance pending | This commit |
+| Kanban cards: show Kort beskrivelse under the name and Stikkord beneath it instead of the organization | Done in code; browser acceptance pending | `19ef25a` |
+| MCP contact creation: initial 500-character cap in single and batch tools, concise agent input, and batch validation | Superseded by 120-character cap | `d3836e3` |
 | Klasserom: class admin can issue a replacement recovery code for a member of their class | Done in code; browser acceptance pending | This commit |
 | Organization map: restore spring motion for nodes and animated links after routing rewrite | Done in code; browser acceptance pending | This commit |
 | Team invitations: newly issued links are reusable without expiry; older links keep their limits | Done; production migration verified 2026-10-06 | This commit |
@@ -164,7 +165,7 @@ The Linear-like shortcut system is in [spec 07](07-keyboard-shortcuts.md). The e
 
    The generated block must communicate this rule clearly: “Expected Contac team: `<team name>` (`<team UUID>`). Call `get_team_identity` before other Contac tools. If its team ID differs or the call fails, tell the user which team is connected, when known, and stop using Contac. Pass `<team UUID>` as `expectedTeamId` to subsequent data tools.” The angle-bracket values are filled from the selected team, never copied as literal placeholders.
 5. **Batch contact creation.** Add a team-scoped MCP tool that accepts up to 100 contacts, validates each against the simplified contact schema, and reuses/creates organizations consistently. Process valid nonduplicates even if other items fail. Reuse the team's duplicate-matching rules to flag likely existing contacts for review instead of creating those items automatically. Return one result per input item: created contact ID, duplicate candidates, or a validation/write error, so the agent can retry or notify the user. One failing item must not cause an ambiguous response or cross-team write.
-6. **MCP Markdown.** Both single and batch contact creation may include the agent-supplied Markdown described in unit B. The MCP tool descriptions must explain evidence, field limits, and the rule to search before creating a person. Keep `Kort beskrivelse` to at most 500 characters; longer research belongs in `additionalInfo`. Enforce the same cap in contact APIs, and report an item-level validation error for an overlong description in a batch.
+6. **MCP Markdown.** Both single and batch contact creation may include the agent-supplied Markdown described in unit B. The MCP tool descriptions must explain evidence, field limits, and the rule to search before creating a person. Keep `Kort beskrivelse` to at most 120 characters; longer research belongs in `additionalInfo`. Enforce the same cap in contact APIs, and report an item-level validation error for an overlong description in a batch.
 
 **Acceptance examples:** A user connects an agent to Team A and cannot read Team B through that connection; `get_team_identity` reports Team A from the connection; instructions expecting Team B cause the agent to alert the user and stop before contact operations; revocation blocks the next MCP request; a batch reports which entries succeeded; copied agent instructions contain no access secret.
 
