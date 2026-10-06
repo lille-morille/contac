@@ -1,3 +1,4 @@
+import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
 import {
   activityContacts,
   activityFiles,
@@ -62,7 +63,7 @@ const contactInput = z.object({
   companyName: z.string().trim().min(1).max(200).optional(),
   email: z.email().nullable().optional(),
   phone: blank,
-  description: z.string().max(5000).nullable().optional(),
+  description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
   tagIds: z.array(id).optional(),
   referralSuggestionId: id.optional(),
 });
@@ -71,7 +72,7 @@ const contactPatch = z.object({
   companyId: id.optional(),
   email: z.union([z.email(), z.literal(""), z.null()]).optional(),
   phone: blank,
-  description: z.string().max(5000).nullable().optional(),
+  description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
   stikkord: z.string().trim().max(300).nullable().optional(),
   status: status.optional(),
   assigneeId: id.nullable().optional(),

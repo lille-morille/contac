@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isActivityAiEligible } from "@contac/core";
+import { CONTACT_DESCRIPTION_MAX_LENGTH, isActivityAiEligible } from "@contac/core";
 import {
   activityContacts,
   aiEditLog,
@@ -660,7 +660,10 @@ async function generateContact(
   if (feature === "contact_fields") {
     const fields = Object.fromEntries(
       ["email", "phone", "description"]
-        .map((key) => [key, clean(raw[key], key === "description" ? 500 : 200)])
+        .map((key) => [
+          key,
+          clean(raw[key], key === "description" ? CONTACT_DESCRIPTION_MAX_LENGTH : 200),
+        ])
         .filter(([, value]) => !!value),
     );
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;

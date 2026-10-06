@@ -92,4 +92,37 @@ describe("personal MCP team boundary", () => {
     }
     expect(tables).toEqual([]);
   });
+
+  it("rejects overlong contact descriptions in both creation tools before writing", async () => {
+    const { deps, tables } = fakeDeps();
+    let writes = 0;
+    Object.assign(deps.db, {
+      transaction: async () => {
+        writes++;
+        throw new Error("valid item reached creation");
+      },
+    });
+    const contact = {
+      expectedTeamId: teamId,
+      name: "Kari Nordmann",
+      companyName: "Gruve AS",
+      description: "a".repeat(501),
+    };
+    const single = await toolRequest(deps, "create_contact", contact);
+    expect(await single.text()).toContain("500");
+
+    const batch = await toolRequest(deps, "batch_create_contacts", {
+      expectedTeamId: teamId,
+      contacts: [contact, { ...contact, description: "Kort frase" }],
+    });
+    const body = await batch.text();
+    const message = JSON.parse(body.match(/^data: (.*)$/m)?.[1] ?? body);
+    const outcome = JSON.parse(message.result.content[0].text);
+    expect(outcome.results).toEqual([
+      { index: 0, status: "error", error: expect.stringContaining("500") },
+      { index: 1, status: "error", error: "valid item reached creation" },
+    ]);
+    expect(writes).toBe(1);
+    expect(tables).toEqual([]);
+  });
 });

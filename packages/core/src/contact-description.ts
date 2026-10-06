@@ -1,0 +1,1 @@
+export const CONTACT_DESCRIPTION_MAX_LENGTH = 500;

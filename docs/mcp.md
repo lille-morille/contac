@@ -103,6 +103,12 @@ phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed
 when other items fail. Search existing contacts first.
 
+For both creation tools, `description` (`Kort beskrivelse`) is a concise,
+evidence-based Norwegian phrase about the person's role or relevant context,
+limited to 500 characters. The API rejects a longer description; batch
+creation reports an error for that item and continues with other items. Put
+longer research in `additionalInfo` instead.
+
 `additionalInfo` accepts up to 20,000 characters of Markdown, appears under
 **Tilleggsinformasjon** with an agent source label, and is editable by team
 members. It is included in the owning team's local search and `get_contact`,

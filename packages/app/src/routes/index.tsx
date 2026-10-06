@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlignLeft,
@@ -3805,12 +3806,14 @@ function InlineText({
   className = "",
   disabled = false,
   ariaLabel,
+  maxLength,
 }: {
   value: string | null;
   onSave: (next: string, expected: string | null) => void;
   className?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  maxLength?: number;
 }) {
   const [draft, setDraft] = useState(value ?? "");
   const [focused, setFocused] = useState(false);
@@ -3823,6 +3826,7 @@ function InlineText({
       value={draft}
       disabled={disabled}
       aria-label={ariaLabel}
+      maxLength={maxLength}
       className={`border-transparent bg-transparent hover:bg-card focus:bg-card ${className}`}
       onFocus={() => {
         base.current = value;
@@ -5025,6 +5029,7 @@ function ContactDetail({
                     className={detailFieldClass}
                     disabled={c.status === "duplicate"}
                     ariaLabel="Kort beskrivelse"
+                    maxLength={CONTACT_DESCRIPTION_MAX_LENGTH}
                     onSave={(description, old) =>
                       void mutate(`/contacts/${c.id}`, {
                         description,

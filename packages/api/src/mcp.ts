@@ -1,3 +1,4 @@
+import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
 import {
   activityContacts,
   activityFiles,
@@ -43,19 +44,31 @@ const page = z.object({
   cursor: uuid.optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
-const contactCreateInput = z
-  .object({
-    expectedTeamId: uuid,
-    name: z.string().trim().min(1).max(200),
-    companyId: uuid.optional(),
-    companyName: z.string().trim().min(1).max(200).optional(),
-    email: z.email().optional(),
-    phone: z.string().trim().max(200).optional(),
-    description: z.string().max(5000).optional(),
-    additionalInfo: z.string().trim().min(1).max(20000).optional(),
-    tagIds: z.array(uuid).max(30).optional(),
-  })
-  .refine((input) => !!(input.companyId || input.companyName), "Company ID or name is required");
+const contactCreateFields = z.object({
+  name: z.string().trim().min(1).max(200),
+  companyId: uuid.optional(),
+  companyName: z.string().trim().min(1).max(200).optional(),
+  email: z.email().optional(),
+  phone: z.string().trim().max(200).optional(),
+  description: z
+    .string()
+    .max(CONTACT_DESCRIPTION_MAX_LENGTH)
+    .describe(
+      `Kort beskrivelse: a concise, evidence-based Norwegian phrase; max ${CONTACT_DESCRIPTION_MAX_LENGTH} characters`,
+    )
+    .optional(),
+  additionalInfo: z.string().trim().min(1).max(20000).optional(),
+  tagIds: z.array(uuid).max(30).optional(),
+});
+const hasOrganization = (input: { companyId?: string; companyName?: string }) =>
+  !!(input.companyId || input.companyName);
+const contactCreateInput = contactCreateFields
+  .extend({ expectedTeamId: uuid })
+  .refine(hasOrganization, "Company ID or name is required");
+const batchContactInput = contactCreateFields.refine(
+  hasOrganization,
+  "Company ID or name is required",
+);
 const result = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
 });
@@ -515,8 +528,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "create_contact",
     {
-      description:
-        "Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep fields evidence-based; additionalInfo is Markdown context shown separately from the shared note. Does not modify existing contacts.",
+      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context; use additionalInfo Markdown for longer research, shown separately from the shared note. Does not modify existing contacts.`,
       inputSchema: contactCreateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -538,8 +550,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "batch_create_contacts",
     {
-      description:
-        "Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields, including separate additionalInfo Markdown. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.",
+      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters and put longer research in separate additionalInfo Markdown. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
       inputSchema: z.object({
         expectedTeamId: uuid,
         contacts: z.array(z.unknown()).min(1).max(100),
@@ -553,7 +564,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
       const results = [];
       const createdIds: string[] = [];
       for (const [index, raw] of inputs.entries()) {
-        const parsed = contactCreateInput.omit({ expectedTeamId: true }).safeParse(raw);
+        const parsed = batchContactInput.safeParse(raw);
         if (!parsed.success) {
           results.push({
             index,
@@ -667,10 +678,8 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
 export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: string) {
   registerMcpOauthRoutes(app, deps, appOrigin);
   app.all("/mcp", async (c) => {
-    const identity = await authorizeMcpOauth(
-      deps,
-      c.req.header("authorization"),
-      (reason) => console.warn(`[mcp] authorization rejected: ${reason}; method=${c.req.method}`),
+    const identity = await authorizeMcpOauth(deps, c.req.header("authorization"), (reason) =>
+      console.warn(`[mcp] authorization rejected: ${reason}; method=${c.req.method}`),
     );
     if (!identity) {
       return c.json({ error: "Connect Contac with your account first" }, 401, {
@@ -680,7 +689,9 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
     const handler = createMcpHandler(() => makeServer(deps, identity));
     const response = await handler.fetch(c.req.raw);
     if (response.status >= 400)
-      console.warn(`[mcp] authenticated request failed: status=${response.status}; method=${c.req.method}`);
+      console.warn(
+        `[mcp] authenticated request failed: status=${response.status}; method=${c.req.method}`,
+      );
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
