@@ -620,6 +620,58 @@ function SidebarActivePill() {
     />
   );
 }
+function SidebarTeamName({ name }: { name: string }) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [fit, setFit] = useState({ fontSize: 16, wrap: false });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return;
+    let active = true;
+
+    const resize = () => {
+      if (!active) return;
+      const availableWidth = container.clientWidth - 2;
+      const textWidth = measure.getBoundingClientRect().width;
+      if (availableWidth <= 0 || textWidth <= 0) return;
+
+      const fittedSize = Math.min(16, Math.floor((16 * availableWidth * 10) / textWidth) / 10);
+      const next = { fontSize: Math.max(10, fittedSize), wrap: fittedSize < 10 };
+      setFit((current) =>
+        current.fontSize === next.fontSize && current.wrap === next.wrap ? current : next,
+      );
+    };
+
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    void document.fonts?.ready.then(resize);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [name]);
+
+  return (
+    <span ref={containerRef} className="relative min-w-0 flex-1">
+      <span
+        ref={measureRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute whitespace-nowrap text-[16px] font-semibold"
+      >
+        {name}
+      </span>
+      <strong
+        className={`block font-semibold leading-tight ${fit.wrap ? "break-words" : "whitespace-nowrap"}`}
+        style={{ fontSize: fit.fontSize }}
+      >
+        {name}
+      </strong>
+    </span>
+  );
+}
 function SidebarNavSection({
   title,
   items,
@@ -1777,11 +1829,11 @@ function Home() {
     <div className="min-h-screen lg:flex">
       <aside className="glass workspace-sidebar flex w-full shrink-0 flex-col p-4 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:overflow-hidden">
         <div className="mb-4 flex items-center justify-between gap-2 px-2">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
               <Users size={18} />
             </div>
-            <strong className="truncate">{productSettings.data?.businessName || "Contac"}</strong>
+            <SidebarTeamName name={productSettings.data?.businessName || "Contac"} />
           </div>
           <button
             type="button"

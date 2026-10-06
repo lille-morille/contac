@@ -23,6 +23,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
+| Sidebar: scale the team name to fit the header, wrapping long names instead of truncating | Done | This commit |
 | Sidebar: add a little more space between Innboks and Kontaktlogg | Done | This commit |
 | Klasserom: class-admin team rename and permanent deletion with exact-name confirmation and file cleanup; existing creation and team listing complete CRUD | Done in code; browser acceptance pending | This commit |
 | Kanban: route horizontal trackpad swipes over columns to the board while preserving vertical column scrolling | Done in code; browser acceptance pending | This commit |
