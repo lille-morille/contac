@@ -40,10 +40,13 @@ Claude Code supports a remote HTTP server with user scope:
 claude mcp add --transport http --scope user contac https://api.contac.plingapp.no/mcp
 ```
 
-Run `/mcp` in Claude Code to finish OAuth sign-in. For Claude on the web,
-add the same URL under **Customize → Connectors → Add custom connector** and
-choose sign-in. On Team and Enterprise plans a Claude organization owner must
-first add the connector under organization settings; each member then connects
+Run `/mcp` in Claude Code to finish OAuth sign-in. For Claude Desktop or the web,
+add the same URL under **Customize → Connectors → Add custom connector**, choose
+**Register automatically** for the OAuth client, and sign in with Contac.
+Claude Desktop's remote connector is served through the Claude account, so use
+this connector flow rather than a local desktop extension. On Team and
+Enterprise plans a Claude organization owner must first add the connector under
+organization settings; each member then connects
 with their own Contac account. The profile page provides copy buttons for the
 commands and the team-specific `CLAUDE.md` / `AGENTS.md` instructions. The UI
 does not promise one-click installation.
