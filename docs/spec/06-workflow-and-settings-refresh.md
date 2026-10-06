@@ -25,7 +25,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 | --- | --- | --- |
 | Remove the Lim inn kontaktinformasjon button and its unused clipboard parsing path from new contact | Done | This commit |
 | Hide Tilleggsinformasjon when a contact has no entries | Done | `f7bba60` |
-| Contact AI: remove the standalone tools card and manual generation, preserve inline referrals and Restore history, migrate manual contact modes to automatic suggestions | Done in code; production migration and browser acceptance pending | `0746b0f` |
+| Contact AI: remove the standalone tools card and manual generation, preserve inline referrals and Restore history, migrate manual contact modes to automatic suggestions | Done in code; production migration verified 2026-10-06; browser acceptance pending | `0746b0f` |
 | Escape closes contact detail and returns to the previous workspace view when no editor or overlay is active | Done in code; browser acceptance pending | `fec396c` |
 | Call and email shortcuts scroll contact detail to the opened composer | Done in code; browser acceptance pending | `2638f30` |
 | Kanban cards: remove the double hover ring and retain keyboard focus styling | Done | `df67551` |
@@ -81,7 +81,7 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 The implementation of review units A–F and spec 07 is complete in this checkout. Runtime acceptance remains open where it depends on the local database, an external OAuth client, live model output, or the report asset:
 
-- Production migrations through 0044 were applied and their schema and contact backfills verified on 2026-10-06. An authenticated workspace smoke flow remains pending; the local `.env` points to `127.0.0.1`, where its database was unavailable during implementation.
+- Production migrations through 0045 were applied and verified on 2026-10-06. Migration 0045 found no saved manual contact AI modes to convert. An authenticated workspace smoke flow remains pending; the local `.env` points to `127.0.0.1`, where its database was unavailable during implementation.
 - Upload `workspace-files/report-templates/contac-report-v1.zip`, then compile a copied `#cite-contact(...)` quote and the exported `kontaktlogg.yaml` against that ZIP.
 - Review representative generated person descriptions with a configured team AI token. Generated descriptions remain pending suggestions in both automatic modes until this review happens.
 - Exercise Claude/Codex OAuth connection, team switching, revocation, and the expected-team-ID guard with real clients.
