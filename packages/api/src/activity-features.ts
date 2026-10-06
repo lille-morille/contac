@@ -11,7 +11,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
-import { aiFeatures, defaultModels } from "./ai.ts";
+import { aiFeatures, defaultModels, featureMode } from "./ai.ts";
 import { encrypt } from "./ai-token.ts";
 
 const id = z.uuid();
@@ -229,13 +229,7 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
       hasToken: !!row?.encryptedToken,
       lowModel: row?.lowModel ?? defaultModels.low,
       model: row?.model ?? defaultModels.medium,
-      modes: Object.fromEntries(
-        aiFeatures.map((feature) => [
-          feature,
-          row?.modes?.[feature] ??
-            (feature === "email_draft" && row?.emailDraftEnabled ? "manual" : "off"),
-        ]),
-      ),
+      modes: Object.fromEntries(aiFeatures.map((feature) => [feature, featureMode(row, feature)])),
     });
   });
   app.post("/v1/org/checkin-ai", async (c) => {
@@ -269,9 +263,13 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
       return c.json({ error: "This feature supports Off or Manual only" }, 400);
     if (
       data.modes &&
-      ![undefined, "off", "manual", "suggest"].includes(data.modes.contact_referral)
+      ["stikkord", "contact_fields", "hierarchy", "contact_referral"].some(
+        (feature) => data.modes?.[feature] === "manual",
+      )
     )
-      return c.json({ error: "Kontaktforslag støtter Av, Manuelt eller Automatisk forslag" }, 400);
+      return c.json({ error: "Kontaktfunksjoner bruker automatiske forslag" }, 400);
+    if (data.modes && ![undefined, "off", "suggest"].includes(data.modes.contact_referral))
+      return c.json({ error: "Kontaktforslag støtter Av eller Automatisk forslag" }, 400);
     const nextModes = {
       ...data.modes,
       email_draft: data.modes?.email_draft ?? (data.emailDraftEnabled ? "manual" : "off"),

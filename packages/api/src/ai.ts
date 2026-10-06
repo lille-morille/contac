@@ -44,6 +44,7 @@ export const featureMode = (
     return settings.modes.email_draft === "manual" || settings.emailDraftEnabled ? "manual" : "off";
   if (feature === "group_findings")
     return settings.modes.group_findings === "manual" ? "manual" : "off";
+  if (settings.modes[feature] === "manual") return "suggest";
   return modes.includes(settings.modes[feature] as AiMode)
     ? (settings.modes[feature] as AiMode)
     : "off";
@@ -572,17 +573,10 @@ async function generateContact(
   orgId: string,
   contactId: string,
   feature: "stikkord" | "contact_fields" | "hierarchy",
-  trigger: "manual" | "automatic",
 ) {
   const settings = await settingsFor(deps, orgId);
   const mode = featureMode(settings, feature);
-  if (
-    !settings ||
-    mode === "off" ||
-    (trigger === "manual"
-      ? mode !== "manual"
-      : !["suggest", "safe_auto", "dangerous"].includes(mode))
-  )
+  if (!settings || mode === "off" || !["suggest", "safe_auto", "dangerous"].includes(mode))
     throw new Error("Denne AI-funksjonen er ikke aktiv i valgt modus");
   const { person, conversations, version } = await contactContext(deps, orgId, contactId);
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
@@ -980,19 +974,10 @@ async function generateContact(
   return row;
 }
 
-async function generateReferrals(
-  deps: ApiDeps,
-  orgId: string,
-  contactId: string,
-  trigger: "manual" | "automatic",
-) {
+async function generateReferrals(deps: ApiDeps, orgId: string, contactId: string) {
   const settings = await settingsFor(deps, orgId);
   const mode = featureMode(settings, "contact_referral");
-  if (
-    !settings?.encryptedToken ||
-    mode === "off" ||
-    (trigger === "manual" ? mode !== "manual" : mode === "manual")
-  )
+  if (!settings?.encryptedToken || mode === "off" || mode !== "suggest")
     throw new Error("Kontaktforslag er ikke aktivert i valgt AI-modus");
   const context = await contactContext(deps, orgId, contactId);
   if (!context.conversations.length) return [];
@@ -1116,7 +1101,7 @@ export async function runContactAutomations(
             if (!["suggest", "safe_auto", "dangerous"].includes(featureMode(settings, feature)))
               continue;
             try {
-              await generateContact(deps, orgId, contactId, feature, "automatic");
+              await generateContact(deps, orgId, contactId, feature);
             } catch (error) {
               console.error(`AI automation ${feature} failed:`, error);
             }
@@ -1128,7 +1113,7 @@ export async function runContactAutomations(
             )
           ) {
             try {
-              await generateReferrals(deps, orgId, contactId, "automatic");
+              await generateReferrals(deps, orgId, contactId);
             } catch (error) {
               console.error("AI automation contact_referral failed:", error);
             }
@@ -1278,29 +1263,6 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         context.person.contact.stikkordSourceVersion !== context.version,
       hasConversations: !!context?.conversations.length,
     });
-  });
-  app.post("/v1/org/ai/contacts/:id/generate", async (c) => {
-    const contactId = id.safeParse(c.req.param("id"));
-    const parsed = z
-      .object({ feature: z.enum(["stikkord", "contact_fields", "hierarchy", "contact_referral"]) })
-      .safeParse(await c.req.json().catch(() => null));
-    if (!contactId.success || !parsed.success)
-      return c.json({ error: "Invalid generation request" }, 400);
-    try {
-      return c.json(
-        parsed.data.feature === "contact_referral"
-          ? await generateReferrals(deps, c.get("org").id, contactId.data, "manual")
-          : await generateContact(
-              deps,
-              c.get("org").id,
-              contactId.data,
-              parsed.data.feature,
-              "manual",
-            ),
-      );
-    } catch (error) {
-      return c.json({ error: String(error instanceof Error ? error.message : error) }, 400);
-    }
   });
   app.post("/v1/org/ai/referrals/:id/use-existing", async (c) => {
     const suggestionId = id.safeParse(c.req.param("id"));

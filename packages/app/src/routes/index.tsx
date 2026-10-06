@@ -5074,6 +5074,17 @@ function ContactDetail({
                 {aiField("domainIds", domainIds)}
               </ContactDetailField>
             </div>
+            {c.status !== "duplicate" && (
+              <ContactAiPanel
+                contact={c}
+                companies={data.companies}
+                domains={data.domains}
+                tags={data.personTags}
+                contacts={data.contacts.map((contact) => ({ id: contact.id, name: contact.name }))}
+                onAcceptReferral={onAcceptReferral}
+                onOpenContact={onOpen}
+              />
+            )}
           </Card>
           <SharedNote
             key={c.id}
@@ -5099,17 +5110,6 @@ function ContactDetail({
             busy={busy}
             suggestions={aiField("stikkord", c.stikkord)}
           />
-          {c.status !== "duplicate" && (
-            <ContactAiPanel
-              contact={c}
-              companies={data.companies}
-              domains={data.domains}
-              tags={data.personTags}
-              contacts={data.contacts.map((contact) => ({ id: contact.id, name: contact.name }))}
-              onAcceptReferral={onAcceptReferral}
-              onOpenContact={onOpen}
-            />
-          )}
           {c.status !== "duplicate" && (
             <EmailComposer
               contact={c}

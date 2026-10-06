@@ -60,9 +60,12 @@ const features: { key: Feature; label: string; description: string; manualOnly?:
     manualOnly: true,
   },
 ];
-const modeItems = [
+const manualModeItems = [
   { value: "off", label: "Av" },
   { value: "manual", label: "Manuelt forslag" },
+];
+const contactModeItems = [
+  { value: "off", label: "Av" },
   { value: "suggest", label: "Automatisk forslag" },
   { value: "safe_auto", label: "Trygg automatikk · fyll tomme felt" },
   { value: "dangerous", label: "Farlig · kan overskrive" },
@@ -199,10 +202,10 @@ export function TeamAiSettings() {
                 }
                 items={
                   feature.manualOnly
-                    ? modeItems.slice(0, 2)
+                    ? manualModeItems
                     : feature.key === "contact_referral"
-                      ? modeItems.slice(0, 3)
-                      : modeItems
+                      ? contactModeItems.slice(0, 2)
+                      : contactModeItems
                 }
                 aria-label={`AI-modus for ${feature.label}`}
                 className="min-w-48"

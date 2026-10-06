@@ -1,11 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
+  featureMode,
   partitionAutomaticContactFields,
   partitionSafeAutoFields,
   remainingSuggestion,
 } from "./ai.ts";
 
 describe("field-level AI suggestions", () => {
+  it("treats legacy manual contact modes as automatic suggestions without changing on-demand features", () => {
+    const settings = {
+      emailDraftEnabled: false,
+      modes: Object.fromEntries(
+        [
+          "stikkord",
+          "contact_fields",
+          "hierarchy",
+          "contact_referral",
+          "group_findings",
+          "email_draft",
+        ].map((feature) => [feature, "manual"]),
+      ),
+    };
+    for (const feature of ["stikkord", "contact_fields", "hierarchy", "contact_referral"] as const)
+      expect(featureMode(settings, feature)).toBe("suggest");
+    expect(featureMode(settings, "group_findings")).toBe("manual");
+    expect(featureMode(settings, "email_draft")).toBe("manual");
+  });
+
   it("auto-fills blank fields and leaves different filled values for review", () => {
     expect(
       partitionSafeAutoFields(
