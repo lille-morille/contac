@@ -23,6 +23,7 @@ import {
   Moon,
   BookOpen,
   FileText,
+  MessageSquare,
   Phone,
   PhoneCall,
   Pencil,
@@ -82,6 +83,11 @@ import { ClassRecoverySettings } from "../components/class-recovery-settings.tsx
 import { LiveText } from "../components/live-text.tsx";
 import { CrossTeamOverlap } from "../components/cross-team-overlap.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../components/inbox-items.tsx";
+import {
+  AdminFeedbackLog,
+  FeedbackDialog,
+  type FeedbackInboxItem,
+} from "../components/feedback.tsx";
 import { ProfileAgentAccess } from "../components/profile-agent-access.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
@@ -730,6 +736,7 @@ function Home() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createReferral, setCreateReferral] = useState<ReferralPrefill | null>(null);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shortcutChooser, setShortcutChooser] = useState<{
     contactId: string;
     kind: "assignee" | "status" | "tags";
@@ -813,6 +820,7 @@ function Home() {
         commandOpen ||
         createOpen ||
         shortcutHelpOpen ||
+        feedbackOpen ||
         shortcutChooser ||
         contactMenu ||
         inboxOpen ||
@@ -835,6 +843,7 @@ function Home() {
     commandOpen,
     createOpen,
     shortcutHelpOpen,
+    feedbackOpen,
     shortcutChooser,
     contactMenu,
     inboxOpen,
@@ -952,6 +961,12 @@ function Home() {
     queryKey: ["class-inbox", state.classSpace?.classId],
     queryFn: () => request<AdminInboxItem[]>("/class/inbox"),
     enabled: !!org && state.classSpace?.role === "admin" && !!state.user?.onboarded,
+    refetchInterval: 30_000,
+  });
+  const feedbackInboxQuery = useQuery({
+    queryKey: ["feedback-inbox", state.user?.id],
+    queryFn: () => request<FeedbackInboxItem[]>("/feedback/inbox"),
+    enabled: !!org && !!state.user?.onboarded,
     refetchInterval: 30_000,
   });
   const viewScope =
@@ -1514,6 +1529,7 @@ function Home() {
         commandOpen ||
         createOpen ||
         shortcutHelpOpen ||
+        feedbackOpen ||
         shortcutChooser ||
         contactMenu
       )
@@ -1637,6 +1653,7 @@ function Home() {
     dueReminders.length +
     (inboxQuery.data?.suggestions.length ?? 0) +
     (inboxQuery.data?.requests.length ?? 0) +
+    (feedbackInboxQuery.data?.length ?? 0) +
     (classInboxQuery.data?.length ?? 0);
   const paletteItems: PaletteItem[] = [
     {
@@ -1937,6 +1954,13 @@ function Home() {
           )}
         </div>
         <div className="mt-4 shrink-0 space-y-1 border-t border-border pt-3">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
+            onClick={() => setFeedbackOpen(true)}
+          >
+            <MessageSquare size={16} /> Send tilbakemelding
+          </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
@@ -2644,6 +2668,7 @@ function Home() {
           />
         </DialogContent>
       </Dialog>
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       {inboxOpen && (
         <aside
           id="sidebar-inbox"
@@ -2656,7 +2681,7 @@ function Home() {
             <div>
               <h2 className="font-semibold">Innboks</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Påminnelser, e-postforslag og forespørsler på ett sted.
+                Påminnelser, meldinger, e-postforslag og forespørsler på ett sted.
               </p>
             </div>
             <Button
@@ -2679,6 +2704,7 @@ function Home() {
               orgId={org.id}
               inbox={inboxQuery.data}
               adminItems={classInboxQuery.data}
+              feedbackItems={feedbackInboxQuery.data}
               contacts={data.contacts}
               teams={state.organizations}
               onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
@@ -2686,6 +2712,7 @@ function Home() {
             {data.reminders.length === 0 ? (
               !inboxQuery.data?.suggestions.length &&
               !inboxQuery.data?.requests.length &&
+              !feedbackInboxQuery.data?.length &&
               !classInboxQuery.data?.length ? (
                 <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
               ) : null
@@ -7942,6 +7969,9 @@ function Settings({
             </p>
           )}
         </Card>
+      )}
+      {section === "class_settings" && state.classSpace?.role === "admin" && (
+        <AdminFeedbackLog classId={state.classSpace.classId} />
       )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <ClassRecoverySettings classId={state.classSpace.classId} />

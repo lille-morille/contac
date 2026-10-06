@@ -73,6 +73,28 @@ export const classMemberships = pgTable(
     index("class_memberships_user_idx").on(table.userId),
   ],
 );
+export const classFeedback = pgTable(
+  "class_feedback",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    classId: uuid("class_id")
+      .notNull()
+      .references(() => classSpaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"ny_funksjonalitet" | "justering" | "bug_feil">().notNull(),
+    content: text("content").notNull(),
+    createdAt: createdAt(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: uuid("completed_by").references(() => profiles.id, { onDelete: "set null" }),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("class_feedback_class_created_idx").on(table.classId, table.createdAt),
+    index("class_feedback_user_inbox_idx").on(table.userId, table.completedAt),
+  ],
+);
 export const organizations = pgTable("organizations", {
   id: uuid("id").defaultRandom().primaryKey(),
   classId: uuid("class_id")

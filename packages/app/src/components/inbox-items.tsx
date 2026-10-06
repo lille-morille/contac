@@ -7,6 +7,7 @@ import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
 import { MultiSelect } from "./ui/multi-select.tsx";
 import { Select } from "./ui/select.tsx";
+import { feedbackKindLabel, type FeedbackInboxItem } from "./feedback.tsx";
 
 export type InboxData = {
   suggestions: {
@@ -45,6 +46,7 @@ export function InboxItems({
   orgId,
   inbox,
   adminItems,
+  feedbackItems,
   contacts,
   teams,
   onRefresh,
@@ -52,6 +54,7 @@ export function InboxItems({
   orgId: string;
   inbox: InboxData | undefined;
   adminItems: AdminInboxItem[] | undefined;
+  feedbackItems: FeedbackInboxItem[] | undefined;
   contacts: Contact[];
   teams: { id: string; name: string }[];
   onRefresh: () => Promise<unknown>;
@@ -68,6 +71,7 @@ export function InboxItems({
       await request(path, orgId, body);
       await qc.invalidateQueries({ queryKey: ["inbox", orgId] });
       await qc.invalidateQueries({ queryKey: ["class-inbox"] });
+      await qc.invalidateQueries({ queryKey: ["feedback-inbox"] });
       await qc.invalidateQueries({ queryKey: ["overlap", orgId] });
       await onRefresh();
     } catch (cause) {
@@ -82,6 +86,36 @@ export function InboxItems({
         <p role="alert" className="text-sm text-risk">
           {error}
         </p>
+      )}
+      {!!feedbackItems?.length && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Svar på tilbakemeldinger
+          </h3>
+          <div className="space-y-2">
+            {feedbackItems.map((item) => (
+              <Card key={item.id} className="p-3 text-sm">
+                <p className="font-medium">
+                  Takk for tilbakemeldingen! Innspillet ditt er nå implementert.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {feedbackKindLabel(item.kind)}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap break-words">{item.content}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{date(item.completedAt)}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  disabled={busy === item.id}
+                  onClick={() => void action(`/feedback/inbox/${item.id}/acknowledge`, {}, item.id)}
+                >
+                  Fjern fra innboks
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </section>
       )}
       {!!inbox?.requests.length && (
         <section>
