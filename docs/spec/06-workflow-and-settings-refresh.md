@@ -10,12 +10,12 @@ The current app is a single TanStack route with in-memory page selection; only s
 
 | Unit | Contents | Dependencies | Done |
 | --- | --- | --- | --- |
-| A | Navigation, board/feed/library layout, phone action | None | No |
-| B | Contact model, creation, conversation suggestions, inline AI | Data migration; AI contracts | No |
-| C | Organization map and group summary repair | B for removal of departments | No |
-| D | Typst report, citation IDs, and contact-log export | B for contact model and IDs | No |
-| E | MCP contact creation and personal agent connection | B for new contact fields; F for team access | No |
-| F | Team settings, sharing, roles, and usage | Access-control migration | No |
+| A | Navigation, board/feed/library layout, phone action | None | Done in code; browser acceptance pending |
+| B | Contact model, creation, conversation suggestions, inline AI | Data migration; AI contracts | Done in code; live description-output review pending |
+| C | Organization map and group summary repair | B for removal of departments | Done in code; browser acceptance pending |
+| D | Typst report, citation IDs, and contact-log export | B for contact model and IDs | Done in code; report ZIP upload and compile check pending |
+| E | MCP contact creation and personal agent connection | B for new contact fields; F for team access | Done in code; live OAuth connection pending |
+| F | Team settings, sharing, roles, and usage | Access-control migration | Done in code; database migration pending |
 
 All units were assigned by the product owner. Mark each completed change in the implementation log with its commit before moving to the next change.
 
@@ -68,7 +68,15 @@ All units were assigned by the product owner. Mark each completed change in the 
 | B3: require user review for generated descriptions until representative outputs are checked | Done; live output review pending | `78c4537` |
 | 07: group shortcut help by context and highlight current-page actions | Done | `301e273` |
 | F1: place AI controls and lifetime usage before advanced settings and report actions | Done | `144df6a` |
-| B4–B5: keep all pending contact AI and referral suggestions visible beyond recent history | Done | This commit |
+| B4–B5: keep all pending contact AI and referral suggestions visible beyond recent history | Done | `3243360` |
+
+The implementation of review units A–F and spec 07 is complete in this checkout. Runtime acceptance remains open where it depends on the local database, an external OAuth client, live model output, or the report asset:
+
+- Apply all outstanding migrations through 0044 and run the database-backed smoke flow against a reachable Supabase instance. The local `.env` points to `127.0.0.1`, but its database was unavailable during this implementation.
+- Upload `workspace-files/report-templates/contac-report-v1.zip`, then compile a copied `#cite-contact(...)` quote and the exported `kontaktlogg.yaml` against that ZIP.
+- Review representative generated person descriptions with a configured team AI token. Generated descriptions remain pending suggestions in both automatic modes until this review happens.
+- Exercise Claude/Codex OAuth connection, team switching, revocation, and the expected-team-ID guard with real clients.
+- Run browser acceptance for URLs, map panning, board scrolling, inbox flyout, contact keyboard actions, and deletion/restore after the database is available.
 
 ## A. Navigation and daily work
 

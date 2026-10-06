@@ -1,6 +1,6 @@
 # 07 — Keyboard shortcuts and contact context menu
 
-**Status:** Reviewed and assigned for implementation on 2026-10-05. Progress is tracked in [spec 06](06-workflow-and-settings-refresh.md). It builds on the navigation and contact-detail changes there.
+**Status:** Implemented in code. Browser acceptance is pending a reachable local database. Progress and commits are tracked in [spec 06](06-workflow-and-settings-refresh.md).
 
 ## Purpose
 
@@ -74,7 +74,7 @@ Add a `Slettede kontakter` view under the contact destinations, showing deleted 
 
 ## Current implementation map
 
-- Global ⌘K/Ctrl+K toggle and page state: [`packages/app/src/routes/index.tsx`](../../packages/app/src/routes/index.tsx).
+- Global ⌘K/Ctrl+K open action, page state, and contact shortcuts: [`packages/app/src/routes/index.tsx`](../../packages/app/src/routes/index.tsx).
 - Command palette: [`packages/app/src/components/command-palette.tsx`](../../packages/app/src/components/command-palette.tsx).
 - Board cards, list rows, contact detail, and activity composer: [`packages/app/src/routes/index.tsx`](../../packages/app/src/routes/index.tsx).
-- Contact API has create/update/favorite/tag routes but no delete route: [`packages/api/src/contacts.ts`](../../packages/api/src/contacts.ts).
+- Contact API has create/update/favorite/tag, soft-delete, and restore routes: [`packages/api/src/contacts.ts`](../../packages/api/src/contacts.ts).
