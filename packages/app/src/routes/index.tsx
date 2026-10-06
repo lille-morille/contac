@@ -2291,28 +2291,68 @@ function Home() {
         onSearchResult={openPaletteSearchResult}
       />
       <Dialog open={shortcutHelpOpen} onOpenChange={setShortcutHelpOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogTitle>Tastatursnarveier</DialogTitle>
           <DialogDescription>Snarveier virker når du ikke skriver i et felt.</DialogDescription>
-          <div className="mt-4 grid grid-cols-[1fr_auto] gap-x-5 gap-y-2 text-sm">
-            <span>Forrige / neste side</span>
-            <kbd>W/K · S/J</kbd>
-            <span>Ny kontakt</span>
-            <kbd>C</kbd>
-            <span>Innboks</span>
-            <kbd>I</kbd>
-            <span>Kontakt: ansvarlig / meg / tagger / status</span>
-            <kbd>A / I / L / S</kbd>
-            <span>Kontakt: favoritt / ring / e-post / slett</span>
-            <kbd>F / R / E / D</kbd>
-            <span>Kontekstmeny på kontakt</span>
-            <kbd>Høyreklikk / Shift+F10</kbd>
-            <span>Vis denne hjelpen</span>
-            <kbd>?</kbd>
-            <span>Åpne kommandomeny</span>
-            <kbd>⌘K / Ctrl+K</kbd>
-            <span>Lukk meny eller dialog</span>
-            <kbd>Esc</kbd>
+          <div className="mt-4 space-y-3 text-sm">
+            <section className="rounded-xl border border-primary/25 bg-primary-soft/40 p-3">
+              <h3 className="mb-2 font-semibold">Arbeidsområde · tilgjengelig nå</h3>
+              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+                <span>Forrige / neste side</span>
+                <kbd>W/K · S/J</kbd>
+                <span>Ny kontakt</span>
+                <kbd>C</kbd>
+                <span>Innboks uten kontaktmål</span>
+                <kbd>I</kbd>
+                <span>Vis denne hjelpen</span>
+                <kbd>?</kbd>
+                <span>Åpne kommandomeny</span>
+                <kbd>⌘K / Ctrl+K</kbd>
+                <span>Lukk meny eller dialog</span>
+                <kbd>Esc</kbd>
+              </div>
+            </section>
+            <section
+              className={`rounded-xl border p-3 ${!selectedId && page === "contacts" ? "border-primary/25 bg-primary-soft/40" : "border-border"}`}
+            >
+              <h3 className="mb-2 font-semibold">
+                Kontaktliste og kanban{" "}
+                {!selectedId && page === "contacts" && (
+                  <span className="text-xs text-primary">· her</span>
+                )}
+              </h3>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Pek på eller fokuser en kontakt først.
+              </p>
+              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+                <span>Ansvarlig / tildel meg / tagger / status</span>
+                <kbd>A / I / L / S</kbd>
+                <span>Favoritt / ring / e-post / slett</span>
+                <kbd>F / R / E / D</kbd>
+                <span>Kontekstmeny</span>
+                <kbd>Høyreklikk / Shift+F10</kbd>
+                <span>Åpne fokusert kontakt</span>
+                <kbd>Enter</kbd>
+              </div>
+            </section>
+            <section
+              className={`rounded-xl border p-3 ${chosen && chosen.status !== "duplicate" ? "border-primary/25 bg-primary-soft/40" : "border-border"}`}
+            >
+              <h3 className="mb-2 font-semibold">
+                Kontaktdetaljer{" "}
+                {chosen && chosen.status !== "duplicate" && (
+                  <span className="text-xs text-primary">· her</span>
+                )}
+              </h3>
+              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+                <span>Ring / skriv e-post</span>
+                <kbd>R / E</kbd>
+                <span>Ansvarlig / status</span>
+                <kbd>A / S</kbd>
+                <span>Favoritt / slett</span>
+                <kbd>F / D</kbd>
+              </div>
+            </section>
           </div>
         </DialogContent>
       </Dialog>
