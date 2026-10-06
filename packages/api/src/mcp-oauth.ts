@@ -98,22 +98,31 @@ export async function resolveAgentTeam(
 export async function authorizeMcpOauth(
   deps: ApiDeps,
   authorization: string | undefined,
+  onFailure?: (reason: string) => void,
 ): Promise<McpIdentity | null> {
   const bearer = /^Bearer ([A-Za-z0-9_.-]+)$/.exec(authorization ?? "")?.[1];
-  if (!bearer || bearer.split(".").length !== 3 || !jwks) return null;
+  if (!bearer || bearer.split(".").length !== 3 || !jwks) {
+    onFailure?.("missing_or_malformed_bearer");
+    return null;
+  }
   try {
     const { payload } = await jwtVerify(bearer, jwks, {
       issuer,
       audience: `${baseUrl()}${resourcePath}`,
     });
-    if (
-      !uuid.safeParse(payload.sub).success ||
-      !uuid.safeParse(payload.client_id).success ||
-      payload.role !== "authenticated"
-    )
+    if (!uuid.safeParse(payload.sub).success || !uuid.safeParse(payload.client_id).success) {
+      onFailure?.("missing_subject_or_client");
       return null;
-    return resolveAgentTeam(deps, payload.sub!, payload.client_id as string);
+    }
+    if (payload.role !== "authenticated") {
+      onFailure?.("unexpected_role");
+      return null;
+    }
+    const identity = await resolveAgentTeam(deps, payload.sub!, payload.client_id as string);
+    if (!identity) onFailure?.("no_active_team_grant");
+    return identity;
   } catch {
+    onFailure?.("token_verification_or_team_lookup_failed");
     return null;
   }
 }

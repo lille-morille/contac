@@ -667,7 +667,11 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
 export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: string) {
   registerMcpOauthRoutes(app, deps, appOrigin);
   app.all("/mcp", async (c) => {
-    const identity = await authorizeMcpOauth(deps, c.req.header("authorization"));
+    const identity = await authorizeMcpOauth(
+      deps,
+      c.req.header("authorization"),
+      (reason) => console.warn(`[mcp] authorization rejected: ${reason}; method=${c.req.method}`),
+    );
     if (!identity) {
       return c.json({ error: "Connect Contac with your account first" }, 401, {
         "WWW-Authenticate": mcpOauthChallenge(appOrigin),
@@ -675,6 +679,8 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
     }
     const handler = createMcpHandler(() => makeServer(deps, identity));
     const response = await handler.fetch(c.req.raw);
+    if (response.status >= 400)
+      console.warn(`[mcp] authenticated request failed: status=${response.status}; method=${c.req.method}`);
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
