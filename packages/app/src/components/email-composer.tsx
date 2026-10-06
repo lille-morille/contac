@@ -107,7 +107,12 @@ export function EmailComposer({
     setOpen(true);
   }
   useEffect(() => {
-    if (shortcutRequest) start();
+    if (!shortcutRequest) return;
+    document.querySelector<HTMLElement>("[data-email-composer]")?.scrollIntoView({
+      behavior: "auto",
+      block: "start",
+    });
+    start();
     // Each request is a user action; contact changes remount the detail page.
   }, [shortcutRequest]);
   async function save(): Promise<Draft> {
@@ -177,7 +182,7 @@ export function EmailComposer({
   }
 
   return (
-    <Card className="p-5">
+    <Card data-email-composer className="scroll-mt-6 p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold">E-postutkast</h2>

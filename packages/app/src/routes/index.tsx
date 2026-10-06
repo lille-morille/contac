@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -4073,6 +4074,8 @@ function ActivityComposer({
   const [reminderMessage, setReminderMessage] = useState("");
   const [phoneCopyMessage, setPhoneCopyMessage] = useState("");
   const [fileError, setFileError] = useState("");
+  const callComposerRef = useRef<HTMLDivElement>(null);
+  const scrolledShortcut = useRef<number | null>(null);
 
   function start(nextMode: "phone" | "meeting") {
     setMode(nextMode);
@@ -4091,18 +4094,22 @@ function ActivityComposer({
   useEffect(() => {
     if (shortcutRequest) start("phone");
   }, [shortcutRequest]);
-  useEffect(() => {
-    if (!shortcutRequest || mode !== "phone") return;
-    const timer = window.setTimeout(() => {
-      const composer = document.querySelector<HTMLElement>("[data-call-composer]");
-      composer?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-        block: "center",
-      });
-      composer?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
-    }, 50);
-    return () => window.clearTimeout(timer);
+  const scrollToCallComposer = useCallback(() => {
+    if (!shortcutRequest || mode !== "phone" || scrolledShortcut.current === shortcutRequest)
+      return;
+    const composer = callComposerRef.current;
+    if (!composer) return;
+    scrolledShortcut.current = shortcutRequest;
+    composer.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    composer.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
   }, [shortcutRequest, mode]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(scrollToCallComposer);
+    return () => window.cancelAnimationFrame(frame);
+  }, [scrollToCallComposer]);
   async function importTranscript(file: File | undefined) {
     if (!file) return;
     if (!/\.(txt|md|srt|vtt)$/i.test(file.name)) {
@@ -4183,13 +4190,15 @@ function ActivityComposer({
         ) : (
           <motion.div
             key="activity-composer"
+            ref={callComposerRef}
             data-call-composer={mode === "phone" ? "" : undefined}
+            onAnimationComplete={scrollToCallComposer}
             layout="size"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ layout: { type: "spring", stiffness: 280, damping: 34 } }}
-            className="mt-4 space-y-4 rounded-xl bg-muted/50 p-4"
+            className="mt-4 scroll-mt-6 space-y-4 rounded-xl bg-muted/50 p-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>

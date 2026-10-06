@@ -23,7 +23,8 @@ All units were assigned by the product owner. Mark each completed change in the 
 
 | Change | Status | Commit |
 | --- | --- | --- |
-| Kanban cards: remove the double hover ring and retain keyboard focus styling | Done | This commit |
+| Call and email shortcuts scroll contact detail to the opened composer | Done in code; browser acceptance pending | This commit |
+| Kanban cards: remove the double hover ring and retain keyboard focus styling | Done | `df67551` |
 | Production React #310: run workspace keyboard hooks before loading and sign-in returns | Done; signed-in browser verified 2026-10-06 | `6f6b944` |
 | Production recovery: apply migrations 0032–0044, preserve old position and department text, and fix the API rollout around host port 25 | Done; production database and API verified 2026-10-06 | `10a8736` |
 | Email draft mailto link: percent-encode spaces for desktop mail apps | Done | `b26e9ad` |
