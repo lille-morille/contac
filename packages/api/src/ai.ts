@@ -813,7 +813,7 @@ export async function runContactAutomations(
   );
 }
 
-async function groupContext(
+export async function groupContext(
   deps: ApiDeps,
   orgId: string,
   kind: "company" | "domain",
