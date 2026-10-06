@@ -632,7 +632,7 @@ function SidebarNavSection({
   onSelect: (page: Page) => void;
 }) {
   return (
-    <section className="mt-1">
+    <section className="mt-3">
       <h2 className="sr-only">{title}</h2>
       <nav className="space-y-1" aria-label={title}>
         {items.map(([key, label, Icon]) => {
