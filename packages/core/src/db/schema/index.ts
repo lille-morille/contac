@@ -107,6 +107,14 @@ export const organizations = pgTable("organizations", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+export const contactReportSettings = pgTable("contact_report_settings", {
+  orgId: uuid("org_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: updatedAt(),
+});
 export const memberships = pgTable(
   "memberships",
   {

@@ -68,6 +68,7 @@ import {
 import { Avatar } from "../components/ui/avatar.tsx";
 import { ProfileEditor } from "../components/profile-editor.tsx";
 import { EmailComposer } from "../components/email-composer.tsx";
+import { ExportPage } from "../components/export-page.tsx";
 import { SemanticSearch } from "../components/semantic-search.tsx";
 import type { SearchResult } from "../components/semantic-search.tsx";
 import { CommandPalette, type PaletteItem } from "../components/command-palette.tsx";
@@ -101,14 +102,7 @@ import { MultiSelect } from "../components/ui/multi-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.tsx";
 import { Select } from "../components/ui/select.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
-import {
-  ApiError,
-  downloadOrgFile,
-  profileAvatarUrl,
-  readOrgText,
-  request,
-  uploadFile,
-} from "../lib/api.ts";
+import { ApiError, profileAvatarUrl, request, uploadFile } from "../lib/api.ts";
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
 import { typstQuoteSnippet } from "../lib/typst-citation.ts";
@@ -332,6 +326,7 @@ const workspacePages: Page[] = [
   "deleted",
   "organizations",
   "library",
+  "export",
   "profile",
   "team_settings",
   "class_settings",
@@ -490,6 +485,7 @@ type Page =
   | "deleted"
   | "organizations"
   | "library"
+  | "export"
   | "profile"
   | "team_settings"
   | "class_settings";
@@ -1500,6 +1496,7 @@ function Home() {
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
     ["organizations", "Organisasjoner", Building2],
+    ["export", "Eksport", FileText],
   ];
   const favorites = data.favoriteContactIds
     .map((id) => data.contacts.find((contact) => contact.id === id))
@@ -1697,14 +1694,11 @@ function Home() {
     {
       id: "action:export",
       group: "actions",
-      title: "Kopier kontaktlogg som YAML",
-      detail: "Eksporter hele teamets kontaktlogg",
-      searchText: "eksport typst kopier",
+      title: "Åpne Eksport",
+      detail: "Velg kontakter, kolonner og format",
+      searchText: "eksport typst latex csv kopier",
       icon: FileText,
-      run: () =>
-        void readOrgText(org.id, "/org/export/contact-log.yaml")
-          .then(copyText)
-          .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))),
+      run: () => go("export"),
     },
     {
       id: "action:board",
@@ -2151,6 +2145,8 @@ function Home() {
             onOpen={setSelectedId}
             onRestore={(id) => void mutate(`/contacts/${id}/restore`, {})}
           />
+        ) : page === "export" ? (
+          <ExportPage key={org.id} orgId={org.id} />
         ) : page === "library" ? (
           <LibraryPage
             key={libraryNonce}
@@ -5524,32 +5520,6 @@ function ContactDetail({
                         mutate={mutate}
                         disabled={c.status === "duplicate" || !editing}
                       />
-                      {editing &&
-                        data.activityContacts.filter((link) => link.activityId === a.id).length >
-                          1 && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                            <FileText size={14} /> Eksporteres under
-                            <Select
-                              className="w-48"
-                              value={a.exportOwnerContactId ?? c.id}
-                              onValueChange={(contactId) =>
-                                void mutate(`/activities/${a.id}/export-owner`, { contactId })
-                              }
-                              items={data.activityContacts
-                                .filter((link) => link.activityId === a.id)
-                                .map((link) =>
-                                  data.contacts.find((person) => person.id === link.contactId),
-                                )
-                                .filter(
-                                  (person): person is Contact =>
-                                    !!person && person.status !== "duplicate",
-                                )
-                                .map((person) => ({ value: person.id, label: person.name }))}
-                              aria-label="Eksporteier for delt aktivitet"
-                              disabled={busy || c.status === "duplicate"}
-                            />
-                          </div>
-                        )}
                       {editing && (
                         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                           <ShieldCheck size={14} /> Ekstern AI
@@ -7771,8 +7741,6 @@ function Settings({
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
-  const [reportError, setReportError] = useState("");
-  const [reportMessage, setReportMessage] = useState("");
   async function createTeam(e: FormEvent) {
     e.preventDefault();
     setTeamActionBusy(true);
@@ -7911,8 +7879,6 @@ function Settings({
             value={state.org.id}
             onValueChange={(id) => {
               setInviteUrl("");
-              setReportError("");
-              setReportMessage("");
               onSelectTeam(id);
             }}
             items={state.organizations.map((team) => ({ value: team.id, label: team.name }))}
@@ -7951,61 +7917,6 @@ function Settings({
       {section === "team_settings" && state.org && <TeamLoiSettings />}
       {section === "team_settings" && inviteCard}
       {section === "team_settings" && state.org && <TeamAiSettings />}
-      {section === "team_settings" && state.org && (
-        <Card className="p-5">
-          <h2 className="font-semibold">Rapportmal</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Last ned Typst-malen for rapporten. Siter kontakter med teamets kontaktnummer, for
-            eksempel <code>#cite-contact(1, 2)</code>.
-          </p>
-          <Button
-            className="mt-4"
-            variant="outline"
-            onClick={() => {
-              setReportError("");
-              void downloadOrgFile(
-                state.org!.id,
-                "/org/export/report-template.zip",
-                "contac-report-v1.zip",
-              ).catch((cause) =>
-                setReportError(
-                  cause instanceof Error ? cause.message : "Kunne ikke laste ned malen.",
-                ),
-              );
-            }}
-          >
-            Last ned Typst-rapportmal
-          </Button>
-          <Button
-            className="mt-4 ml-2"
-            variant="outline"
-            onClick={() => {
-              setReportError("");
-              setReportMessage("");
-              void readOrgText(state.org!.id, "/org/export/contact-log.yaml")
-                .then(copyText)
-                .then(() => setReportMessage("Kontaktloggen er kopiert som YAML."))
-                .catch((cause) =>
-                  setReportError(
-                    cause instanceof Error ? cause.message : "Kunne ikke kopiere kontaktloggen.",
-                  ),
-                );
-            }}
-          >
-            Kopier kontaktlogg som YAML
-          </Button>
-          {reportMessage && (
-            <p role="status" className="mt-2 text-sm">
-              {reportMessage}
-            </p>
-          )}
-          {reportError && (
-            <p role="alert" className="mt-2 text-sm text-risk">
-              {reportError}
-            </p>
-          )}
-        </Card>
-      )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <Card className="p-5">
           <h2 className="font-semibold">Klasseadministrator · {state.classSpace.name}</h2>
