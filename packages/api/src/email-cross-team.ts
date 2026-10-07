@@ -14,6 +14,7 @@ import {
   classMemberships,
   companies,
   contactActivities,
+  contactOverlapDismissals,
   contacts,
   emailActivities,
   emailDrafts,
@@ -32,6 +33,56 @@ import type { ApiDeps, ApiEnv } from "./types.ts";
 import { decrypt } from "./ai-token.ts";
 import { runContactAutomations } from "./ai.ts";
 import { withoutGeneratedSignature } from "./email-draft-text.ts";
+import { buildContactOverlapAlerts } from "./contact-overlap-alerts.ts";
+
+async function contactOverlapInbox(
+  deps: ApiDeps,
+  orgId: string,
+  userId: string,
+  includeDismissed = false,
+) {
+  const [team] = await deps.db
+    .select({ classId: organizations.classId })
+    .from(organizations)
+    .where(eq(organizations.id, orgId));
+  if (!team) return [];
+  const [rows, dismissals] = await Promise.all([
+    deps.db
+      .select({
+        id: contacts.id,
+        orgId: contacts.orgId,
+        classId: organizations.classId,
+        name: contacts.name,
+        teamName: organizations.name,
+        email: contacts.email,
+        phoneNormalized: contacts.phoneNormalized,
+        normalizedName: contacts.normalizedName,
+        companyName: companies.normalizedName,
+        status: contacts.status,
+        assigneeId: contacts.assigneeId,
+      })
+      .from(contacts)
+      .innerJoin(organizations, eq(organizations.id, contacts.orgId))
+      .innerJoin(companies, eq(companies.id, contacts.companyId))
+      .where(
+        and(
+          eq(organizations.classId, team.classId),
+          ne(contacts.status, "duplicate"),
+          isNull(contacts.deletedAt),
+        ),
+      ),
+    includeDismissed
+      ? Promise.resolve([])
+      : deps.db
+          .select({
+            contactId: contactOverlapDismissals.contactId,
+            otherContactId: contactOverlapDismissals.otherContactId,
+          })
+          .from(contactOverlapDismissals)
+          .where(eq(contactOverlapDismissals.userId, userId)),
+  ]);
+  return buildContactOverlapAlerts(rows, orgId, userId, dismissals);
+}
 
 const uuid = z.uuid();
 const email = z.email().transform(normalizeEmail);
@@ -501,7 +552,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   });
   app.get("/v1/org/inbox", async (c) => {
     const orgId = c.get("org").id;
-    const [suggestions, requests, teamContacts] = await Promise.all([
+    const [suggestions, requests, teamContacts, overlaps] = await Promise.all([
       deps.db
         .select({
           id: inboundSuggestions.id,
@@ -545,6 +596,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             isNull(contacts.deletedAt),
           ),
         ),
+      contactOverlapInbox(deps, orgId, c.get("user").id),
     ]);
     return c.json({
       suggestions: suggestions.map((row) =>
@@ -572,7 +624,30 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           : row,
       ),
       requests,
+      overlaps,
     });
+  });
+  app.post("/v1/org/overlap-alerts/dismiss", async (c) => {
+    const parsed = z
+      .object({ contactId: uuid, otherContactId: uuid })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "Invalid contacts" }, 400);
+    const orgId = c.get("org").id;
+    const userId = c.get("user").id;
+    const alerts = await contactOverlapInbox(deps, orgId, userId, true);
+    if (
+      !alerts.some(
+        (alert) =>
+          alert.contactId === parsed.data.contactId &&
+          alert.otherContactId === parsed.data.otherContactId,
+      )
+    )
+      return c.json({ error: "Matching contact not found" }, 404);
+    await deps.db
+      .insert(contactOverlapDismissals)
+      .values({ userId, ...parsed.data })
+      .onConflictDoNothing();
+    return c.json({ ok: true });
   });
   app.post("/v1/org/email-suggestions/:id/accept", async (c) => {
     const suggestionId = uuid.safeParse(c.req.param("id"));
@@ -696,8 +771,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .where(
         and(eq(contacts.id, contactId.data), eq(contacts.orgId, orgId), isNull(contacts.deletedAt)),
       );
-    if (!source || ["ikke_kontaktet", "duplicate"].includes(source.contact.status))
-      return c.json([]);
+    if (!source || source.contact.status === "duplicate") return c.json([]);
     const others = await deps.db
       .select({
         contact: contacts,
@@ -713,7 +787,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         and(
           eq(organizations.classId, source.classId),
           ne(contacts.orgId, orgId),
-          ne(contacts.status, "ikke_kontaktet"),
           ne(contacts.status, "duplicate"),
           isNull(contacts.deletedAt),
         ),
@@ -789,8 +862,8 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       !other ||
       own.classId !== other.classId ||
       own.contact.orgId === other.contact.orgId ||
-      ["ikke_kontaktet", "duplicate"].includes(own.contact.status) ||
-      ["ikke_kontaktet", "duplicate"].includes(other.contact.status) ||
+      own.contact.status === "duplicate" ||
+      other.contact.status === "duplicate" ||
       !contactsOverlap(
         { ...own.contact, companyName: own.companyName },
         { ...other.contact, companyName: other.companyName },
@@ -862,11 +935,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
       .innerJoin(companies, eq(companies.id, contacts.companyId))
       .where(and(eq(contacts.id, contactId.data), isNull(contacts.deletedAt)));
-    if (
-      !target ||
-      target.contact.orgId === orgId ||
-      ["ikke_kontaktet", "duplicate"].includes(target.contact.status)
-    )
+    if (!target || target.contact.orgId === orgId || target.contact.status === "duplicate")
       return c.json({ error: "Log not found" }, 404);
     const [requesterTeam] = await deps.db
       .select({ classId: organizations.classId })
@@ -881,7 +950,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .where(
         and(
           eq(contacts.orgId, orgId),
-          ne(contacts.status, "ikke_kontaktet"),
           ne(contacts.status, "duplicate"),
           isNull(contacts.deletedAt),
         ),

@@ -54,6 +54,8 @@ export function keysForTeamChange(change: TeamChange, teamId: string): QueryKey[
   )
     keys.push(["contact-data", teamId, "activities"]);
   if (change.entity === "contacts") keys.push(["duplicates", teamId]);
+  if (change.entity === "contacts" || change.entity === "companies")
+    keys.push(["inbox", teamId], ["overlap", teamId]);
   if (change.entity === "contacts" || change.entity === "contact_activities")
     keys.push(["library", teamId], ["semantic-search", teamId], ["group-ai", teamId]);
   if (change.entity === "library_items") keys.push(["library", teamId]);

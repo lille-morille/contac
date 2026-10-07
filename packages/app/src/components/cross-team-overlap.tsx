@@ -75,10 +75,10 @@ export function CrossTeamOverlap({
     <Card className="p-4">
       <div className="flex items-center gap-2">
         <Users size={16} className="text-primary" />
-        <h2 className="font-semibold">Også kontaktet av andre team</h2>
+        <h2 className="font-semibold">Også registrert hos andre team</h2>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Kontaktloggene deres er skjult til du får lesetilgang.
+        Se status hos andre team og åpne kontaktloggen for mer informasjon.
       </p>
       <div className="mt-3 space-y-3">
         {overlap.data.map((item) => (
