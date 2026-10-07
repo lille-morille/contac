@@ -145,6 +145,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         companyDomainRows,
         tagRows,
         contactRows,
+        creatorRows,
         contactTagRows,
         additionalInfoRows,
         memberRows,
@@ -170,6 +171,15 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(contacts)
           .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
           .orderBy(desc(contacts.updatedAt)),
+        deps.db
+          .selectDistinct({
+            userId: profiles.id,
+            name: profiles.fullName,
+            avatarPath: profiles.avatarPath,
+          })
+          .from(contacts)
+          .innerJoin(profiles, eq(profiles.id, contacts.createdBy))
+          .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
         deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
         deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
         deps.db
@@ -189,6 +199,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         companyDomains: companyDomainRows,
         personTags: tagRows,
         contacts: contactRows,
+        contactCreators: creatorRows,
         contactPersonTags: contactTagRows,
         additionalInfo: additionalInfoRows,
         members: memberRows,
@@ -261,6 +272,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       companyDomainRows,
       tagRows,
       contactRows,
+      creatorRows,
       contactTagRows,
       activityRows,
       activityContactRows,
@@ -291,6 +303,15 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .from(contacts)
         .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
         .orderBy(desc(contacts.updatedAt)),
+      deps.db
+        .selectDistinct({
+          userId: profiles.id,
+          name: profiles.fullName,
+          avatarPath: profiles.avatarPath,
+        })
+        .from(contacts)
+        .innerJoin(profiles, eq(profiles.id, contacts.createdBy))
+        .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
       deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
       deps.db
         .select()
@@ -351,6 +372,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       companyDomains: companyDomainRows,
       personTags: tagRows,
       contacts: contactRows,
+      contactCreators: creatorRows,
       contactPersonTags: contactTagRows,
       activities: activityRows,
       activityContacts: activityContactRows,
