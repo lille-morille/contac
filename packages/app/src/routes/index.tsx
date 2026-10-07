@@ -48,6 +48,7 @@ import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/r
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -824,6 +825,7 @@ function Home() {
         shortcutChooser ||
         contactMenu ||
         inboxOpen ||
+        document.querySelector("[data-activity-quote-action]") ||
         document.querySelector('[role="dialog"], [role="menu"]')
       )
         return;
@@ -1525,6 +1527,7 @@ function Home() {
       if (
         target?.isContentEditable ||
         target?.closest('input, textarea, select, [contenteditable], [role="combobox"]') ||
+        document.querySelector("[data-activity-quote-action]") ||
         document.querySelector('[role="dialog"], [role="menu"]') ||
         commandOpen ||
         createOpen ||
@@ -3859,27 +3862,45 @@ function InlineText({
   const [draft, setDraft] = useState(value ?? "");
   const [focused, setFocused] = useState(false);
   const base = useRef(value);
+  const counterId = useId();
+  const overLimit = maxLength !== undefined && draft.length > maxLength;
   useEffect(() => {
-    if (!focused) setDraft(value ?? "");
-  }, [value, focused]);
+    if (!focused && !overLimit) setDraft(value ?? "");
+  }, [value, focused, overLimit]);
   return (
-    <Input
-      value={draft}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      maxLength={maxLength}
-      className={`border-transparent bg-transparent hover:bg-card focus:bg-card ${className}`}
-      onFocus={() => {
-        base.current = value;
-        setFocused(true);
-      }}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={(e) => {
-        setFocused(false);
-        if (!disabled && e.target.value !== (base.current ?? ""))
-          onSave(e.target.value, base.current);
-      }}
-    />
+    <div>
+      <Input
+        value={draft}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-describedby={maxLength === undefined ? undefined : counterId}
+        aria-invalid={overLimit || undefined}
+        className={`border-transparent bg-transparent hover:bg-card focus:bg-card ${className}`}
+        onFocus={() => {
+          base.current = value;
+          setFocused(true);
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={(e) => {
+          setFocused(false);
+          if (
+            !disabled &&
+            (maxLength === undefined || e.target.value.length <= maxLength) &&
+            e.target.value !== (base.current ?? "")
+          )
+            onSave(e.target.value, base.current);
+        }}
+      />
+      {maxLength !== undefined && (
+        <p
+          id={counterId}
+          className={`px-1 text-right text-xs ${overLimit ? "text-destructive" : "text-muted-foreground"}`}
+          aria-live={overLimit ? "polite" : "off"}
+        >
+          {draft.length}/{maxLength} tegn{overLimit ? " · Kort ned før du lagrer" : ""}
+        </p>
+      )}
+    </div>
   );
 }
 const detailFieldClass =
@@ -4815,9 +4836,12 @@ function ContactDetail({
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [expandedActivityIds, setExpandedActivityIds] = useState<string[]>([]);
-  const [selectedQuote, setSelectedQuote] = useState<{ activityId: string; quote: string } | null>(
-    null,
-  );
+  const [selectedQuote, setSelectedQuote] = useState<{
+    activityId: string;
+    quote: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const duplicates = useQuery({
     queryKey: ["duplicates", state.org?.id, c?.id, c?.updatedAt],
     queryFn: () => request<Contact[]>(`/org/contacts/${c!.id}/duplicates`, state.org!.id),
@@ -4831,6 +4855,31 @@ function ContactDetail({
     refetchInterval: 60_000,
   });
   const contactId = c?.id;
+  useEffect(() => setSelectedQuote(null), [contactId]);
+  useEffect(() => {
+    if (!selectedQuote) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest("[data-activity-quote-action]")
+      )
+        setSelectedQuote(null);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedQuote(null);
+    };
+    const dismiss = () => setSelectedQuote(null);
+    document.addEventListener("pointerdown", dismissOutside);
+    window.addEventListener("keydown", dismissOnEscape);
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      window.removeEventListener("keydown", dismissOnEscape);
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [selectedQuote]);
   useEffect(() => {
     if (!focusedActivityId || !contactId) return;
     const timer = window.setTimeout(() => {
@@ -4910,19 +4959,50 @@ function ContactDetail({
         .map((link) => data.contacts.find((contact) => contact.id === link.contactId)?.name)
         .filter((name): name is string => !!name)
     : [];
-  const captureActivityQuote = (element: HTMLElement, activityId: string) => {
+  const captureActivityQuote = (
+    element: HTMLElement,
+    activityId: string,
+    point?: { x: number; y: number },
+  ) => {
+    if (c.status === "duplicate") return;
+    const field = element.querySelector("textarea");
+    const fieldQuote =
+      field && element.contains(document.activeElement)
+        ? field.value.slice(field.selectionStart, field.selectionEnd).trim()
+        : "";
     const selection = window.getSelection();
-    const quote = selection?.toString().trim() ?? "";
-    if (
-      !quote ||
-      !element.contains(selection?.anchorNode ?? null) ||
-      !element.contains(selection?.focusNode ?? null)
-    ) {
+    const domQuote =
+      element.contains(selection?.anchorNode ?? null) &&
+      element.contains(selection?.focusNode ?? null)
+        ? (selection?.toString().trim() ?? "")
+        : "";
+    const quote = element.hasAttribute("data-activity-preview")
+      ? domQuote.replace(/…$/, "").trimEnd()
+      : fieldQuote || domQuote;
+    if (!quote) {
       setSelectedQuote(null);
       return;
     }
-    setSelectedQuote({ activityId, quote });
+    const rect =
+      field?.getBoundingClientRect() ??
+      (selection && selection.rangeCount > 0
+        ? selection.getRangeAt(0).getBoundingClientRect()
+        : null);
+    const x = point?.x ?? (rect ? rect.left + Math.min(rect.width / 2, 120) : 0);
+    const y = point?.y ?? (rect ? rect.top + 24 : 0);
+    const horizontalMargin = Math.min(105, window.innerWidth / 2);
+    setSelectedQuote({
+      activityId,
+      quote,
+      x: Math.max(horizontalMargin, Math.min(window.innerWidth - horizontalMargin, x)),
+      y: Math.max(12, Math.min(window.innerHeight - 12, y)),
+    });
   };
+  const captureTouchQuote = (
+    element: HTMLElement,
+    activityId: string,
+    point?: { x: number; y: number },
+  ) => window.setTimeout(() => captureActivityQuote(element, activityId, point), 50);
   return (
     <>
       <Button variant="ghost" size="sm" onClick={onBack}>
@@ -5299,13 +5379,32 @@ function ContactDetail({
                         ) : null;
                       })()}
                     {longActivity && !expanded && (
-                      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                      <p
+                        data-activity-preview
+                        className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+                        onMouseUp={(event) =>
+                          captureActivityQuote(event.currentTarget, a.id, {
+                            x: event.clientX,
+                            y: event.clientY,
+                          })
+                        }
+                        onTouchEnd={(event) => {
+                          const touch = event.changedTouches.item(0);
+                          captureTouchQuote(
+                            event.currentTarget,
+                            a.id,
+                            touch ? { x: touch.clientX, y: touch.clientY } : undefined,
+                          );
+                        }}
+                      >
                         {[a.summary, a.transcript]
                           .filter(Boolean)
-                          .join("\n\n")
+                          .join("\n")
                           .slice(0, 220)
                           .trimEnd()}
-                        …
+                        <span aria-hidden="true" className="select-none">
+                          …
+                        </span>
                       </p>
                     )}
                     {longActivity && !editing && focusedActivityId !== a.id && (
@@ -5328,11 +5427,26 @@ function ContactDetail({
                     <div id={`activity-content-${a.id}`} hidden={longActivity && !expanded}>
                       <div
                         onMouseUp={(event) =>
-                          !editing && captureActivityQuote(event.currentTarget, a.id)
+                          captureActivityQuote(event.currentTarget, a.id, {
+                            x: event.clientX,
+                            y: event.clientY,
+                          })
                         }
-                        onTouchEnd={(event) =>
-                          !editing && captureActivityQuote(event.currentTarget, a.id)
-                        }
+                        onTouchEnd={(event) => {
+                          const touch = event.changedTouches.item(0);
+                          captureTouchQuote(
+                            event.currentTarget,
+                            a.id,
+                            touch ? { x: touch.clientX, y: touch.clientY } : undefined,
+                          );
+                        }}
+                        onKeyUp={(event) => {
+                          if (
+                            event.shiftKey ||
+                            ((event.ctrlKey || event.metaKey) && event.key === "a")
+                          )
+                            captureActivityQuote(event.currentTarget, a.id);
+                        }}
                       >
                         <LiveText
                           kind="summary"
@@ -5347,47 +5461,33 @@ function ContactDetail({
                               ? "mt-3 min-h-20"
                               : "mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
                           }
-                          onSelect={(event) => {
-                            const field = event.currentTarget;
-                            const quote = field.value
-                              .slice(field.selectionStart, field.selectionEnd)
-                              .trim();
-                            setSelectedQuote(quote ? { activityId: a.id, quote } : null);
-                          }}
                         />
                       </div>
-                      {selectedQuote?.activityId === a.id && (
-                        <Button
-                          className="mt-2"
-                          size="sm"
-                          variant="secondary"
-                          onClick={async () => {
-                            try {
-                              await mutate("/library", {
-                                sourceKind: "activity",
-                                contactId: c.id,
-                                activityId: a.id,
-                                quote: selectedQuote.quote,
-                              });
-                              setSelectedQuote(null);
-                            } catch {
-                              // The page-level mutation displays the error.
-                            }
-                          }}
-                        >
-                          <BookOpen size={14} /> Legg til i sitater
-                        </Button>
-                      )}
                       {a.kind !== "missed_phone" && (editing || !!a.transcript) && (
                         <section className="mt-3">
                           <h4 className="text-sm font-medium">Transkripsjon</h4>
                           <div
                             onMouseUp={(event) =>
-                              !editing && captureActivityQuote(event.currentTarget, a.id)
+                              captureActivityQuote(event.currentTarget, a.id, {
+                                x: event.clientX,
+                                y: event.clientY,
+                              })
                             }
-                            onTouchEnd={(event) =>
-                              !editing && captureActivityQuote(event.currentTarget, a.id)
-                            }
+                            onTouchEnd={(event) => {
+                              const touch = event.changedTouches.item(0);
+                              captureTouchQuote(
+                                event.currentTarget,
+                                a.id,
+                                touch ? { x: touch.clientX, y: touch.clientY } : undefined,
+                              );
+                            }}
+                            onKeyUp={(event) => {
+                              if (
+                                event.shiftKey ||
+                                ((event.ctrlKey || event.metaKey) && event.key === "a")
+                              )
+                                captureActivityQuote(event.currentTarget, a.id);
+                            }}
                           >
                             <LiveText
                               kind="transcript"
@@ -5402,13 +5502,6 @@ function ContactDetail({
                                   ? "mt-2 min-h-40"
                                   : "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
                               }
-                              onSelect={(event) => {
-                                const field = event.currentTarget;
-                                const quote = field.value
-                                  .slice(field.selectionStart, field.selectionEnd)
-                                  .trim();
-                                setSelectedQuote(quote ? { activityId: a.id, quote } : null);
-                              }}
                             />
                           </div>
                         </section>
@@ -5612,6 +5705,42 @@ function ContactDetail({
         </aside>
       </div>
       <div className="h-[65vh] min-h-[28rem]" aria-hidden="true" />
+      {selectedQuote &&
+        createPortal(
+          <div
+            data-activity-quote-action
+            role="toolbar"
+            aria-label="Sitat fra aktivitet"
+            className="glass-strong fixed z-[80] rounded-xl border border-border p-1 shadow-lg"
+            style={{
+              left: selectedQuote.x,
+              top: selectedQuote.y < 60 ? selectedQuote.y + 12 : selectedQuote.y - 10,
+              transform: selectedQuote.y < 60 ? "translateX(-50%)" : "translate(-50%, -100%)",
+            }}
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={async () => {
+                try {
+                  await mutate("/library", {
+                    sourceKind: "activity",
+                    contactId: c.id,
+                    activityId: selectedQuote.activityId,
+                    quote: selectedQuote.quote,
+                  });
+                  setSelectedQuote(null);
+                } catch {
+                  // The page-level mutation displays the error; keep the action available.
+                }
+              }}
+            >
+              <BookOpen size={14} /> Legg til i sitater
+            </Button>
+          </div>,
+          document.body,
+        )}
       <Dialog open={!!compare} onOpenChange={(open) => !open && setCompare(null)}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
           <DialogTitle>Sammenlign kontakter</DialogTitle>

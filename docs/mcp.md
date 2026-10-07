@@ -91,17 +91,29 @@ before it queries or writes data.
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | Short-lived download URL for a team activity attachment |
 | `create_contact` | Create one evidence-based contact with an organization and optional separate Markdown information |
+| `update_contact` | Change an active contact's editable fields, tags, shared note, or an existing additional-information entry |
 | `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result per input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
 
-The agent cannot edit or delete existing contacts or activities, change status
-or assignment, edit shared notes or settings, or read personal reminders, inbox
-suggestions, AI credentials, or another team's data. Duplicate contacts are
+The agent cannot delete contacts, edit or delete activities, change team settings,
+or read personal reminders, inbox suggestions, AI credentials, or another team's data. Duplicate contacts are
 excluded from ordinary reads. `create_contact` and `batch_create_contacts`
 check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed
 when other items fail. Search existing contacts first.
+
+For `update_contact`, read the contact with `get_contact` and pass its
+`contact.updatedAt` as `expectedUpdatedAt`. If another edit happened meanwhile,
+the tool rejects the update; read the latest contact and retry. Omit fields that
+should stay unchanged. `tagIds` replaces the complete tag set. To edit an
+existing `additionalInfo` entry, pass its `entryId`, current `expectedMarkdown`,
+and replacement `markdown`.
+The normal seven statuses are accepted; `duplicate` requires the separate
+confirmed duplicate flow. The first change from `ikke_kontaktet` assigns an
+unassigned contact to the acting user, as in the workspace. Organization,
+assignee, and tag IDs must belong to the connected team. Shared-note changes
+also reset the live collaborative note so open editors receive the new text.
 
 For both creation tools, `description` (`Kort beskrivelse`) is a concise,
 evidence-based Norwegian phrase about the person's role or relevant context,
@@ -114,7 +126,6 @@ longer research in `additionalInfo` instead.
 members. It is included in the owning team's local search and `get_contact`,
 but excluded from built-in AI and deterministic YAML export. Keep it factual
 and separate from the team's shared note.
-
 Use it for relevant background beyond `Kort beskrivelse`, a natural way to
 start a conversation, and two to four specific questions the team could ask
 the person. Mark questions or hypotheses as suggestions and distinguish them

@@ -79,7 +79,10 @@ const contactPatch = z.object({
   allowExternalAi: z.boolean().optional(),
 });
 const guardedContactPatch = contactPatch.extend({
-  expected: contactPatch.extend({ stikkord: z.string().max(20000).nullable().optional() }),
+  expected: contactPatch.extend({
+    description: z.string().nullable().optional(),
+    stikkord: z.string().max(20000).nullable().optional(),
+  }),
 });
 const contactScalarColumns = {
   name: contacts.name,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { organizations } from "@contac/core/db";
+import { contacts, organizations } from "@contac/core/db";
 import { makeServer, registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
@@ -83,6 +83,7 @@ describe("personal MCP team boundary", () => {
       "list_activities",
       "get_attachment_link",
       "create_contact",
+      "update_contact",
       "batch_create_contacts",
       "add_activity",
     ]) {
@@ -124,5 +125,87 @@ describe("personal MCP team boundary", () => {
     ]);
     expect(writes).toBe(1);
     expect(tables).toEqual([]);
+  });
+
+  it("rejects a wrong team and an invalid status before an update transaction", async () => {
+    const { deps } = fakeDeps();
+    let transactions = 0;
+    Object.assign(deps.db, {
+      transaction: async () => {
+        transactions++;
+      },
+    });
+    const input = {
+      expectedTeamId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      contactId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      expectedUpdatedAt: "2026-10-06T10:00:00.000Z",
+      status: "skal_ringe",
+    };
+    expect(await (await toolRequest(deps, "update_contact", input)).text()).toContain(
+      "team ID does not match",
+    );
+    expect(
+      await (
+        await toolRequest(deps, "update_contact", {
+          ...input,
+          expectedTeamId: teamId,
+          status: "duplicate",
+        })
+      ).text(),
+    ).toContain("status");
+    expect(transactions).toBe(0);
+  });
+
+  it("assigns the acting user on the first status change and rejects stale edits", async () => {
+    const { deps } = fakeDeps();
+    const contactId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const original = {
+      id: contactId,
+      orgId: teamId,
+      status: "ikke_kontaktet",
+      assigneeId: null,
+      updatedAt: new Date("2026-10-06T10:00:00.000Z"),
+      allowExternalAi: false,
+      deletedAt: null,
+    };
+    let saved: Record<string, unknown> | null = null;
+    let writes = 0;
+    const mockTx = {
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => ({ for: async () => (table === contacts ? [original] : []) }),
+        }),
+      }),
+      update: () => ({
+        set: (changes: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              writes++;
+              saved = changes;
+              return [{ ...original, ...changes }];
+            },
+          }),
+        }),
+      }),
+    };
+    Object.assign(deps.db, {
+      transaction: async (fn: (transaction: typeof mockTx) => unknown) => fn(mockTx),
+    });
+    const input = {
+      expectedTeamId: teamId,
+      contactId,
+      expectedUpdatedAt: original.updatedAt.toISOString(),
+      status: "skal_ringe",
+    };
+    const response = await toolRequest(deps, "update_contact", input);
+    expect(await response.text()).toContain("skal_ringe");
+    expect(saved).toMatchObject({ status: "skal_ringe", assigneeId: userId });
+    expect(writes).toBe(1);
+    const stale = await toolRequest(deps, "update_contact", {
+      ...input,
+      expectedUpdatedAt: "2026-10-06T09:00:00.000Z",
+    });
+    expect(await stale.text()).toContain("Contact changed since it was read");
+    expect(writes).toBe(1);
   });
 });

@@ -2,11 +2,13 @@ import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
 import {
   activityContacts,
   activityFiles,
+  aiEditLog,
   companies,
   companyDomains,
   contactActivities,
   contactAdditionalInfo,
   contactPersonTags,
+  collabDocuments,
   contacts,
   domainTags,
   emailActivities,
@@ -19,9 +21,10 @@ import {
   workspaceFiles,
 } from "@contac/core/db";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import * as Y from "yjs";
 import { runContactAutomations } from "./ai.ts";
 import {
   authorizeMcpOauth,
@@ -91,6 +94,37 @@ const batchContactInput = contactCreateFields.refine(
   hasOrganization,
   "Company ID or name is required",
 );
+const contactUpdateInput = z
+  .object({
+    expectedTeamId: uuid,
+    contactId: uuid,
+    expectedUpdatedAt: z.iso.datetime(),
+    name: z.string().trim().min(1).max(200).optional(),
+    companyId: uuid.optional(),
+    email: z.union([z.email(), z.literal(""), z.null()]).optional(),
+    phone: z.string().trim().max(200).nullable().optional(),
+    description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
+    stikkord: z.string().trim().max(300).nullable().optional(),
+    status: contactStatus.optional(),
+    assigneeId: uuid.nullable().optional(),
+    allowExternalAi: z.boolean().optional(),
+    tagIds: z.array(uuid).max(30).optional(),
+    sharedNote: z.string().max(50000).optional(),
+    additionalInfo: z
+      .object({
+        entryId: uuid,
+        expectedMarkdown: z.string(),
+        markdown: z.string().trim().min(1).max(20000),
+      })
+      .optional(),
+  })
+  .refine(
+    (input) =>
+      Object.keys(input).some(
+        (key) => !["expectedTeamId", "contactId", "expectedUpdatedAt"].includes(key),
+      ),
+    "Provide at least one contact field to change",
+  );
 const result = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
 });
@@ -576,6 +610,180 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         queueMicrotask(() => {
           void runContactAutomations(deps, orgId, [outcome.contact.id], ["hierarchy"]);
         });
+      return result(outcome.contact);
+    },
+  );
+
+  server.registerTool(
+    "update_contact",
+    {
+      description:
+        "Update editable fields of an active contact in this team. Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. tagIds replaces the full tag set. additionalInfo edits an existing entry using entryId, expectedMarkdown, and replacement markdown. Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.",
+      inputSchema: contactUpdateInput,
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async (input) => {
+      if (!correctTeam(input.expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      const outcome = await deps.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(contacts)
+          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, input.contactId)))
+          .for("update");
+        if (!current || current.status === "duplicate" || current.deletedAt)
+          return { error: "Active contact not found in this team" };
+        if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
+          return { error: "Contact changed since it was read. Call get_contact and retry." };
+        if (input.companyId) {
+          const [company] = await tx
+            .select({ id: companies.id })
+            .from(companies)
+            .where(and(eq(companies.orgId, orgId), eq(companies.id, input.companyId)));
+          if (!company) return { error: "Organization not found in this team" };
+        }
+        if (input.assigneeId) {
+          const [member] = await tx
+            .select({ id: memberships.id })
+            .from(memberships)
+            .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, input.assigneeId)));
+          if (!member) return { error: "Assignee must be a team member" };
+        }
+        const tagIds = input.tagIds && [...new Set(input.tagIds)];
+        if (tagIds?.length) {
+          const valid = await tx
+            .select({ id: personTags.id })
+            .from(personTags)
+            .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, tagIds)));
+          if (valid.length !== tagIds.length)
+            return { error: "A tag does not belong to this team" };
+        }
+        if (input.additionalInfo) {
+          const [entry] = await tx
+            .select({ markdown: contactAdditionalInfo.markdown })
+            .from(contactAdditionalInfo)
+            .where(
+              and(
+                eq(contactAdditionalInfo.orgId, orgId),
+                eq(contactAdditionalInfo.contactId, input.contactId),
+                eq(contactAdditionalInfo.id, input.additionalInfo.entryId),
+              ),
+            )
+            .for("update");
+          if (!entry) return { error: "Additional information entry not found on this contact" };
+          if (entry.markdown !== input.additionalInfo.expectedMarkdown)
+            return {
+              error:
+                "Additional information changed since it was read. Call get_contact and retry.",
+            };
+        }
+        const nextStatus = input.status ?? current.status;
+        const firstAssignment =
+          current.status === "ikke_kontaktet" &&
+          nextStatus !== "ikke_kontaktet" &&
+          !current.assigneeId;
+        const {
+          expectedTeamId: _expectedTeamId,
+          contactId,
+          expectedUpdatedAt: _expectedUpdatedAt,
+          tagIds: _tags,
+          sharedNote,
+          additionalInfo,
+          ...changes
+        } = input;
+        const now = new Date();
+        const [contact] = await tx
+          .update(contacts)
+          .set({
+            ...changes,
+            ...(changes.name ? { normalizedName: normalize(changes.name) } : {}),
+            ...(changes.email !== undefined ? { email: changes.email?.toLowerCase() || null } : {}),
+            ...(changes.phone !== undefined ? { phoneNormalized: phoneKey(changes.phone) } : {}),
+            ...(changes.stikkord !== undefined
+              ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
+              : {}),
+            ...(firstAssignment ? { assigneeId: createdBy } : {}),
+            ...(sharedNote !== undefined ? { sharedNote, sharedNoteSavedAt: now } : {}),
+            updatedAt: now,
+          })
+          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
+          .returning();
+        if (tagIds) {
+          await tx
+            .delete(contactPersonTags)
+            .where(
+              and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId)),
+            );
+          if (tagIds.length)
+            await tx
+              .insert(contactPersonTags)
+              .values(tagIds.map((tagId) => ({ orgId, contactId, tagId })));
+        }
+        if (additionalInfo)
+          await tx
+            .update(contactAdditionalInfo)
+            .set({ markdown: additionalInfo.markdown, updatedAt: now })
+            .where(
+              and(
+                eq(contactAdditionalInfo.orgId, orgId),
+                eq(contactAdditionalInfo.contactId, contactId),
+                eq(contactAdditionalInfo.id, additionalInfo.entryId),
+              ),
+            );
+        if (sharedNote !== undefined) {
+          const doc = new Y.Doc();
+          if (sharedNote) doc.getText("content").insert(0, sharedNote);
+          const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
+          doc.destroy();
+          const [document] = await tx
+            .insert(collabDocuments)
+            .values({
+              orgId,
+              kind: "note",
+              entityId: contactId,
+              stateBase64,
+              materializedText: sharedNote,
+            })
+            .onConflictDoUpdate({
+              target: [collabDocuments.orgId, collabDocuments.kind, collabDocuments.entityId],
+              set: {
+                stateBase64,
+                materializedText: sharedNote,
+                version: sql`${collabDocuments.version} + 1`,
+                updatedAt: now,
+              },
+            })
+            .returning({ version: collabDocuments.version });
+          await tx.execute(sql`SELECT realtime.send(
+            ${JSON.stringify({ teamId: orgId, kind: "note", id: contactId, version: document.version })}::jsonb,
+            'reset', ${`doc:${orgId}:note:${contactId}`}, true
+          )`);
+        }
+        if (
+          changes.allowExternalAi !== undefined &&
+          changes.allowExternalAi !== current.allowExternalAi
+        )
+          await tx.insert(aiEditLog).values({
+            orgId,
+            contactId,
+            feature: "ai_permission",
+            before: { allowExternalAi: current.allowExternalAi },
+            after: { allowExternalAi: contact.allowExternalAi },
+            appliedBy: createdBy,
+          });
+        return { contact, previousAllowExternalAi: current.allowExternalAi };
+      });
+      if (!outcome.contact) return failed(outcome.error ?? "Could not update contact");
+      if (input.allowExternalAi === true && !outcome.previousAllowExternalAi)
+        queueMicrotask(() => void runContactAutomations(deps, orgId, [input.contactId]));
+      else if (
+        outcome.contact.allowExternalAi &&
+        ["name", "companyId", "description"].some((key) => key in input)
+      )
+        queueMicrotask(
+          () => void runContactAutomations(deps, orgId, [input.contactId], ["hierarchy"]),
+        );
       return result(outcome.contact);
     },
   );
