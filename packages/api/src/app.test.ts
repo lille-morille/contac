@@ -39,6 +39,9 @@ describe("API access boundary", () => {
     expect(
       (await app.request("/v1/me", { headers: { Authorization: "Bearer invalid" } })).status,
     ).toBe(401);
+    for (const path of ["report-template.zip", "contact-log.typ", "signed-lois.zip"]) {
+      expect((await app.request(`/v1/org/export/${path}`)).status).toBe(401);
+    }
   });
   it("rejects a user who is not a member of the requested organization", async () => {
     const app = createApp(deps(true), "http://localhost:3000");
@@ -50,5 +53,14 @@ describe("API access boundary", () => {
       },
     });
     expect(res.status).toBe(403);
+    for (const path of ["report-template.zip", "contact-log.typ", "signed-lois.zip"]) {
+      const response = await app.request(`/v1/org/export/${path}`, {
+        headers: {
+          Authorization: `Bearer ${browserToken}`,
+          "x-org-id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+      });
+      expect(response.status).toBe(403);
+    }
   });
 });

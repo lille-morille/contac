@@ -1,0 +1,14 @@
+# Forside: Inkluder gruppenummer, deltakere på gruppen, casenavn, syretest nr x,
+# dato/mnd/år for gjennomføring.
+language: nb
+case_name: "[Casenavn]"
+study_number: "[x]"
+group: "[x]"
+course:
+  code: "TIØ4331"
+  name: "Entreprenørielle muligheter og markedsundersøkelser"
+authors:
+  - name: "[Navn]"
+    title: "[Rolle]"
+# Set false before submission to hide all guidance and writing placeholders.
+show_guidance: true

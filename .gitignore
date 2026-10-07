@@ -8,3 +8,4 @@ supabase/.temp/
 supabase/.profiles/
 *.tsbuildinfo
 .DS_Store
+output/

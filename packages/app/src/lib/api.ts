@@ -33,14 +33,22 @@ export async function request<T>(path: string, orgId?: string, body?: unknown): 
   return response.json() as Promise<T>;
 }
 
-export async function downloadOrgFile(orgId: string, path: string, filename: string) {
+export async function downloadOrgFile(
+  orgId: string,
+  path: string,
+  filename: string,
+  body?: unknown,
+) {
   const { data } = await getSupabase().auth.getSession();
   if (!data.session) throw new Error("Logg inn før nedlasting");
   const response = await fetch(`${env.apiUrl}/v1${path}`, {
+    method: body === undefined ? "GET" : "POST",
     headers: {
       Authorization: `Bearer ${data.session.access_token}`,
       "x-org-id": orgId,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: string };

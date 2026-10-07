@@ -1,0 +1,14 @@
+# Front Page: Include group number, group members, case name, feasibility study no. x,
+# and date/month/year of completion.
+language: en
+case_name: "[Case name]"
+study_number: "[x]"
+group: "[x]"
+course:
+  code: "TIØ4331"
+  name: "Entreprenørielle muligheter og markedsundersøkelser"
+authors:
+  - name: "[Name]"
+    title: "[Role]"
+# Set false before submission to hide all guidance and writing placeholders.
+show_guidance: true

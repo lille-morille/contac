@@ -1,3 +1,5 @@
+import { ReportTemplateDownload } from "./report-template-download.tsx";
+import { useOrg } from "../lib/org.tsx";
 import {
   reportColumnIds,
   reportColumnLabels,
@@ -149,6 +151,7 @@ function PreviewTable({
 }
 
 export function ExportPage({ orgId }: { orgId: string }) {
+  const { org } = useOrg();
   const workspace = useQuery({
     queryKey: ["report-workspace", orgId],
     queryFn: () => request<ExportWorkspace>("/org/export/workspace", orgId),
@@ -705,20 +708,22 @@ export function ExportPage({ orgId }: { orgId: string }) {
       <Card className="space-y-3 p-5">
         <h2 className="font-semibold">Rapportverktøy</h2>
         <p className="text-sm text-muted-foreground">
-          Typst-sitater bruker permanente kontaktnumre, for eksempel <code>#cite-contact(12)</code>.
+          Last ned en mal, og erstatt <code>kontaktlogg.typ</code> med Typst-eksporten ovenfor.
+          Sitater bruker permanente kontaktnumre, for eksempel <code>#cite-contact(12)</code>. Pakk
+          ut signerte LOI-er i prosjektmappen for å legge alle sider til som vedlegg.
         </p>
         <div className="flex flex-wrap gap-2">
+          <ReportTemplateDownload key={orgId} teamId={orgId} teamName={org?.name ?? ""} />
           <Button
             variant="outline"
             onClick={() =>
               void act(
-                () =>
-                  downloadOrgFile(orgId, "/org/export/report-template.zip", "contac-report-v1.zip"),
-                "Rapportmalen er lastet ned.",
+                () => downloadOrgFile(orgId, "/org/export/signed-lois.zip", "signerte-loier.zip"),
+                "Signerte LOI-er er lastet ned.",
               )
             }
           >
-            Last ned Typst-rapportmal
+            Last ned signerte LOI-er
           </Button>
           <Button
             variant="outline"

@@ -1,0 +1,1 @@
+Extract the signed-LOI ZIP here (or into the project root). It includes the manifest. For manually added PDFs, run ../prepare-lois.py from the project root. Do not put unreviewed or unsigned files here.

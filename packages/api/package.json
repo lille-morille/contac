@@ -10,7 +10,8 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch --env-file=../../.env src/server.ts",
-    "start": "bun --env-file=../../.env src/server.ts"
+    "start": "bun --env-file=../../.env src/server.ts",
+    "templates:build": "bun src/build-report-templates.ts"
   },
   "dependencies": {
     "@contac/core": "workspace:*",
@@ -23,6 +24,8 @@
     "jose": "^6.2.3",
     "yaml": "^2.9.1",
     "yjs": "^13.6.33",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "fflate": "^0.8.3",
+    "pdf-lib": "^1.17.1"
   }
 }
