@@ -5,4 +5,22 @@ export { normalizeEmail, emailList, sameEmailSet, contactMatchesEmail } from "./
 export { contactsOverlap, type OverlapContact } from "./contact-overlap.ts";
 export { buildContactExport } from "./contact-export.ts";
 export type { ExportActivity, ExportContact } from "./contact-export.ts";
+export {
+  buildReportData,
+  defaultReportSettings,
+  orderedReportContacts,
+  reportColumnLabels,
+  reportColumnIds,
+  reportFormats,
+  reportSettingsSchema,
+} from "./report-export.ts";
+export type {
+  ReportColumnId,
+  ReportContact,
+  ReportData,
+  ReportEntry,
+  ReportFormat,
+  ReportRow,
+  ReportSettings,
+} from "./report-export.ts";
 export type { InferSelectModel } from "drizzle-orm";

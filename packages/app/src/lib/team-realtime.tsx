@@ -76,6 +76,12 @@ export function keysForTeamChange(change: TeamChange, teamId: string): QueryKey[
   if (change.entity === "loi_settings") keys.push(["loi-settings", teamId]);
   if (change.entity === "ai_suggestions" || change.entity === "ai_edit_log")
     keys.push(["contact-ai", teamId]);
+  if (
+    core.has(change.entity) ||
+    activities.has(change.entity) ||
+    change.entity === "contact_report_settings"
+  )
+    keys.push(["report-workspace", teamId]);
   return keys;
 }
 
@@ -204,6 +210,7 @@ export function TeamRealtimeProvider({ children }: { children: ReactNode }) {
         ["shared-log", teamId],
         ["duplicates", teamId],
         ["email-settings", teamId],
+        ["report-workspace", teamId],
       ])
         enqueue(key);
     };

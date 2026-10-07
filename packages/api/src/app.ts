@@ -26,6 +26,7 @@ import { registerEmailCrossTeamRoutes, registerInboundEmailRoute } from "./email
 import { registerSearchRoutes } from "./search.ts";
 import { registerAiRoutes } from "./ai.ts";
 import { registerContactExportRoutes } from "./contact-export.ts";
+import { registerReportRoutes } from "./report-routes.ts";
 import { registerLoiRoutes } from "./loi.ts";
 import { registerCollabRoutes } from "./collab.ts";
 import { registerMcpRoutes } from "./mcp.ts";
@@ -460,6 +461,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
   registerSearchRoutes(app, deps);
   registerAiRoutes(app, deps);
   registerContactExportRoutes(app, deps);
+  registerReportRoutes(app, deps);
   registerLoiRoutes(app, deps);
   app.get("/v1/org/files", async (c) => {
     const rows = await deps.db
