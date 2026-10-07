@@ -16,7 +16,7 @@ Both were assigned for implementation on 2026-10-05. Follow their progress
 table and complete each change before committing it.
 
 The saved team report export follow-up is in `docs/spec/08-saved-report-export.md`.
-It was reviewed and assigned on 2026-10-07. Its migration is prepared in the PR but must not be applied yet.
+It was reviewed and assigned on 2026-10-07. Migration 0049 was applied to Contac Production on 2026-10-07.
 
 The Økter workflow from chunk 02 has since been retired by spec 06. The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)

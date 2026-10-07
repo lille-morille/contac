@@ -1,6 +1,6 @@
 # 08 — Saved contact-log report export
 
-**Status:** Reviewed and assigned for implementation on 2026-10-07. The database migration is included in the implementation PR but must not be applied yet.
+**Status:** Reviewed and assigned for implementation on 2026-10-07. Migration 0049 was applied to Contac Production on 2026-10-07 and verified in `app_migrations`.
 
 ## Team export workspace
 
