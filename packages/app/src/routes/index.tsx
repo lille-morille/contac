@@ -181,6 +181,7 @@ type Contact = {
   stikkordGeneratedAt: string | null;
   status: Status;
   assigneeId: string | null;
+  createdBy: string;
   duplicateOfId: string | null;
   allowExternalAi: boolean;
   createdAt: string;
@@ -444,6 +445,7 @@ type Data = {
   contactPersonTags: { contactId: string; tagId: string }[];
   additionalInfo: AdditionalInfo[];
   contacts: Contact[];
+  contactCreators: { userId: string; name: string | null; avatarPath: string | null }[];
   activities: Activity[];
   activityContacts: { activityId: string; contactId: string }[];
   activityFiles: ActivityFile[];
@@ -497,6 +499,7 @@ const emptyData: Data = {
   contactPersonTags: [],
   additionalInfo: [],
   contacts: [],
+  contactCreators: [],
   activities: [],
   activityContacts: [],
   activityFiles: [],
@@ -871,6 +874,7 @@ function Home() {
           | "contactPersonTags"
           | "additionalInfo"
           | "contacts"
+          | "contactCreators"
           | "members"
         >
       >("/org/contact-data?part=core", org!.id),
@@ -4917,6 +4921,8 @@ function ContactDetail({
       </div>
     );
   const company = data.companies.find((x) => x.id === c.companyId);
+  const creator = data.contactCreators.find((member) => member.userId === c.createdBy);
+  const creatorName = creator?.name || "Ukjent bruker";
   const personTagIds = data.contactPersonTags
     .filter((tag) => tag.contactId === c.id)
     .map((tag) => tag.tagId);
@@ -5583,6 +5589,18 @@ function ContactDetail({
                   items={assigneeOptions(data.members)}
                   disabled={c.status === "duplicate"}
                 />
+              </ContactDetailField>
+              <ContactDetailField icon={UserRound} label="Opprettet av" compact>
+                <span className="flex min-w-0 items-center gap-2 px-1 text-xs">
+                  <Avatar
+                    name={creatorName}
+                    src={profileAvatarUrl(creator?.avatarPath)}
+                    className="size-5"
+                  />
+                  <span className="truncate" title={creatorName}>
+                    {creatorName}
+                  </span>
+                </span>
               </ContactDetailField>
               <ContactDetailField icon={ShieldCheck} label="Ekstern AI" compact>
                 <label className="flex items-center gap-2 text-xs">
