@@ -8,13 +8,16 @@ checkout_dir="$(mktemp -d)"
 trap 'rm -rf "$checkout_dir"' EXIT
 
 gh repo clone lille-morille/contac "$checkout_dir" -- --branch main --single-branch
+# Remove the dependency symlink included by an earlier snapshot. Rsync excludes
+# protect destination files from --delete, so this tracked link needs removal.
+git -C "$checkout_dir" rm -f --ignore-unmatch packages/mail/node_modules
 rsync -rlt --delete \
   --exclude='.git/' \
   --exclude='.agents/' \
   --exclude='.codex/' \
   --include='.env.example' \
   --exclude='.env*' \
-  --exclude='node_modules/' \
+  --exclude='node_modules' \
   --exclude='dist/' \
   --exclude='*.tsbuildinfo' \
   --exclude='supabase/.temp/' \
