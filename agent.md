@@ -21,8 +21,8 @@ It was reviewed and assigned on 2026-10-07. Migration 0049 was applied to Contac
 The Økter workflow from chunk 02 has since been retired by spec 06. The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.
-The MCP endpoint provides team-scoped reads and three write categories:
-creating contacts (including batches), updating contacts, and adding activities. Agent connections
+The MCP endpoint provides team-scoped reads and writes for contact creation and updates,
+activities, domains, and organization-domain links. Agent connections
 follow the workspace's currently selected team and use personal OAuth. Every data tool requires
 the expected team ID; `get_team_identity` verifies the live connection. Old
 named team tokens have been retired. See [docs/mcp.md](docs/mcp.md).

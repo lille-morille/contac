@@ -86,7 +86,11 @@ before it queries or writes data.
 | `get_team_identity` | Verify the connected team ID and workspace name |
 | `list_contacts` | Paginated active contacts and their fields |
 | `get_contact` | Contact, organization, tags, shared note, separate additional information, activities, email records, transcripts, participants, and attachment metadata |
-| `list_team_reference` | Organizations, domains, and person tags |
+| `list_team_reference` | Organizations (with `domainsRevision`), domains (with `revision`), links, and person tags |
+| `create_domain` | Create or reuse a normalized-name domain in the connected team |
+| `update_domain` | Edit a domain with its expected revision |
+| `set_company_domains` | Atomically replace one organization's complete domain set with its expected revision |
+| `batch_set_company_domains` | Preview or apply up to 100 explicit organization replacements with per-item results |
 | `list_library_items` | Paginated library quotes |
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | Short-lived download URL for a team activity attachment |
@@ -102,6 +106,32 @@ check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed
 when other items fail. Search existing contacts first.
+
+Domain tools use the connected team and require `expectedTeamId`. Read
+`list_team_reference` before editing. `create_domain` accepts `name` and optional
+`description` (1–500 characters) and palette `color`; a duplicate after Unicode
+normalization, case folding, and whitespace normalization returns `reused` and
+does not edit the existing domain. `update_domain` accepts `domainId`,
+`expectedRevision`, and at least one of `name`, `description` (or `null` to
+clear), and `color`. The palette is `blue`, `orange`, `mint`, `pink`, `violet`,
+`coral`, `yellow`, `lime`, `cyan`, and `slate`.
+
+`set_company_domains` accepts `companyId`, the complete `domainIds` array, and
+`expectedRevision` from `companies[].domainsRevision`. An empty array removes
+all domain links. The batch tool accepts `items` with these same three fields
+and optional `dryRun` (default `false`). Each result includes its input index,
+organization ID and name, status, previous named links and revision, and
+resulting named links and revision. Failed or stale items include an error and
+do not change that organization's links; other items continue. A dry run
+returns `wouldChange` and leaves every revision and link unchanged. Read
+`list_team_reference` again after a write to verify the saved result. These
+tools only mutate domains or organization-domain links; contact records and
+person tags are untouched.
+
+To release these tools, apply migration `0050_domain_revisions.sql` with
+`DATABASE_URL=... bun run db:migrate` before deploying the updated API and web
+app. The connected MCP uses the API's `/mcp` endpoint, so there is no separate
+MCP server to deploy; refresh the client's tool catalog after the API rollout.
 
 For `update_contact`, read the contact with `get_contact` and pass its
 `contact.updatedAt` as `expectedUpdatedAt`. If another edit happened meanwhile,

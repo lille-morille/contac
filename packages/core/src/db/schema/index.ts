@@ -263,6 +263,7 @@ export const companies = pgTable(
     loiLogoUrl: text("loi_logo_url"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    domainsRevision: integer("domains_revision").notNull().default(0),
   },
   (table) => [uniqueIndex("companies_org_name_unique").on(table.orgId, table.normalizedName)],
 );
@@ -355,6 +356,7 @@ export const domainTags = pgTable(
       .notNull()
       .default("blue"),
     createdAt: createdAt(),
+    revision: integer("revision").notNull().default(0),
   },
   (table) => [uniqueIndex("domain_tags_org_name_unique").on(table.orgId, table.normalizedName)],
 );
