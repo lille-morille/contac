@@ -604,6 +604,22 @@ export const logAccessRequests = pgTable(
   },
   (table) => [uniqueIndex("log_access_unique").on(table.requesterOrgId, table.ownerContactId)],
 );
+export const contactOverlapDismissals = pgTable(
+  "contact_overlap_dismissals",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    otherContactId: uuid("other_contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.contactId, table.otherContactId] })],
+);
 export const activityFiles = pgTable(
   "activity_files",
   {

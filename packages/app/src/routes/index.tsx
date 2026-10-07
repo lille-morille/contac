@@ -1224,7 +1224,12 @@ function Home() {
       } else if (path.includes("/favorite") || path.startsWith("/reminders"))
         await qc.invalidateQueries({ queryKey: ["contact-data", org.id, "personal"] });
       else await qc.invalidateQueries({ queryKey: ["contact-data", org.id] });
-      if (path.includes("email") || path.includes("reminders"))
+      if (
+        path.includes("email") ||
+        path.includes("reminders") ||
+        path.startsWith("/contacts") ||
+        path.startsWith("/companies")
+      )
         await qc.invalidateQueries({ queryKey: ["inbox", org.id] });
       if (path.startsWith("/library"))
         await qc.invalidateQueries({ queryKey: ["library", org.id] });
@@ -1654,6 +1659,7 @@ function Home() {
   if (!org) return <NoTeam />;
   const inboxCount =
     dueReminders.length +
+    (inboxQuery.data?.overlaps?.length ?? 0) +
     (inboxQuery.data?.suggestions.length ?? 0) +
     (inboxQuery.data?.requests.length ?? 0) +
     (feedbackInboxQuery.data?.length ?? 0) +
@@ -2711,8 +2717,14 @@ function Home() {
               contacts={data.contacts}
               teams={state.organizations}
               onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
+              onOpenContact={(contactId) => {
+                setInboxOpen(false);
+                setPage("contacts");
+                setSelectedId(contactId);
+              }}
             />
             {data.reminders.length === 0 ? (
+              !inboxQuery.data?.overlaps?.length &&
               !inboxQuery.data?.suggestions.length &&
               !inboxQuery.data?.requests.length &&
               !feedbackInboxQuery.data?.length &&
@@ -5662,7 +5674,7 @@ function ContactDetail({
               onEnableNotifications={onEnableNotifications}
             />
           )}
-          {c.status !== "duplicate" && c.status !== "ikke_kontaktet" && (
+          {c.status !== "duplicate" && (
             <CrossTeamOverlap contactId={c.id} updatedAt={c.updatedAt} />
           )}
           {related.length > 0 && (
