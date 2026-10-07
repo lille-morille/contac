@@ -378,7 +378,7 @@ async function ensureDomain(
   if (description)
     await deps.db
       .update(domainTags)
-      .set({ description })
+      .set({ description, revision: sql`${domainTags.revision} + 1` })
       .where(
         and(
           eq(domainTags.orgId, orgId),
@@ -527,6 +527,18 @@ async function applyTagSet(
           .values(unique.map((tagId) => ({ orgId, contactId, tagId })))
           .onConflictDoNothing();
     } else {
+      const [company] = await tx
+        .select({ id: companies.id })
+        .from(companies)
+        .where(and(eq(companies.orgId, orgId), eq(companies.id, targetCompany)))
+        .for("update");
+      if (!company) throw new Error("Organization not found in this team");
+      const fresh = await tx
+        .select({ id: companyDomains.domainId })
+        .from(companyDomains)
+        .where(and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, targetCompany)));
+      if (hash(fresh.map((row) => row.id).sort()) !== hash([...before].sort()))
+        throw new Error("Organization domains changed since they were read");
       if (!merge)
         await tx
           .delete(companyDomains)
@@ -536,6 +548,10 @@ async function applyTagSet(
           .insert(companyDomains)
           .values(unique.map((domainId) => ({ orgId, companyId: targetCompany, domainId })))
           .onConflictDoNothing();
+      await tx
+        .update(companies)
+        .set({ domainsRevision: sql`${companies.domainsRevision} + 1` })
+        .where(and(eq(companies.orgId, orgId), eq(companies.id, targetCompany)));
     }
   });
   const after = merge

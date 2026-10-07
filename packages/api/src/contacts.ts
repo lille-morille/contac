@@ -25,6 +25,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 import { runContactAutomations } from "./ai.ts";
+import { replaceCompanyDomains } from "./domain-management.ts";
 
 const id = z.uuid();
 const status = z.enum([
@@ -513,25 +514,29 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       c,
       z.object({
         description: z.string().trim().min(1).max(500),
-        expected: z.object({ description: z.string().nullable() }),
+        expected: z.object({
+          description: z.string().nullable(),
+          revision: z.number().int().nonnegative(),
+        }),
       }),
     );
     if (!domainId.success || !data) return c.json({ error: "Invalid domain description" }, 400);
     const orgId = c.get("org").id;
     const [updated] = await deps.db
       .update(domainTags)
-      .set({ description: data.description })
+      .set({ description: data.description, revision: sql`${domainTags.revision} + 1` })
       .where(
         and(
           eq(domainTags.orgId, orgId),
           eq(domainTags.id, domainId.data),
+          eq(domainTags.revision, data.expected.revision),
           sql`${domainTags.description} IS NOT DISTINCT FROM ${data.expected.description}`,
         ),
       )
       .returning();
     if (updated) return c.json(updated);
     const [current] = await deps.db
-      .select({ description: domainTags.description })
+      .select({ description: domainTags.description, revision: domainTags.revision })
       .from(domainTags)
       .where(and(eq(domainTags.orgId, orgId), eq(domainTags.id, domainId.data)));
     if (!current) return c.json({ error: "Domain not found" }, 404);
@@ -541,60 +546,22 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const companyId = id.safeParse(c.req.param("id"));
     const data = await parse(
       c,
-      z.object({ domainIds: z.array(id), expected: z.object({ domainIds: z.array(id) }) }),
+      z.object({
+        domainIds: z.array(id),
+        expected: z.object({ domainIds: z.array(id), revision: z.number().int().nonnegative() }),
+      }),
     );
     if (!companyId.success || !data) return c.json({ error: "Invalid domains" }, 400);
     const orgId = c.get("org").id;
-    const [company, allowed] = await Promise.all([
-      deps.db
-        .select({ id: companies.id })
-        .from(companies)
-        .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId.data)))
-        .limit(1),
-      data.domainIds.length
-        ? deps.db
-            .select({ id: domainTags.id })
-            .from(domainTags)
-            .where(and(eq(domainTags.orgId, orgId), inArray(domainTags.id, data.domainIds)))
-        : Promise.resolve([]),
-    ]);
-    if (!company[0] || allowed.length !== new Set(data.domainIds).size)
-      return c.json({ error: "Organization or domain not found" }, 404);
-    const outcome = await deps.db.transaction(async (tx) => {
-      await tx
-        .select({ id: companies.id })
-        .from(companies)
-        .where(and(eq(companies.orgId, orgId), eq(companies.id, companyId.data)))
-        .for("update");
-      const current = await tx
-        .select({ domainId: companyDomains.domainId })
-        .from(companyDomains)
-        .where(and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, companyId.data)));
-      const currentIds = current.map((row) => row.domainId).sort();
-      if (currentIds.join("|") !== [...data.expected.domainIds].sort().join("|"))
-        return { conflict: true, domainIds: currentIds };
-      await tx
-        .delete(companyDomains)
-        .where(and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, companyId.data)));
-      if (data.domainIds.length)
-        await tx.insert(companyDomains).values(
-          [...new Set(data.domainIds)].map((domainId) => ({
-            orgId,
-            companyId: companyId.data,
-            domainId,
-          })),
-        );
-      return { conflict: false, domainIds: data.domainIds };
+    const outcome = await replaceCompanyDomains(deps.db, orgId, {
+      companyId: companyId.data,
+      domainIds: data.domainIds,
+      expectedRevision: data.expected.revision,
     });
-    if (outcome.conflict)
-      return c.json(
-        {
-          error: "Domains changed while you were editing",
-          current: { domainIds: outcome.domainIds },
-        },
-        409,
-      );
-    return c.json({ ok: true });
+    if (outcome.status === "conflict")
+      return c.json({ error: outcome.error, current: outcome.previous }, 409);
+    if (outcome.status === "error") return c.json({ error: outcome.error }, 404);
+    return c.json({ ok: true, outcome });
   });
   app.post("/v1/org/person-tags", async (c) => {
     const data = await parse(

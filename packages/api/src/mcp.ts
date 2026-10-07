@@ -26,6 +26,7 @@ import type { Context, Hono } from "hono";
 import { z } from "zod";
 import * as Y from "yjs";
 import { runContactAutomations } from "./ai.ts";
+import { replaceCompanyDomains } from "./domain-management.ts";
 import {
   authorizeMcpOauth,
   hasTeamAccess,
@@ -57,6 +58,25 @@ const contactStatus = z.enum([
   "follow_up",
   "ikke_kontakt_igjen",
 ]);
+const domainColor = z.enum([
+  "blue",
+  "orange",
+  "mint",
+  "pink",
+  "violet",
+  "coral",
+  "yellow",
+  "lime",
+  "cyan",
+  "slate",
+]);
+const domainName = z.string().trim().min(1).max(100);
+const domainDescription = z.string().trim().min(1).max(500);
+const domainReplacement = z.object({
+  companyId: uuid,
+  domainIds: z.array(uuid).max(100),
+  expectedRevision: z.number().int().nonnegative(),
+});
 const additionalInfoGuidance =
   "Tilleggsinformasjon (Markdown): add useful context beyond Kort beskrivelse, such as evidence-backed relevance, a natural conversation opener, and 2–4 specific questions the team could ask this person. Separate known facts from suggested questions or hypotheses. Do not repeat the short description or invent facts; omit sections without useful evidence.";
 const contactCreateFields = z.object({
@@ -440,7 +460,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "list_team_reference",
     {
       description:
-        "List organizations, domains, domain links, and person tags for this team. Use IDs when creating contacts.",
+        "List this team's organizations, domains, domain links, and person tags. companies[].domainsRevision and domains[].revision are concurrency tokens for domain editing; read them before changes and read back afterward. Use IDs when creating contacts.",
       inputSchema: z.object({ expectedTeamId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
@@ -472,6 +492,187 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         companyDomains: companyDomainRows,
         personTags: tagRows,
       });
+    },
+  );
+
+  server.registerTool(
+    "create_domain",
+    {
+      description:
+        "Create a team domain with optional description and palette color (default blue). A normalized-name duplicate reuses the existing domain without changing it. Read list_team_reference first and check the returned status.",
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        name: domainName,
+        description: domainDescription.optional(),
+        color: domainColor.optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, name, description, color }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      const normalizedName = normalize(name);
+      const [created] = await deps.db
+        .insert(domainTags)
+        .values({
+          orgId,
+          name,
+          normalizedName,
+          ...(description ? { description } : {}),
+          ...(color ? { color } : {}),
+        })
+        .onConflictDoNothing({ target: [domainTags.orgId, domainTags.normalizedName] })
+        .returning();
+      if (created) return result({ status: "created", domain: created });
+      const [existing] = await deps.db
+        .select()
+        .from(domainTags)
+        .where(and(eq(domainTags.orgId, orgId), eq(domainTags.normalizedName, normalizedName)));
+      return existing
+        ? result({
+            status: "reused",
+            domain: existing,
+            message: "Domain already exists; its description and color were not changed",
+          })
+        : failed("Domain could not be created; read list_team_reference and retry");
+    },
+  );
+
+  server.registerTool(
+    "update_domain",
+    {
+      description:
+        "Update a team domain's name, description, or palette color. Read domains[].revision from list_team_reference and pass it as expectedRevision. Omitted fields remain unchanged; null clears description. Normalized-name duplicates and stale revisions are rejected.",
+      inputSchema: z
+        .object({
+          expectedTeamId: uuid,
+          domainId: uuid,
+          expectedRevision: z.number().int().nonnegative(),
+          name: domainName.optional(),
+          description: domainDescription.nullable().optional(),
+          color: domainColor.optional(),
+        })
+        .refine(
+          (value) =>
+            value.name !== undefined ||
+            value.description !== undefined ||
+            value.color !== undefined,
+          "Provide at least one domain field to change",
+        ),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, domainId, expectedRevision, name, description, color }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      try {
+        return result(
+          await deps.db.transaction(async (tx) => {
+            const [previous] = await tx
+              .select()
+              .from(domainTags)
+              .where(and(eq(domainTags.orgId, orgId), eq(domainTags.id, domainId)))
+              .for("update");
+            if (!previous) return { status: "error", error: "Domain not found in this team" };
+            if (previous.revision !== expectedRevision)
+              return {
+                status: "conflict",
+                error: "Domain changed since it was read. Call list_team_reference and retry.",
+                previous,
+                resulting: previous,
+              };
+            const nextName = name ?? previous.name;
+            const normalizedName = normalize(nextName);
+            if (normalizedName !== previous.normalizedName) {
+              const [duplicate] = await tx
+                .select({ id: domainTags.id, name: domainTags.name })
+                .from(domainTags)
+                .where(
+                  and(eq(domainTags.orgId, orgId), eq(domainTags.normalizedName, normalizedName)),
+                );
+              if (duplicate)
+                return {
+                  status: "error",
+                  error: "Domain name already exists in this team",
+                  duplicate,
+                  previous,
+                  resulting: previous,
+                };
+            }
+            const [resulting] = await tx
+              .update(domainTags)
+              .set({
+                name: nextName,
+                normalizedName,
+                description: description === undefined ? previous.description : description,
+                color: color ?? previous.color,
+                revision: sql`${domainTags.revision} + 1`,
+              })
+              .where(and(eq(domainTags.orgId, orgId), eq(domainTags.id, domainId)))
+              .returning();
+            return { status: "updated", previous, resulting };
+          }),
+        );
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "23505")
+          return result({ status: "error", error: "Domain name already exists in this team" });
+        throw error;
+      }
+    },
+  );
+
+  server.registerTool(
+    "set_company_domains",
+    {
+      description:
+        "Replace an organization's complete domain set atomically; [] clears all links. Read companies[].domainsRevision from list_team_reference and pass expectedRevision. Every domain ID must belong to this team. Returns named previous and resulting links.",
+      inputSchema: domainReplacement.extend({ expectedTeamId: uuid }),
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      _meta: mcpOauthToolMeta(),
+    },
+    async (input) => {
+      if (!correctTeam(input.expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      return result(await replaceCompanyDomains(deps.db, orgId, input));
+    },
+  );
+
+  server.registerTool(
+    "batch_set_company_domains",
+    {
+      description:
+        "Apply up to 100 explicit organization domain-set replacements. Each item needs companyId, the complete domainIds set (including [] to clear), and expectedRevision from list_team_reference. dryRun previews without writing. Each organization is atomic; failures do not stop other items. Read back with list_team_reference after writing.",
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        dryRun: z.boolean().default(false),
+        items: z.array(domainReplacement).min(1).max(100),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, dryRun, items }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      const results = [];
+      for (const [index, item] of items.entries()) {
+        try {
+          results.push({
+            index,
+            companyId: item.companyId,
+            ...(await replaceCompanyDomains(deps.db, orgId, item, dryRun)),
+          });
+        } catch (error) {
+          results.push({
+            index,
+            companyId: item.companyId,
+            status: "error" as const,
+            error:
+              error instanceof Error ? error.message : "Could not replace organization domains",
+          });
+        }
+      }
+      return result({ dryRun, results });
     },
   );
 

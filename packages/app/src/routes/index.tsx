@@ -161,11 +161,18 @@ const colorLabels: Record<Color, string> = {
 type Company = {
   id: string;
   name: string;
+  domainsRevision: number;
   status: (typeof companyStatuses)[number][0];
   loiLogoFileId: string | null;
   loiLogoUrl: string | null;
 };
-type Domain = { id: string; name: string; description: string | null; color: Color };
+type Domain = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: Color;
+  revision: number;
+};
 type Tag = { id: string; name: string; description: string | null };
 type Contact = {
   id: string;
@@ -1188,6 +1195,8 @@ function Home() {
             domainIds: data.companyDomains
               .filter((link) => link.companyId === domainCompanyId)
               .map((link) => link.domainId),
+            revision: data.companies.find((company) => company.id === domainCompanyId)
+              ?.domainsRevision,
           }
         : null;
     const payload =
@@ -7075,7 +7084,7 @@ function OrganizationMap({
       domainIds: currentIds.includes(id)
         ? currentIds.filter((domainId) => domainId !== id)
         : [...currentIds, id],
-      expected: { domainIds: currentIds },
+      expected: { domainIds: currentIds, revision: popupCompany.domainsRevision },
     });
   }
   async function renameCompany(event: FormEvent) {
@@ -7651,7 +7660,10 @@ function TagDescription({
     try {
       await mutate(`${pathPrefix}/${tag.id}`, {
         description: draft.trim(),
-        expected: { description: expected },
+        expected: {
+          description: expected,
+          ...(pathPrefix === "/domains" ? { revision: (tag as Domain).revision } : {}),
+        },
       });
       setEditing(false);
     } catch {
