@@ -5,6 +5,7 @@ COPY packages/core/package.json packages/core/package.json
 COPY packages/api/package.json packages/api/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/app/package.json packages/app/package.json
+COPY packages/mail/package.json packages/mail/package.json
 RUN bun install --frozen-lockfile
 COPY . .
 ARG VITE_SUPABASE_URL

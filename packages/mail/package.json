@@ -1,0 +1,20 @@
+{
+  "name": "@contac/mail",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "dev": "bun --watch --env-file=../../.env src/server.ts",
+    "start": "bun --env-file=../../.env src/server.ts"
+  },
+  "dependencies": {
+    "mailparser": "^3.9.14",
+    "smtp-server": "^3.19.2"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6",
+    "@types/smtp-server": "^3.5.13"
+  }
+}

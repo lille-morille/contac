@@ -7,8 +7,9 @@ COPY packages/core/package.json packages/core/package.json
 COPY packages/api/package.json packages/api/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/app/package.json packages/app/package.json
+COPY packages/mail/package.json packages/mail/package.json
 RUN bun install --frozen-lockfile
 COPY packages/core packages/core
 COPY packages/api packages/api
-EXPOSE 8787 2525
+EXPOSE 8787
 CMD ["bun", "packages/api/src/server.ts"]

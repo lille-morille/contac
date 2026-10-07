@@ -37,15 +37,9 @@
         "drizzle-orm": "^0.45.2",
         "hono": "^4.12.23",
         "jose": "^6.2.3",
-        "mailparser": "^3.9.14",
-        "smtp-server": "^3.19.2",
         "yaml": "^2.9.1",
         "yjs": "^13.6.33",
         "zod": "^4.4.3",
-      },
-      "devDependencies": {
-        "@types/mailparser": "^3.4.6",
-        "@types/smtp-server": "^3.5.13",
       },
     },
     "packages/app": {
@@ -87,6 +81,18 @@
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.9",
         "zod": "^4.4.3",
+      },
+    },
+    "packages/mail": {
+      "name": "@contac/mail",
+      "version": "0.0.0",
+      "dependencies": {
+        "mailparser": "^3.9.14",
+        "smtp-server": "^3.19.2",
+      },
+      "devDependencies": {
+        "@types/mailparser": "^3.4.6",
+        "@types/smtp-server": "^3.5.13",
       },
     },
   },
@@ -144,6 +150,8 @@
     "@contac/app": ["@contac/app@workspace:packages/app"],
 
     "@contac/core": ["@contac/core@workspace:packages/core"],
+
+    "@contac/mail": ["@contac/mail@workspace:packages/mail"],
 
     "@ecies/ciphers": ["@ecies/ciphers@0.2.6", "", { "peerDependencies": { "@noble/ciphers": "^1.0.0" } }, "sha512-patgsRPKGkhhoBjETV4XxD0En4ui5fbX0hzayqI3M8tvNMGUoUvmyYAIWwlxBc1KX5cturfqByYdj5bYGRpN9g=="],
 

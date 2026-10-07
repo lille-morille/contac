@@ -1,8 +1,15 @@
 import { createHash } from "node:crypto";
 import { simpleParser, type AddressObject } from "mailparser";
 import { SMTPServer } from "smtp-server";
-import type { Hono } from "hono";
-import type { ApiEnv } from "./types.ts";
+
+type WebhookFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+export type SmtpConfig = {
+  address: string;
+  webhookUrl: string;
+  secret: string;
+  fetchWebhook?: WebhookFetch;
+};
 
 const addresses = (value: AddressObject | AddressObject[] | undefined) =>
   (value ? (Array.isArray(value) ? value : [value]) : []).flatMap((entry) =>
@@ -24,13 +31,13 @@ function bodyText(text: string | undefined, html: string | false | undefined) {
     .slice(0, 250_000);
 }
 
-export function startSmtpServer(app: Hono<ApiEnv>) {
-  const address = process.env.INBOUND_ADDRESS?.trim().toLowerCase();
-  if (!address) return null;
-  const secret = process.env.INBOUND_WEBHOOK_SECRET;
-  if (!secret) throw new Error("INBOUND_WEBHOOK_SECRET is required when INBOUND_ADDRESS is set");
-  const port = Number(process.env.SMTP_PORT ?? 2525);
-  const host = process.env.SMTP_HOST ?? "127.0.0.1";
+export function createSmtpServer({
+  address,
+  webhookUrl,
+  secret,
+  fetchWebhook = fetch,
+}: SmtpConfig) {
+  address = address.trim().toLowerCase();
   const smtp = new SMTPServer({
     banner: "Contac receive-only inbox",
     disabledCommands: ["AUTH"],
@@ -67,9 +74,10 @@ export function startSmtpServer(app: Hono<ApiEnv>) {
             if (!fromEmail) throw new Error("Missing sender address");
             const providerMessageId =
               mail.messageId?.trim() || `sha256:${createHash("sha256").update(raw).digest("hex")}`;
-            const response = await app.request("/webhooks/inbound-email", {
+            const response = await fetchWebhook(webhookUrl, {
               method: "POST",
               headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+              signal: AbortSignal.timeout(30_000),
               body: JSON.stringify({
                 providerMessageId,
                 fromEmail,
@@ -86,7 +94,13 @@ export function startSmtpServer(app: Hono<ApiEnv>) {
                 receivedAt: mail.date?.toISOString() ?? new Date().toISOString(),
               }),
             });
-            if (!response.ok) {
+            const result: unknown = response.ok ? await response.json().catch(() => null) : null;
+            const stored =
+              result !== null &&
+              typeof result === "object" &&
+              (("accepted" in result && result.accepted === true) ||
+                ("duplicate" in result && result.duplicate === true));
+            if (!response.ok || !stored) {
               console.error(`smtp: inbound storage/routing failed (${response.status})`);
               return finish(
                 Object.assign(new Error("Temporary ingest failure"), { responseCode: 451 }),
@@ -102,9 +116,5 @@ export function startSmtpServer(app: Hono<ApiEnv>) {
       });
     },
   });
-  smtp.on("error", (cause) => console.error("smtp: server error", cause));
-  smtp.listen(port, host, () =>
-    console.log(`SMTP inbox listening on ${host}:${port} for ${address}`),
-  );
   return smtp;
 }

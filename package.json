@@ -11,6 +11,7 @@
     "dev": "bun run dev:stack",
     "dev:stack": "bun --filter '@contac/api' dev & bun --filter '@contac/agent' dev & bun --filter '@contac/app' dev & wait",
     "dev:api": "bun --filter '@contac/api' dev",
+    "dev:mail": "bun --filter '@contac/mail' dev",
     "dev:app": "bun --filter '@contac/app' dev",
     "dev:worker": "bun --filter '@contac/agent' dev",
     "build": "bun --filter '*' build",

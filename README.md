@@ -7,6 +7,7 @@ A contact and interview log for university teams. The five implementation chunks
 - `packages/core`: class/team and contact schema, migration runner, shared Drizzle client.
 - `packages/api`: Hono API, Supabase Auth verification, class/team permissions, secret invitation links, contacts, companies, domains, and duplicate merge.
 - `packages/agent`: leased database worker, model adapter, scoped tool registry, retry, tool registry, and Realtime run events.
+- `packages/mail`: receive-only SMTP intake that forwards parsed messages to the API webhook.
 - `packages/app`: TanStack Start, React Query, the existing design tokens and UI components, contact board/list/detail, hierarchy, and settings.
 
 ## Local setup
@@ -16,7 +17,7 @@ A contact and interview log for university teams. The five implementation chunks
 3. Run `bun run db:migrate`. Add future schema changes as numbered SQL files in `packages/core/migrations` and update the matching Drizzle schema.
 4. Run `bun run dev`. Open http://localhost:3000. The API is on :8787; Supabase Studio is on :57323. Choose **Klasseadministrator? Opprett klasse** on the login page and enter `CLASS_SETUP_CODE`, the class name, and your name. Save the issued recovery code before continuing. The class admin can then create teams and send the first team-admin invitation from Settings.
 5. Set a long random `AI_ENCRYPTION_KEY` in `.env` before a team admin saves an OpenRouter token. Every external AI feature is off by default; the team admin selects low- and medium-capability models and enables features individually.
-6. To test inbound email locally, configure `INBOUND_ADDRESS`, `SMTP_PORT`, `SMTP_HOST`, and `INBOUND_WEBHOOK_SECRET` as described in [the inbound mail deployment guide](docs/deploy-inbound-email.md). Public MX and port 25 are only needed for internet delivery.
+6. To test inbound email locally, configure the mail variables in `.env` and run `bun run dev:mail` in a second terminal, as described in [the inbound mail deployment guide](docs/deploy-inbound-email.md). Public MX and port 25 are only needed for internet delivery.
 7. Run `bun --env-file=.env scripts/smoke-contacts.ts` against an **empty** local class database to test account creation, team isolation, assignment, and duplicate movement. The script refuses to run if a class exists and removes all of its own test data. `bun run smoke:local` checks the older generic foundation.
 
 The contact app creates name-only Supabase accounts through the API and presents a recovery code as the sole login secret. The code can be rotated in Profile settings. Treat it like a password and keep it safe.

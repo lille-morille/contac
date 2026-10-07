@@ -3,7 +3,9 @@
 The production app is hosted in the **Contac** project on Dokploy at
 `dokploy.morille.no`. The source is the private GitHub repository
 `lille-morille/contac`, branch `main`. Dokploy builds the web app from
-`docker/app.Dockerfile` and the API from `docker/api.Dockerfile`.
+`docker/app.Dockerfile` and the API from `docker/api.Dockerfile`. The separate
+SMTP image is defined by `docker/mail.Dockerfile` and awaits the reviewed
+[mail-service cutover](mail-service-cutover.md).
 This workspace has no writable Git metadata. Run
 `scripts/publish-production-source.sh` after reviewed source changes to push
 a clean snapshot to the private repository; Dokploy rebuilds from that branch.
@@ -26,12 +28,12 @@ Create these records in Domeneshop:
 | `plingapp.no` (`@`) | MX | priority 10, `mx.plingapp.no` |
 
 Dokploy has HTTPS routes for the web app on port 3000 and the API on port
-8787. Let’s Encrypt can issue certificates after the A records resolve. The API
-publishes host TCP port 25 to its receive-only SMTP listener on container port
-2525. Set the API application's Swarm update and rollback order to `stop-first`
-before deploying: host mode port 25 prevents a new task from starting while the
-old task still owns the port. Dokploy may report a build as done even while the
-new task remains pending, so check the running task after deployment. The MX
+8787. Let’s Encrypt can issue certificates after the A records resolve. Until
+the mail-service cutover, the deployed API owns host TCP port 25 and must use
+`stop-first` updates. After cutover, only the mail service publishes host TCP
+port 25 to container port 2525, and the API can use `start-first` updates.
+Check actual running tasks after deployment; a completed build alone does not
+prove a service is active. The MX
 record affects every address at `plingapp.no`; Contac accepts only
 `contac@plingapp.no`. If other mailboxes are needed, route that address through
 an existing mail provider instead of pointing the domain-wide MX at Contac.
@@ -40,8 +42,10 @@ an existing mail provider instead of pointing the domain-wide MX at Contac.
 
 The Dokploy API environment needs `DATABASE_URL`, `SUPABASE_URL`,
 `SUPABASE_SECRET_KEY`, `APP_ORIGIN`, `CLASS_SETUP_CODE`, and
-`AI_ENCRYPTION_KEY`. The inbox additionally needs `INBOUND_ADDRESS`,
-`INBOUND_EMAIL_DOMAIN`, `INBOUND_WEBHOOK_SECRET`, `SMTP_HOST`, and `SMTP_PORT`.
+`AI_ENCRYPTION_KEY`. The API inbox additionally needs `INBOUND_ADDRESS`,
+`INBOUND_EMAIL_DOMAIN`, and `INBOUND_WEBHOOK_SECRET`. The separate mail service
+needs `INBOUND_ADDRESS`, `INBOUND_WEBHOOK_SECRET`, `INBOUND_WEBHOOK_URL`,
+`SMTP_HOST`, `SMTP_PORT`, and optionally `MAIL_HEALTH_PORT`.
 The web Docker build needs `VITE_SUPABASE_URL`,
 `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_API_URL`. These values are stored in
 Dokploy, not this repository.
@@ -76,6 +80,6 @@ signing key for the OAuth flow. The optional API variable
 `MCP_PUBLIC_BASE_URL` is the fixed external API origin; in production it is
 `https://api.contac.plingapp.no`.
 
-The API's SMTP listener does not advertise STARTTLS under Bun. The deployment
+The mail service's SMTP listener does not advertise STARTTLS under Bun. The deployment
 guide in [deploy-inbound-email.md](deploy-inbound-email.md) describes a TLS
 terminating proxy or authenticated webhook as alternatives when needed.

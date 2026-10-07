@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createDb } from "@contac/core/db";
 import { createApp } from "./app.ts";
-import { startSmtpServer } from "./smtp.ts";
 
 const dbUrl = process.env.DATABASE_URL;
 const sbUrl = process.env.SUPABASE_URL;
@@ -21,11 +20,9 @@ const server = Bun.serve({
   port: Number(process.env.API_PORT ?? 8787),
   hostname: process.env.API_HOST ?? "0.0.0.0",
 });
-const smtpServer = startSmtpServer(app);
 console.log(`API listening on ${server.url}`);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     server.stop();
-    smtpServer?.close();
     void client.end();
   });
