@@ -1,6 +1,6 @@
 # Mail service cutover runbook
 
-This is a deployment plan for the reviewed mail-service change. Do not run it during source review. The current API deployment owns host TCP port 25; the goal is for a dedicated mail service to own it while API updates use `start-first`. Keep the public API and website available throughout. A few minutes of delayed SMTP delivery during the handoff is acceptable.
+This runbook records the production port handoff completed on 2026-10-07. The dedicated mail service now owns host TCP port 25, while the API and website use `start-first` updates. The steps below are retained as a reference for a future migration or rollback.
 
 ## Before touching the live port
 

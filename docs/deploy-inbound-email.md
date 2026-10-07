@@ -1,6 +1,6 @@
 # Inbound mail for Contac
 
-Contac receives Bcc copies at `contac@plingapp.no`. It does not send or relay mail. In the target deployment, a dedicated mail service owns SMTP port 25; the API stores messages and routes inbox suggestions through its authenticated `/webhooks/inbound-email` endpoint.
+Contac receives Bcc copies at `contac@plingapp.no`. It does not send or relay mail. In production, a dedicated mail service owns SMTP port 25; the API stores messages and routes inbox suggestions through its authenticated `/webhooks/inbound-email` endpoint.
 
 ## Local test
 
@@ -18,6 +18,6 @@ Create an A/AAAA record for the mail host, such as `mx.plingapp.no`, pointing to
 
 The SMTP listener does not advertise STARTTLS under Bun; place a mail proxy with TLS termination in front if encrypted SMTP transport is required. The webhook also supports parsed mail from a provider using its secret as a Bearer token.
 
-## First production cutover
+## Production operation
 
-The currently deployed API still owns host port 25. Prepare the mail service and verify its internal webhook connectivity **before** moving the published port. The old API and new mail service cannot both bind host port 25 on the same VPS. The first cutover therefore has a short handoff window unless a second public MX or a stable fronting mail proxy is provided. During that window, sending MTAs should queue and retry; do not promise uninterrupted TCP acceptance. [The cutover runbook](mail-service-cutover.md) gives the order and checks. Later API rollouts no longer touch the SMTP port.
+The mail service owns host port 25 and forwards accepted messages to the API over the private network. Keep its webhook secret in sync with the API. Mail updates use `stop-first` because only one task can bind the fixed port. API updates use `start-first` and do not touch SMTP. The [cutover runbook](mail-service-cutover.md) records the original port handoff.

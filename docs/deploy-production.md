@@ -3,12 +3,9 @@
 The production app is hosted in the **Contac** project on Dokploy at
 `dokploy.morille.no`. The source is the private GitHub repository
 `lille-morille/contac`, branch `main`. Dokploy builds the web app from
-`docker/app.Dockerfile` and the API from `docker/api.Dockerfile`. The separate
-SMTP image is defined by `docker/mail.Dockerfile` and awaits the reviewed
-[mail-service cutover](mail-service-cutover.md).
-This workspace has no writable Git metadata. Run
-`scripts/publish-production-source.sh` after reviewed source changes to push
-a clean snapshot to the private repository; Dokploy rebuilds from that branch.
+`docker/app.Dockerfile`, the API from `docker/api.Dockerfile`, and the mail
+service from `docker/mail.Dockerfile`. Commit and push reviewed source changes
+to `main` with Git.
 
 The Supabase project is **Contac Production** (`cgnxlvvckwuejjddcyyq`) in the
 paid `pling` organization, region `eu-north-1`. Pling STAGING is separate.
@@ -28,10 +25,9 @@ Create these records in Domeneshop:
 | `plingapp.no` (`@`) | MX | priority 10, `mx.plingapp.no` |
 
 Dokploy has HTTPS routes for the web app on port 3000 and the API on port
-8787. Let’s Encrypt can issue certificates after the A records resolve. Until
-the mail-service cutover, the deployed API owns host TCP port 25 and must use
-`stop-first` updates. After cutover, only the mail service publishes host TCP
-port 25 to container port 2525, and the API can use `start-first` updates.
+8787. Let’s Encrypt can issue certificates after the A records resolve. The
+mail service alone publishes host TCP port 25 to container port 2525. The API
+and web app use health-checked `start-first` updates; mail uses `stop-first`.
 Check actual running tasks after deployment; a completed build alone does not
 prove a service is active. The MX
 record affects every address at `plingapp.no`; Contac accepts only
