@@ -1009,7 +1009,13 @@ export function ExportPage({
           )}
           {visibleInactive.length > 0 && (
             <>
-              <h3 className="font-semibold">Uten aktivitet</h3>
+              <div>
+                <h3 className="font-semibold">Uten aktivitet</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Disse kommer i en egen (mer kortfattet) seksjon i eksporten, siden de er mindre
+                  relevante
+                </p>
+              </div>
               <PreviewCards
                 contacts={visibleInactive}
                 columns={compactColumns}
