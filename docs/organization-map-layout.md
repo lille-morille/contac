@@ -6,6 +6,8 @@ An organization belongs to at most one domain. Migration `0051_single_company_do
 
 Every contact is visible within its organization card. Each map card shows up to two lines of description; clicking it opens the full contact text. Longer organization and contact names wrap within taller cards. Cards do not scroll internally. The graph pans with two-finger trackpad gestures, drag, and touch. Trackpad pinch or Ctrl+wheel zooms at the pointer. Keyboard focus brings a card into view; pointer clicks leave the viewport in place. The fit and zoom controls remain available, and the minimum zoom is 5%. The initial readable zoom is 85% on desktop and 70% on narrow screens; a domain taller than the viewport opens at its heading.
 
+Contact cards reuse the Kanban status icon and assignee avatar around the name, with the short description below. The avatar falls back to the unassigned icon when no team member is assigned. The map omits Kanban stikkord.
+
 Clicking a domain heading opens an anchored popup with its description editor and conversation summary action. Domain clicks keep the full overview in place; old `mapDomain` links open the overview. Organization focus links continue to work.
 
 The local preview can run against production Supabase without storing production credentials in the repository. The Vite proxy targets are set by `CONTAC_DEV_SUPABASE_TARGET` and `CONTAC_DEV_API_TARGET`; their defaults remain the local services. The local API needs its own server-side production connection settings. Set `DB_POOL_MAX=2` for this preview to stay within the production pooler's session limit.

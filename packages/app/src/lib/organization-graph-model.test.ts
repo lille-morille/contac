@@ -15,10 +15,11 @@ const source: MapSource = {
     { companyId: "shared", domainId: "b" },
     { companyId: "other", domainId: "b" },
   ],
+  members: [{ userId: "member-1", name: "Team Member", avatarPath: "member-1.jpg" }],
   contacts: [
-    { id: "visible", companyId: "shared", name: "Visible", description: "A complete description", status: "ikke_kontaktet" },
-    { id: "duplicate", companyId: "shared", name: "Duplicate", description: null, status: "duplicate" },
-    { id: "deleted", companyId: "shared", name: "Deleted", description: null, status: "ikke_kontaktet", deletedAt: "2026-10-06" },
+    { id: "visible", companyId: "shared", name: "Visible", description: "A complete description", status: "ikke_kontaktet", assigneeId: "member-1" },
+    { id: "duplicate", companyId: "shared", name: "Duplicate", description: null, status: "duplicate", assigneeId: null },
+    { id: "deleted", companyId: "shared", name: "Deleted", description: null, status: "ikke_kontaktet", assigneeId: null, deletedAt: "2026-10-06" },
   ],
 };
 
@@ -40,7 +41,7 @@ test("long names receive space without hiding contacts", () => {
     ...source,
     companies: [{ id: "shared", name: longName, status: "ingen" }],
     contacts: [{ id: "visible", companyId: "shared", name: longContactName,
-      description: "A complete description", status: "ikke_kontaktet" }],
+      description: "A complete description", status: "ikke_kontaktet", assigneeId: null }],
   }, { kind: "all" });
   const company = map.nodes[0].companies[0];
   expect(company.headerHeight).toBe(86);
@@ -56,6 +57,11 @@ test("a historical multi-domain organization appears only in its retained domain
   expect(a.companies.map((company) => company.id)).toEqual(["shared"]);
   expect(b.companies.map((company) => company.id)).toEqual(["other"]);
   expect(a.companies[0].people.map((person) => person.id)).toEqual(["visible"]);
+  expect(a.companies[0].people[0]).toMatchObject({
+    status: "ikke_kontaktet",
+    assigneeName: "Team Member",
+    assigneeAvatarPath: "member-1.jpg",
+  });
   expect(separated(a, b)).toBe(true);
 });
 
@@ -69,7 +75,7 @@ test("a long organization displays every person without a capped internal list",
   const contacts = Array.from({ length: 12 }, (_, index) => ({
     id: String(index), companyId: "shared", name: `Person ${index}`,
     description: index === 0 ? "A complete description that continues across more than one line" : null,
-    status: "ikke_kontaktet",
+    status: "ikke_kontaktet" as const, assigneeId: null,
   }));
   const map = buildOrganizationMap({ ...source, contacts }, { kind: "all" });
   const panel = map.nodes.find((candidate) => candidate.entityId === "a")!;
@@ -91,10 +97,10 @@ test("a team-sized domain cloud grows in two dimensions without overlapping pane
   const contacts = companies.flatMap((company, index) =>
     Array.from({ length: index === 0 ? 12 : index < 58 ? 2 : 1 }, (_, person) => ({
       id: `${company.id}-${person}`, companyId: company.id, name: `Person ${person}`,
-      description: null, status: "ikke_kontaktet",
+      description: null, status: "ikke_kontaktet" as const, assigneeId: null,
     })),
   );
-  const map = buildOrganizationMap({ domains, companies, companyDomains, contacts }, { kind: "all" });
+  const map = buildOrganizationMap({ domains, companies, companyDomains, contacts, members: [] }, { kind: "all" });
   expect(map.nodes).toHaveLength(13);
   expect(map.nodes.reduce((sum, panel) => sum + panel.companies.length, 0)).toBe(70);
   expect(map.nodes.some((panel) => panel.x < 0 && panel.y < 0)).toBe(true);

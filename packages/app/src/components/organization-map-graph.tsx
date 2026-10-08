@@ -1,6 +1,9 @@
 import { useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Graph, GraphData, NodeData } from "@antv/g6";
+import { ContactStatusIcon, contactStatusName } from "./contact-status.tsx";
+import { Avatar } from "./ui/avatar.tsx";
+import { profileAvatarUrl } from "../lib/api.ts";
 import { useTheme } from "../lib/theme.ts";
 import { Button } from "./ui/button.tsx";
 import {
@@ -137,9 +140,9 @@ function CompanyCard({
               key={person.id}
               type="button"
               data-graph-card={`contact:${person.id}`}
-              className="organization-map-card flex w-full shrink-0 flex-col items-center justify-center rounded-lg border border-border bg-muted px-2 py-1 text-center outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+              className="organization-map-card flex w-full shrink-0 flex-col rounded-lg border border-border bg-card px-2.5 py-2 text-left shadow-sm outline-none transition-all hover:border-primary/30 hover:shadow-card-hover focus-visible:ring-2 focus-visible:ring-ring"
               style={{ height: person.height }}
-              aria-label={`Vis kontaktkort for ${person.label}`}
+              aria-label={`Vis kontaktkort for ${person.label}. Status: ${contactStatusName(person.status)}. Ansvarlig: ${person.assigneeName ?? "Uten ansvarlig"}`}
               aria-pressed="false"
               onFocus={(event) => {
                 if (event.currentTarget.matches(":focus-visible")) onFocus(event.currentTarget);
@@ -149,8 +152,22 @@ function CompanyCard({
                 onOpen("contact", person.id, event.currentTarget);
               }}
             >
-              <span className="line-clamp-2 w-full break-words text-[14px] font-semibold leading-5" title={person.label}>{person.label}</span>
-              <span className="block w-full text-[12px] leading-[18px] text-muted-foreground">
+              <span className="flex w-full items-start gap-2">
+                <span className="mt-0.5 shrink-0" title={contactStatusName(person.status)}>
+                  <ContactStatusIcon status={person.status} />
+                </span>
+                <span className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-semibold leading-5" title={person.label}>
+                  {person.label}
+                </span>
+                <span className="shrink-0" title={person.assigneeName ?? "Uten ansvarlig"}>
+                  <Avatar
+                    name={person.assigneeName ?? "Uten ansvarlig"}
+                    src={profileAvatarUrl(person.assigneeAvatarPath)}
+                    className="size-6"
+                  />
+                </span>
+              </span>
+              <span className="mt-1 block w-full text-[12px] leading-[18px] text-muted-foreground">
                 {person.descriptionLines.map((line, index) => (
                   <span className="block w-full truncate" key={`${person.id}:${index}`}>{line}</span>
                 ))}

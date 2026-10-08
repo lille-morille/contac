@@ -6509,8 +6509,9 @@ function OrganizationGraph({
       companies,
       companyDomains: data.companyDomains,
       contacts: data.contacts,
+      members: data.members,
     }),
-    [data.domains, companies, data.companyDomains, data.contacts],
+    [data.domains, companies, data.companyDomains, data.contacts, data.members],
   );
   return (
     <OrganizationMapGraph

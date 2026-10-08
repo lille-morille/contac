@@ -1,3 +1,5 @@
+import type { ContactStatus } from "../components/contact-status.tsx";
+
 export type MapSelection =
   | { kind: "all" }
   | { kind: "company"; id: string };
@@ -5,6 +7,9 @@ export type MapSelection =
 export type MapPerson = {
   id: string;
   label: string;
+  status: ContactStatus;
+  assigneeName: string | null;
+  assigneeAvatarPath: string | null;
   descriptionLines: string[];
   height: number;
 };
@@ -37,12 +42,14 @@ export type MapSource = {
   domains: { id: string; name: string; color: string }[];
   companies: { id: string; name: string; status: string }[];
   companyDomains: { companyId: string; domainId: string }[];
+  members: { userId: string; name: string | null; avatarPath: string | null }[];
   contacts: {
     id: string;
     companyId: string;
     name: string;
     description: string | null;
-    status: string;
+    status: ContactStatus;
+    assigneeId: string | null;
     deletedAt?: string | null;
   }[];
 };
@@ -179,16 +186,21 @@ export function buildOrganizationMap(source: MapSource, selection: MapSelection)
       : true,
   );
   const companyIds = new Set(companies.map((company) => company.id));
+  const memberById = new Map(source.members.map((member) => [member.userId, member]));
   const peopleByCompany = new Map<string, MapPerson[]>();
   for (const contact of source.contacts) {
     if (contact.status === "duplicate" || contact.deletedAt || !companyIds.has(contact.companyId)) continue;
     const descriptionLines = wrapMapDescription(contact.description?.trim() || "Ingen kort beskrivelse");
+    const assignee = contact.assigneeId ? memberById.get(contact.assigneeId) : null;
     const people = peopleByCompany.get(contact.companyId) ?? [];
     people.push({
       id: contact.id,
       label: contact.name,
+      status: contact.status,
+      assigneeName: assignee?.name ?? null,
+      assigneeAvatarPath: assignee?.avatarPath ?? null,
       descriptionLines,
-      height: Math.max(62, 40 + (contact.name.length > 28 ? 20 : 0) + descriptionLines.length * 18),
+      height: 20 + Math.max(24, contact.name.length > 26 ? 40 : 20) + 4 + descriptionLines.length * 18,
     });
     peopleByCompany.set(contact.companyId, people);
   }
