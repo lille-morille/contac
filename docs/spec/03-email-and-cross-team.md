@@ -58,3 +58,7 @@ Another team's log is hidden by default. A member may request access to a partic
 - A registered sender's unmatched message stays a suggestion in the sender's team. If there is no team destination, it goes to the separate class-admin inbox.
 - Team sharing defaults to approval requests. An admin may switch to automatic read-only access. A grant includes activities and attachments and remains effective for future entries; the shared research note is excluded. Access already granted is not revoked by changing the team setting.
 - Email draft AI is separately off by default. A team admin must enable it and supply a token/model. Each request is manual and uses contact fields plus the latest eligible communication.
+
+**Assigned follow-up (2026-10-08):** Add `Registrer e-post` beside `Registrer møte` on a contact. Members can paste received or sent email text (up to 250,000 characters), with optional subject/from/to and an editable date. Save directly as a linked email activity using the existing timeline and team AI rules. Body-only input is supported; failed saves retain the draft. This action records an email in the log.
+
+**Assigned intake limit (2026-10-08):** Accept complete raw MIME emails up to 10,000,000 bytes (10 MB), including headers, attachments and encoding. Advertise the limit in SMTP and reject oversized DATA even when the sender omits SIZE. Extracted/pasted body text remains limited to 250,000 characters.

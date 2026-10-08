@@ -334,6 +334,68 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
 }
 
 export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
+  app.post("/v1/org/email-activities", async (c) => {
+    const parsed = messageFields
+      .extend({
+        fromEmail: z.union([email, z.literal("")]).default(""),
+        body: z.string().trim().min(1).max(250_000),
+        contactIds: z
+          .array(uuid)
+          .min(1)
+          .max(100)
+          .transform((ids) => [...new Set(ids)]),
+        occurredAt: z.iso.datetime().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return c.json({ error: "Kontroller e-postadressene og innholdet (maks 250 000 tegn)." }, 400);
+    const orgId = c.get("org").id;
+    const { contactIds, occurredAt, body, ...headers } = parsed.data;
+    const activity = await deps.db.transaction(async (tx) => {
+      const selected = await tx
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.orgId, orgId),
+            inArray(contacts.id, contactIds),
+            ne(contacts.status, "duplicate"),
+            isNull(contacts.deletedAt),
+          ),
+        )
+        .for("update");
+      if (selected.length !== contactIds.length) return null;
+      const [created] = await tx
+        .insert(contactActivities)
+        .values({
+          orgId,
+          kind: "email",
+          summary: body,
+          exportOwnerContactId: contactIds[0]!,
+          createdBy: c.get("user").id,
+          occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
+        })
+        .returning();
+      await tx.insert(activityContacts).values(
+        contactIds.map((contactId) => ({
+          orgId,
+          activityId: created!.id,
+          contactId,
+        })),
+      );
+      await tx.insert(emailActivities).values({ orgId, activityId: created!.id, ...headers });
+      await tx
+        .update(contacts)
+        .set({ updatedAt: new Date() })
+        .where(and(eq(contacts.orgId, orgId), inArray(contacts.id, contactIds)));
+      return created!;
+    });
+    if (!activity) return c.json({ error: "Kontakt ikke funnet i dette teamet." }, 404);
+    queueMicrotask(() => {
+      void runContactAutomations(deps, orgId, contactIds);
+    });
+    return c.json({ activityId: activity.id }, 201);
+  });
   app.get("/v1/org/email-settings", async (c) => {
     const [team] = await deps.db
       .select({ inboundKey: organizations.inboundKey })

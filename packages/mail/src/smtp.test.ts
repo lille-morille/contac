@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSmtpServer } from "./smtp.ts";
+import { createSmtpServer, MAX_MESSAGE_BYTES } from "./smtp.ts";
 
 const servers: ReturnType<typeof createSmtpServer>[] = [];
 afterEach(async () => {
@@ -10,13 +10,20 @@ afterEach(async () => {
   );
 });
 
-async function sendMessage(port: number, recipient = "contac@plingapp.no") {
+async function sendMessage(
+  port: number,
+  recipient = "contac@plingapp.no",
+  body = "Hello there",
+  declaredSize?: number,
+) {
   const socket = connect(port, "127.0.0.1");
   const lines = createInterface({ input: socket, crlfDelay: Infinity })[Symbol.asyncIterator]();
+  const replies: string[] = [];
   const reply = async () => {
     while (true) {
       const next = await lines.next();
       if (next.done) throw new Error("SMTP connection closed before a reply");
+      replies.push(next.value);
       if (/^\d{3} /.test(next.value)) return next.value;
     }
   };
@@ -24,13 +31,20 @@ async function sendMessage(port: number, recipient = "contac@plingapp.no") {
     await reply();
     for (const command of [
       "EHLO example.test",
-      "MAIL FROM:<sender@example.test>",
+      `MAIL FROM:<sender@example.test>${declaredSize === undefined ? "" : ` SIZE=${declaredSize}`}`,
       `RCPT TO:<${recipient}>`,
     ]) {
       socket.write(`${command}\r\n`);
       const response = await reply();
-      if (command.startsWith("RCPT") && !response.startsWith("250")) return response;
+      if ((command.startsWith("RCPT") || command.startsWith("MAIL")) && !response.startsWith("250"))
+        return response;
       expect(response).toMatch(/^250 /);
+      if (command.startsWith("EHLO"))
+        expect(replies).toEqual(
+          expect.arrayContaining([
+            expect.stringMatching(new RegExp(`^250[- ]SIZE ${MAX_MESSAGE_BYTES}$`)),
+          ]),
+        );
     }
     socket.write("DATA\r\n");
     expect(await reply()).toMatch(/^354 /);
@@ -40,7 +54,7 @@ async function sendMessage(port: number, recipient = "contac@plingapp.no") {
         "Message-ID: <mail-123@example.test>\r\n" +
         "Subject: A note\r\n" +
         "\r\n" +
-        "Hello there\r\n.\r\n",
+        `${body}\r\n.\r\n`,
     );
     return await reply();
   } finally {
@@ -63,6 +77,24 @@ async function listen(fetchWebhook: (url: string, init: RequestInit) => Promise<
 }
 
 describe("separate SMTP intake", () => {
+  it("accepts mail larger than the old 1 MB limit", async () => {
+    const fetchWebhook = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }));
+    const port = await listen(fetchWebhook);
+    expect(await sendMessage(port, undefined, "a".repeat(1_100_000), 1_101_000)).toMatch(/^250 /);
+    expect(fetchWebhook).toHaveBeenCalledOnce();
+  });
+  it("rejects a declared message above 10 MB", async () => {
+    const fetchWebhook = vi.fn(async () => Response.json({ accepted: true }));
+    const port = await listen(fetchWebhook);
+    expect(await sendMessage(port, undefined, "text", MAX_MESSAGE_BYTES + 1)).toMatch(/^552 /);
+    expect(fetchWebhook).not.toHaveBeenCalled();
+  });
+  it("rejects oversized DATA even without a declared size", async () => {
+    const fetchWebhook = vi.fn(async () => Response.json({ accepted: true }));
+    const port = await listen(fetchWebhook);
+    expect(await sendMessage(port, undefined, "a".repeat(MAX_MESSAGE_BYTES))).toMatch(/^552 /);
+    expect(fetchWebhook).not.toHaveBeenCalled();
+  });
   it("forwards a parsed message and acknowledges it only after the webhook succeeds", async () => {
     const fetchWebhook = vi.fn(async (_url: string, _init: RequestInit) =>
       Response.json({ accepted: true }, { status: 202 }),

@@ -6,7 +6,7 @@ Contac receives Bcc copies at `contac@plingapp.no`. It does not send or relay ma
 
 Start the API with `bun run dev:api`. Set `INBOUND_ADDRESS=contac@plingapp.no`, `SMTP_HOST=127.0.0.1`, `SMTP_PORT=2525`, `INBOUND_WEBHOOK_URL=http://127.0.0.1:8787/webhooks/inbound-email`, and the same long random `INBOUND_WEBHOOK_SECRET` for the API and mail service. Start the mail service with `bun run dev:mail`. Its health endpoint is at `http://127.0.0.1:8788/health` by default.
 
-The mail service accepts only the configured recipient, limits messages to 1 MB, and posts parsed text to the API. It returns SMTP success only after the API reports success. If the API is unavailable or rejects the webhook, it returns temporary SMTP error `451`, leaving retry responsibility with the sender's mail server. Message ID (or raw-message hash when absent) deduplicates retries in the API.
+The mail service accepts only the configured recipient, limits complete raw MIME messages to 10,000,000 bytes (10 MB) (including headers, attachments and encoding), and posts parsed text to the API. It returns SMTP success only after the API reports success. If the API is unavailable or rejects the webhook, it returns temporary SMTP error `451`, leaving retry responsibility with the sender's mail server. Message ID (or raw-message hash when absent) deduplicates retries in the API.
 
 ## Dokploy and DNS
 

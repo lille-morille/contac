@@ -1,3 +1,4 @@
+import { ManualEmailComposer } from "../components/manual-email-composer.tsx";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -4229,7 +4230,7 @@ function ActivityComposer({
   shortcutRequest?: number;
 }) {
   const { user } = useOrg();
-  const [mode, setMode] = useState<"phone" | "meeting" | null>(null);
+  const [mode, setMode] = useState<"phone" | "meeting" | "email" | null>(null);
   const [takeoverOpen, setTakeoverOpen] = useState(false);
   const [startedAt, setStartedAt] = useState("");
   const [outcome, setOutcome] = useState<MissedOutcome | null>(null);
@@ -4354,7 +4355,18 @@ function ActivityComposer({
             <Button variant="outline" onClick={() => start("meeting")}>
               <Users size={16} /> Registrer møte
             </Button>
+            <Button variant="outline" onClick={() => setMode("email")}>
+              <Mail size={16} /> Registrer e-post
+            </Button>
           </motion.div>
+        ) : mode === "email" ? (
+          <ManualEmailComposer
+            contactId={contact.id}
+            contactEmail={contact.email}
+            busy={busy}
+            mutate={mutate}
+            onClose={() => setMode(null)}
+          />
         ) : (
           <motion.div
             key="activity-composer"

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { simpleParser, type AddressObject } from "mailparser";
 import { SMTPServer } from "smtp-server";
 
+export const MAX_MESSAGE_BYTES = 10_000_000;
+
 type WebhookFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export type SmtpConfig = {
@@ -44,7 +46,7 @@ export function createSmtpServer({
     // Bun cannot reliably upgrade this socket to STARTTLS. A terminating SMTP
     // proxy is required if transport encryption is needed before the app.
     hideSTARTTLS: true,
-    size: 1_000_000,
+    size: MAX_MESSAGE_BYTES,
     maxClients: 30,
     onRcptTo(recipient, _session, callback) {
       if (recipient.address.toLowerCase() === address) return callback();
@@ -52,6 +54,8 @@ export function createSmtpServer({
     },
     onData(stream, session, callback) {
       const chunks: Buffer[] = [];
+      let bytes = 0;
+      let oversized = false;
       let replied = false;
       const finish = (error?: Error) => {
         if (replied) return;
@@ -59,11 +63,21 @@ export function createSmtpServer({
         if (error) callback(error);
         else callback();
       };
-      stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+      stream.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > MAX_MESSAGE_BYTES) {
+          oversized = true;
+          chunks.length = 0;
+        } else if (!oversized) chunks.push(Buffer.from(chunk));
+      });
       stream.on("error", () =>
         finish(Object.assign(new Error("Could not read message"), { responseCode: 451 })),
       );
       stream.on("end", () => {
+        if (oversized)
+          return finish(
+            Object.assign(new Error("Message exceeds 10 MB size limit"), { responseCode: 552 }),
+          );
         void (async () => {
           try {
             const raw = Buffer.concat(chunks);
