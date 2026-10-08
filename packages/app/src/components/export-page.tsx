@@ -858,10 +858,6 @@ export function ExportPage({
               onBlur={() => void persist()}
             />
           </label>
-          <p className="text-xs text-muted-foreground">
-            Nr. og Kontaktperson er alltid med. Flytt feltene innenfor kontaktopplysningene eller de
-            brede boksene for Kort beskrivelse, Stikkord og Logg.
-          </p>
           <div className="space-y-1">
             {[
               ...layoutColumns(draft.columns),
