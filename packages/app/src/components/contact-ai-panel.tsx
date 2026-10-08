@@ -312,6 +312,7 @@ export function ContactAiFieldSuggestions({
         String(currentValue ?? "")
           .trim()
           .toLocaleLowerCase("nb-NO");
+  const latestFields = new Set<string>();
   const proposals = (state.data?.suggestions ?? []).flatMap((item) => {
     if (item.status !== "pending") return [];
     const values =
@@ -325,6 +326,8 @@ export function ContactAiFieldSuggestions({
       const value = values[key];
       if (value === null || value === undefined || value === "") return [];
       if (Array.isArray(value) && !value.length) return [];
+      if (latestFields.has(key)) return [];
+      latestFields.add(key);
       if (key !== "newDomainName" && sameValue(value)) return [];
       return [{ item, key, value }];
     });

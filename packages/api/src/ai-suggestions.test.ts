@@ -4,6 +4,7 @@ import {
   partitionAutomaticContactFields,
   partitionSafeAutoFields,
   remainingSuggestion,
+  suggestedFields,
 } from "./ai.ts";
 
 describe("field-level AI suggestions", () => {
@@ -89,5 +90,27 @@ describe("field-level AI suggestions", () => {
     expect(remainingSuggestion("hierarchy", payload, new Set(["newDomainName"]))).toEqual({
       hierarchy: { personTagIds: ["tag-1"] },
     });
+  });
+
+  it("replaces only fields with a new nonempty proposal", () => {
+    const old = {
+      hierarchy: { personTagIds: ["old-tag"], domainIds: ["domain-1"] },
+      evidence: "Older source",
+    };
+    const newer = {
+      hierarchy: { personTagIds: ["new-tag"], domainIds: [], newDomainDescription: "Metadata" },
+    };
+    expect(suggestedFields("hierarchy", newer)).toEqual(new Set(["personTagIds"]));
+    expect(remainingSuggestion("hierarchy", old, suggestedFields("hierarchy", newer))).toEqual({
+      hierarchy: { domainIds: ["domain-1"] },
+      evidence: "Older source",
+    });
+    expect(
+      remainingSuggestion(
+        "contact_fields",
+        { fields: { email: "old@example.no", phone: "123" } },
+        suggestedFields("contact_fields", { fields: { email: "new@example.no" } }),
+      ),
+    ).toEqual({ fields: { phone: "123" } });
   });
 });

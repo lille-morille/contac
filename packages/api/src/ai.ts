@@ -71,6 +71,28 @@ export function remainingSuggestion(
   );
   return hasRemaining ? { ...payload, [key]: proposed } : null;
 }
+export function suggestedFields(feature: string, payload: Record<string, unknown>) {
+  const proposed =
+    feature === "stikkord"
+      ? { stikkord: payload.text }
+      : feature === "contact_fields"
+        ? ((payload.fields as Record<string, unknown>) ?? {})
+        : feature === "hierarchy"
+          ? ((payload.hierarchy as Record<string, unknown>) ?? {})
+          : {};
+  return new Set(
+    Object.entries(proposed)
+      .filter(
+        ([key, value]) =>
+          key !== "newDomainDescription" &&
+          value !== null &&
+          value !== undefined &&
+          value !== "" &&
+          (!Array.isArray(value) || value.length > 0),
+      )
+      .map(([key]) => key),
+  );
+}
 export function partitionSafeAutoFields(
   proposed: Record<string, string>,
   current: { email?: string | null; phone?: string | null; description?: string | null },
@@ -584,6 +606,55 @@ async function applyTagSet(
     });
 }
 
+async function insertContactSuggestion(
+  deps: ApiDeps,
+  orgId: string,
+  contactId: string,
+  feature: "stikkord" | "contact_fields" | "hierarchy",
+  sourceVersion: string,
+  payload: Record<string, unknown>,
+  status: "pending" | "applied",
+) {
+  return deps.db.transaction(async (tx) => {
+    // Serialize generations for this contact, including workers in other processes.
+    await tx
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
+      .for("update");
+    const fields = suggestedFields(feature, payload);
+    if (fields.size) {
+      const older = await tx
+        .select()
+        .from(aiSuggestions)
+        .where(
+          and(
+            eq(aiSuggestions.orgId, orgId),
+            eq(aiSuggestions.contactId, contactId),
+            eq(aiSuggestions.feature, feature),
+            eq(aiSuggestions.status, "pending"),
+          ),
+        );
+      for (const item of older) {
+        const overlapping = new Set(
+          [...fields].filter((field) => suggestedFields(feature, item.payload).has(field)),
+        );
+        if (!overlapping.size) continue;
+        const remaining = remainingSuggestion(feature, item.payload, overlapping);
+        await tx
+          .update(aiSuggestions)
+          .set(remaining ? { payload: remaining } : { status: "dismissed" })
+          .where(eq(aiSuggestions.id, item.id));
+      }
+    }
+    const [row] = await tx
+      .insert(aiSuggestions)
+      .values({ orgId, contactId, feature, sourceVersion, payload, status })
+      .returning();
+    return row;
+  });
+}
+
 async function generateContact(
   deps: ApiDeps,
   orgId: string,
@@ -864,17 +935,15 @@ async function generateContact(
   if (autoContactFields)
     suggestion.fields = shouldAutoApply ? autoContactFields : pendingContactFields;
   if (autoHierarchy) suggestion.hierarchy = shouldAutoApply ? autoHierarchy : pendingHierarchy;
-  const [row] = await deps.db
-    .insert(aiSuggestions)
-    .values({
-      orgId,
-      contactId,
-      feature,
-      sourceVersion: version,
-      payload: suggestion,
-      status: shouldAutoApply ? "applied" : "pending",
-    })
-    .returning();
+  const row = await insertContactSuggestion(
+    deps,
+    orgId,
+    contactId,
+    feature,
+    version,
+    suggestion,
+    shouldAutoApply ? "applied" : "pending",
+  );
   if (shouldAutoApply) {
     const [fresh] = await deps.db
       .select()
@@ -977,18 +1046,19 @@ async function generateContact(
       hasHierarchyValues(pendingHierarchy))
   ) {
     const pendingVersion = (await contactContext(deps, orgId, contactId)).version;
-    await deps.db.insert(aiSuggestions).values({
+    await insertContactSuggestion(
+      deps,
       orgId,
       contactId,
       feature,
-      sourceVersion: pendingVersion,
-      payload: {
+      pendingVersion,
+      {
         ...suggestion,
         ...(pendingContactFields ? { fields: pendingContactFields } : {}),
         ...(pendingHierarchy ? { hierarchy: pendingHierarchy } : {}),
       },
-      status: "pending",
-    });
+      "pending",
+    );
   }
   return row;
 }
