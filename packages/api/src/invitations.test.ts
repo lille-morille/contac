@@ -54,7 +54,10 @@ function invitationDeps(
         if (table === memberships) joinedUserIds.push(values.userId!);
         if (table !== profiles && table !== classMemberships && table !== memberships)
           throw new Error("Unexpected insert");
-        return Object.assign(Promise.resolve(), { onConflictDoNothing: async () => undefined });
+        return Object.assign(Promise.resolve(), {
+          onConflictDoNothing: async () => undefined,
+          onConflictDoUpdate: async () => undefined,
+        });
       },
     }),
     transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(db),

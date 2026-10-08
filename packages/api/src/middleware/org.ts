@@ -11,7 +11,13 @@ export function requireOrg(deps: ApiDeps): MiddlewareHandler<ApiEnv> {
     const [member] = await deps.db
       .select({ role: memberships.role })
       .from(memberships)
-      .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, c.get("user").id)))
+      .where(
+        and(
+          eq(memberships.orgId, orgId),
+          eq(memberships.userId, c.get("user").id),
+          eq(memberships.isActualMember, true),
+        ),
+      )
       .limit(1);
     let role = member?.role;
     if (!role) {

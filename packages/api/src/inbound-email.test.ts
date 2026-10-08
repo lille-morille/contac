@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
+  classMemberships,
   contacts,
   emailDrafts,
   inboundEmails,
@@ -25,6 +26,7 @@ type Fixture = {
   directSender?: string;
   bodySenders?: string[];
   senderTeams?: string[];
+  currentTeam?: string | null;
   contactTeams?: { orgId: string; email: string; allowExternalAi?: boolean }[];
   routed?: boolean;
 };
@@ -56,6 +58,7 @@ function makeApp(fixture: Fixture = {}) {
               ];
             if (table === memberships)
               return (fixture.senderTeams ?? ["team-5"]).map((orgId) => ({ orgId }));
+            if (table === classMemberships) return [{ currentTeamId: fixture.currentTeam ?? null }];
             if (table === emailDrafts) return [];
             throw new Error("Unexpected select");
           };
@@ -165,6 +168,38 @@ describe("forwarded inbound email routing", () => {
     expect((await fixture.receive()).status).toBe(202);
     expect(fixture.suggestions).toEqual([]);
     expect(extractInboundContactEmails).not.toHaveBeenCalled();
+  });
+
+  it("uses the administrator's current team when several real memberships give no unique match", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      senderTeams: ["archive-team", "current-team"],
+      currentTeam: "current-team",
+      contactTeams: [],
+    });
+    expect((await fixture.receive({ body: "No contact address" })).status).toBe(202);
+    expect(fixture.suggestions).toEqual([
+      { inboundId: "inbound-1", orgId: "current-team", kind: "email", recipientUserId: "lenart" },
+    ]);
+  });
+
+  it("keeps a uniquely matched archived team's mail with that team", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      senderTeams: ["archive-team", "current-team"],
+      currentTeam: "current-team",
+      contactTeams: [{ orgId: "archive-team", email: "archived@example.no" }],
+    });
+    expect((await fixture.receive({ ccEmails: ["archived@example.no"] })).status).toBe(202);
+    expect(fixture.suggestions).toEqual([
+      { inboundId: "inbound-1", orgId: "archive-team", kind: "email", recipientUserId: "lenart" },
+    ]);
+  });
+
+  it("keeps a registered administrator without a checked team in the class inbox", async () => {
+    const fixture = makeApp({ directSender: "lenart", senderTeams: [], currentTeam: null });
+    expect((await fixture.receive({ ccEmails: ["oliver.hayden@tum.de"] })).status).toBe(202);
+    expect(fixture.suggestions).toEqual([]);
   });
 
   it("does not attribute the email to an ambiguous body member", async () => {

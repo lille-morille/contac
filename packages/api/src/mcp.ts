@@ -200,7 +200,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         const [member] = await tx
           .select({ id: memberships.id })
           .from(memberships)
-          .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, input.assigneeId)));
+          .where(
+            and(
+              eq(memberships.orgId, orgId),
+              eq(memberships.userId, input.assigneeId),
+              eq(memberships.isActualMember, true),
+            ),
+          );
         if (!member) return { status: "error" as const, error: "Assignee must be a team member" };
       }
       let companyId = input.companyId;
@@ -876,7 +882,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           const [member] = await tx
             .select({ id: memberships.id })
             .from(memberships)
-            .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, input.assigneeId)));
+            .where(
+              and(
+                eq(memberships.orgId, orgId),
+                eq(memberships.userId, input.assigneeId),
+                eq(memberships.isActualMember, true),
+              ),
+            );
           if (!member) return { error: "Assignee must be a team member" };
         }
         const tagIds = input.tagIds && [...new Set(input.tagIds)];

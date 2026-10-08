@@ -199,7 +199,11 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
               .from(organizations)
               .leftJoin(
                 memberships,
-                and(eq(memberships.orgId, organizations.id), eq(memberships.userId, user.id)),
+                and(
+                  eq(memberships.orgId, organizations.id),
+                  eq(memberships.userId, user.id),
+                  eq(memberships.isActualMember, true),
+                ),
               )
               .where(eq(organizations.classId, classRow.classId))
               .orderBy(asc(organizations.name))
@@ -213,7 +217,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
             })
             .from(memberships)
             .innerJoin(organizations, eq(memberships.orgId, organizations.id))
-            .where(eq(memberships.userId, user.id))
+            .where(and(eq(memberships.userId, user.id), eq(memberships.isActualMember, true)))
             .orderBy(asc(organizations.name));
     const [profile] = await deps.db
       .select({
@@ -368,7 +372,6 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
           .insert(organizations)
           .values({ name, slug, classId: admin.classId })
           .returning();
-        await tx.insert(memberships).values({ orgId: created.id, userId: user.id, role: "admin" });
         await tx.insert(personTags).values(
           ["Portvokter", "Ildsjel", "Bruker", "Beslutningstaker"].map((name) => ({
             orgId: created.id,
@@ -420,7 +423,10 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
         await tx
           .insert(memberships)
           .values({ orgId: invitation.orgId, userId: user.id, role: "admin" })
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: [memberships.orgId, memberships.userId],
+            set: { isActualMember: true },
+          });
       });
       return c.json({ orgId: invitation.orgId });
     },
@@ -441,7 +447,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
       })
       .from(memberships)
       .leftJoin(profiles, eq(memberships.userId, profiles.id))
-      .where(eq(memberships.orgId, c.get("org").id));
+      .where(and(eq(memberships.orgId, c.get("org").id), eq(memberships.isActualMember, true)));
     return c.json(rows);
   });
   app.post("/v1/org/invitations", zValidator("json", invitationInput), async (c) => {

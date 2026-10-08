@@ -74,7 +74,7 @@ export async function loadReportSnapshot(db: Database, orgId: string) {
       .select({ id: profiles.id, name: profiles.fullName })
       .from(memberships)
       .innerJoin(profiles, eq(profiles.id, memberships.userId))
-      .where(eq(memberships.orgId, orgId)),
+      .where(and(eq(memberships.orgId, orgId), eq(memberships.isActualMember, true))),
   ]);
   const team = teamRows[0];
   if (!team) return null;

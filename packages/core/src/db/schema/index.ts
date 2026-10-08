@@ -67,6 +67,9 @@ export const classMemberships = pgTable(
       .references(() => classSpaces.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull(),
     role: text("role").$type<"admin" | "member">().notNull(),
+    currentTeamId: uuid("current_team_id").references(() => organizations.id, {
+      onDelete: "set null",
+    }),
     createdAt: createdAt(),
   },
   (table) => [
@@ -125,6 +128,7 @@ export const memberships = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull(),
     role: membershipRole("role").notNull().default("admin"),
+    isActualMember: boolean("is_actual_member").notNull().default(true),
     createdAt: createdAt(),
   },
   (table) => [

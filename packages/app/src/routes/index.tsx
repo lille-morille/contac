@@ -456,6 +456,7 @@ type Data = {
   additionalInfo: AdditionalInfo[];
   contacts: Contact[];
   contactCreators: { userId: string; name: string | null; avatarPath: string | null }[];
+  contactAssignees: { userId: string; name: string | null; avatarPath: string | null }[];
   activities: Activity[];
   activityContacts: { activityId: string; contactId: string }[];
   activityFiles: ActivityFile[];
@@ -473,7 +474,7 @@ type AdditionalInfo = {
   createdAt: string;
   updatedAt: string;
 };
-function assigneeOptions(members: Data["members"]) {
+function assigneeOptions(members: Data["members"], former?: Data["contactAssignees"][number]) {
   return [
     { value: "", label: "Ingen", icon: <Avatar name="Uten ansvarlig" className="size-5" /> },
     ...members.map((member) => ({
@@ -487,6 +488,21 @@ function assigneeOptions(members: Data["members"]) {
         />
       ),
     })),
+    ...(former && !members.some((member) => member.userId === former.userId)
+      ? [
+          {
+            value: former.userId,
+            label: `${former.name || "Medlem"} (tidligere ansvarlig)`,
+            icon: (
+              <Avatar
+                name={former.name || "Medlem"}
+                src={profileAvatarUrl(former.avatarPath)}
+                className="size-5"
+              />
+            ),
+          },
+        ]
+      : []),
   ];
 }
 type Page =
@@ -510,6 +526,7 @@ const emptyData: Data = {
   additionalInfo: [],
   contacts: [],
   contactCreators: [],
+  contactAssignees: [],
   activities: [],
   activityContacts: [],
   activityFiles: [],
@@ -879,6 +896,7 @@ function Home() {
           | "additionalInfo"
           | "contacts"
           | "contactCreators"
+          | "contactAssignees"
           | "members"
         >
       >("/org/contact-data?part=core", org!.id),
@@ -2297,7 +2315,10 @@ function Home() {
             onSignOut={() => void auth.signOut()}
           />
         ) : page === "organizations" && !query.data ? (
-          <div className="flex min-h-[560px] flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-card" role="status">
+          <div
+            className="flex min-h-[560px] flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-card"
+            role="status"
+          >
             {query.isError ? (
               <>
                 <p>Kunne ikke laste organisasjonene.</p>
@@ -3870,7 +3891,9 @@ function ContactCardContent({
   onChangeStatus?: (status: Status) => void;
   onChangeAssignee?: (assigneeId: string) => void;
 }) {
-  const assignee = data.members.find((member) => member.userId === c.assigneeId);
+  const assignee =
+    data.members.find((member) => member.userId === c.assigneeId) ??
+    data.contactAssignees.find((member) => member.userId === c.assigneeId);
   const company = data.companies.find((item) => item.id === c.companyId);
   return (
     <div className="w-full rounded-xl border border-border bg-card p-3 text-left shadow-card transition hover:border-primary/30 hover:shadow-card-hover">
@@ -5540,7 +5563,10 @@ function ContactDetail({
                 }
                 related={related}
                 assigneeName={
-                  data.members.find((member) => member.userId === c.assigneeId)?.name ?? undefined
+                  (
+                    data.members.find((member) => member.userId === c.assigneeId) ??
+                    data.contactAssignees.find((member) => member.userId === c.assigneeId)
+                  )?.name ?? undefined
                 }
                 mutate={mutate}
                 busy={busy}
@@ -5825,7 +5851,10 @@ function ContactDetail({
                   onValueChange={(value) =>
                     void mutate(`/contacts/${c.id}`, { assigneeId: value || null })
                   }
-                  items={assigneeOptions(data.members)}
+                  items={assigneeOptions(
+                    data.members,
+                    data.contactAssignees.find((member) => member.userId === c.assigneeId),
+                  )}
                   disabled={c.status === "duplicate"}
                 />
               </ContactDetailField>
@@ -6675,9 +6704,7 @@ function DuplicateCompare({
     </div>
   );
 }
-type OrganizationSelection =
-  | { kind: "all" }
-  | { kind: "company"; id: string };
+type OrganizationSelection = { kind: "all" } | { kind: "company"; id: string };
 
 function OrganizationGraph({
   data,
@@ -6791,11 +6818,10 @@ function OrganizationMap({
     onFocusChange(next.kind === "all" ? { kind: "all", id: null } : next);
   }
   const graphCompanies = useMemo(
-    () => data.companies.filter((candidate) =>
-      selection.kind === "company"
-        ? candidate.id === selection.id
-        : true,
-    ),
+    () =>
+      data.companies.filter((candidate) =>
+        selection.kind === "company" ? candidate.id === selection.id : true,
+      ),
     [data.companies, selection],
   );
   const popupDomain =
@@ -7628,6 +7654,21 @@ function Settings({
   onSelectTeam: (id: string) => Promise<void>;
   onSignOut: () => void;
 }) {
+  const settingsQueryClient = useQueryClient();
+  const classTeams = useQuery({
+    queryKey: ["class-teams", state.classSpace?.classId],
+    queryFn: () =>
+      request<{
+        currentTeamId: string | null;
+        teams: {
+          id: string;
+          name: string;
+          included: boolean;
+          members: { userId: string; name: string | null; email: string | null }[];
+        }[];
+      }>("/class/teams"),
+    enabled: section === "class_settings" && state.classSpace?.role === "admin",
+  });
   const [teamName, setTeamName] = useState("");
   const [editingTeam, setEditingTeam] = useState<{ id: string; name: string } | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -7638,6 +7679,34 @@ function Settings({
   const [inviteUrl, setInviteUrl] = useState("");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
+  async function changeMembership(teamId: string, included: boolean) {
+    setTeamActionBusy(true);
+    setTeamError("");
+    try {
+      await request(`/class/teams/${teamId}/membership`, undefined, { included });
+      await classTeams.refetch();
+      await settingsQueryClient.invalidateQueries({ queryKey: ["contact-data"] });
+      await settingsQueryClient.invalidateQueries({ queryKey: ["report-workspace"] });
+    } catch (cause) {
+      setTeamError(
+        cause instanceof Error ? cause.message : "Kunne ikke oppdatere teammedlemskapet.",
+      );
+    } finally {
+      setTeamActionBusy(false);
+    }
+  }
+  async function changeCurrentTeam(teamId: string) {
+    setTeamActionBusy(true);
+    setTeamError("");
+    try {
+      await request(`/class/teams/${teamId}/current`, undefined, {});
+      await classTeams.refetch();
+    } catch (cause) {
+      setTeamError(cause instanceof Error ? cause.message : "Kunne ikke velge nåværende team.");
+    } finally {
+      setTeamActionBusy(false);
+    }
+  }
   async function createTeam(e: FormEvent) {
     e.preventDefault();
     setTeamActionBusy(true);
@@ -7647,6 +7716,7 @@ function Settings({
       const row = await request<{ id: string }>("/organizations", undefined, { name: teamName });
       await state.refresh();
       await state.select(row.id);
+      await classTeams.refetch();
       setTeamName("");
       setMessage("Team opprettet. Lag en invitasjon til teamet.");
     } catch (cause) {
@@ -7674,6 +7744,7 @@ function Settings({
       setMessage("Teamnavnet er oppdatert.");
       try {
         await state.refresh();
+        await classTeams.refetch();
       } catch {
         setTeamError(
           "Navnet er lagret, men teamlisten kunne ikke oppdateres. Last inn siden på nytt.",
@@ -7706,6 +7777,7 @@ function Settings({
       );
       try {
         await state.refresh();
+        await classTeams.refetch();
       } catch {
         setTeamError(
           "Teamet er slettet, men teamlisten kunne ikke oppdateres. Last inn siden på nytt.",
@@ -7820,6 +7892,10 @@ function Settings({
           <p className="mt-1 text-sm text-muted-foreground">
             Opprett, endre og slett team. Invitasjoner oppretter du fra teamfanen.
           </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Du kan være medlem av flere team. Nåværende team brukes som reserve ved e-post uten en
+            tydelig teamtilknytning; det er uavhengig av hvilket team du har åpnet.
+          </p>
           <form className="mt-4 flex gap-2" onSubmit={(e) => void createTeam(e)}>
             <Input
               required
@@ -7881,6 +7957,56 @@ function Settings({
                     </Button>
                   </div>
                 </div>
+                {(() => {
+                  const team = classTeams.data?.teams.find((item) => item.id === o.id);
+                  if (!team) return null;
+                  const isCurrent = classTeams.data?.currentTeamId === o.id;
+                  return (
+                    <div className="mt-3 space-y-2 border-t border-border pt-3">
+                      <p className="text-sm text-muted-foreground">
+                        Medlemmer:{" "}
+                        {team.members.length
+                          ? team.members
+                              .map(
+                                (member) =>
+                                  member.name?.trim() || member.email?.trim() || member.userId,
+                              )
+                              .join(", ")
+                          : "Ingen medlemmer"}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={team.included}
+                            disabled={
+                              teamActionBusy ||
+                              classTeams.isFetching ||
+                              (isCurrent && team.included)
+                            }
+                            onChange={(event) => void changeMembership(o.id, event.target.checked)}
+                          />
+                          Jeg er på dette teamet
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="radio"
+                            name="current-class-admin-team"
+                            checked={isCurrent}
+                            disabled={!team.included || teamActionBusy || classTeams.isFetching}
+                            onChange={() => void changeCurrentTeam(o.id)}
+                          />
+                          Nåværende team
+                        </label>
+                      </div>
+                      {isCurrent && (
+                        <p className="text-xs text-muted-foreground">
+                          Velg et annet nåværende team før du fjerner deg fra dette teamet.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
                 {editingTeam?.id === o.id && (
                   <form className="mt-3 flex flex-wrap gap-2" onSubmit={(e) => void renameTeam(e)}>
                     <Input
@@ -7912,6 +8038,14 @@ function Settings({
               </div>
             ))}
           </div>
+          {classTeams.isPending && (
+            <p className="mt-3 text-sm text-muted-foreground">Laster medlemmer…</p>
+          )}
+          {classTeams.isError && (
+            <p role="alert" className="mt-3 text-sm text-risk">
+              Kunne ikke hente teammedlemmene.
+            </p>
+          )}
           {teamError && (
             <p role="alert" className="mt-3 text-sm text-risk">
               {teamError}

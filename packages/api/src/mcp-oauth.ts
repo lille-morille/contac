@@ -62,7 +62,13 @@ export async function hasTeamAccess(deps: ApiDeps, userId: string, orgId: string
   const [member] = await deps.db
     .select({ userId: memberships.userId })
     .from(memberships)
-    .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)))
+    .where(
+      and(
+        eq(memberships.orgId, orgId),
+        eq(memberships.userId, userId),
+        eq(memberships.isActualMember, true),
+      ),
+    )
     .limit(1);
   if (member) return true;
   const [classAdmin] = await deps.db

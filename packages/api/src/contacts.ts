@@ -168,6 +168,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         tagRows,
         contactRows,
         creatorRows,
+        assigneeRows,
         contactTagRows,
         additionalInfoRows,
         memberRows,
@@ -202,6 +203,15 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .from(contacts)
           .innerJoin(profiles, eq(profiles.id, contacts.createdBy))
           .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
+        deps.db
+          .selectDistinct({
+            userId: profiles.id,
+            name: profiles.fullName,
+            avatarPath: profiles.avatarPath,
+          })
+          .from(contacts)
+          .innerJoin(profiles, eq(profiles.id, contacts.assigneeId))
+          .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
         deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
         deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
         deps.db
@@ -213,7 +223,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           })
           .from(memberships)
           .leftJoin(profiles, eq(profiles.id, memberships.userId))
-          .where(eq(memberships.orgId, orgId)),
+          .where(and(eq(memberships.orgId, orgId), eq(memberships.isActualMember, true))),
       ]);
       return c.json({
         companies: companyRows,
@@ -222,6 +232,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         personTags: tagRows,
         contacts: contactRows,
         contactCreators: creatorRows,
+        contactAssignees: assigneeRows,
         contactPersonTags: contactTagRows,
         additionalInfo: additionalInfoRows,
         members: memberRows,
@@ -362,7 +373,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         })
         .from(memberships)
         .leftJoin(profiles, eq(profiles.id, memberships.userId))
-        .where(eq(memberships.orgId, orgId)),
+        .where(and(eq(memberships.orgId, orgId), eq(memberships.isActualMember, true))),
       deps.db
         .select({ contactId: favoriteContacts.contactId })
         .from(favoriteContacts)
@@ -904,7 +915,13 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       const [member] = await deps.db
         .select({ id: memberships.id })
         .from(memberships)
-        .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, changes.assigneeId)));
+        .where(
+          and(
+            eq(memberships.orgId, orgId),
+            eq(memberships.userId, changes.assigneeId),
+            eq(memberships.isActualMember, true),
+          ),
+        );
       if (!member) return c.json({ error: "Assignee must be a team member" }, 400);
     }
     const companyId = changes.companyId ?? current.companyId;

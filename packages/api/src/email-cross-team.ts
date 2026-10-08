@@ -204,12 +204,11 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
     const participantUsers = await deps.db
       .select({ userId: profiles.id, profileEmail: profiles.profileEmail })
       .from(profiles)
-      .innerJoin(memberships, eq(memberships.userId, profiles.id))
-      .innerJoin(organizations, eq(organizations.id, memberships.orgId))
+      .innerJoin(classMemberships, eq(classMemberships.userId, profiles.id))
       .where(
         and(
           inArray(profiles.profileEmail, participantEmails),
-          eq(organizations.classId, classRow.id),
+          eq(classMemberships.classId, classRow.id),
         ),
       );
     const directSender = participantUsers.find((row) => row.profileEmail === message.fromEmail);
@@ -226,7 +225,13 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
           .select({ orgId: memberships.orgId })
           .from(memberships)
           .innerJoin(organizations, eq(organizations.id, memberships.orgId))
-          .where(and(eq(memberships.userId, sender.userId), eq(organizations.classId, classRow.id)))
+          .where(
+            and(
+              eq(memberships.userId, sender.userId),
+              eq(memberships.isActualMember, true),
+              eq(organizations.classId, classRow.id),
+            ),
+          )
       : [];
     const sentDrafts = directSender
       ? await deps.db
@@ -241,16 +246,34 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
         senderMemberships.some((membership) => membership.orgId === draft.orgId) &&
         sameEmailSet(draft.toEmails, message.toEmails),
     );
-    const senderOrgId =
+    let senderOrgId =
       matchingDraft?.orgId ??
       (addressedTeam && senderMemberships.some((row) => row.orgId === addressedTeam.id)
         ? addressedTeam.id
         : undefined) ??
-      (senderMemberships.length === 1 ? senderMemberships[0]!.orgId : undefined) ??
       (() => {
         const candidates = senderMemberships.filter((row) => matchedTeams.has(row.orgId));
         return candidates.length === 1 ? candidates[0]!.orgId : undefined;
-      })();
+      })() ??
+      (senderMemberships.length === 1 ? senderMemberships[0]!.orgId : undefined);
+    if (!senderOrgId && sender && senderMemberships.length > 1) {
+      const [admin] = await deps.db
+        .select({ currentTeamId: classMemberships.currentTeamId })
+        .from(classMemberships)
+        .where(
+          and(
+            eq(classMemberships.classId, classRow.id),
+            eq(classMemberships.userId, sender.userId),
+            eq(classMemberships.role, "admin"),
+          ),
+        )
+        .limit(1);
+      if (
+        admin?.currentTeamId &&
+        senderMemberships.some((row) => row.orgId === admin.currentTeamId)
+      )
+        senderOrgId = admin.currentTeamId;
+    }
 
     let extractedEmails: string[] = [];
     if (senderOrgId && sender && !matchingDraft?.activityId) {

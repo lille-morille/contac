@@ -1,5 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { classMemberships, organizations, profiles, workspaceFiles } from "@contac/core/db";
+import {
+  classMemberships,
+  memberships,
+  organizations,
+  profiles,
+  workspaceFiles,
+} from "@contac/core/db";
 import { and, asc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -34,6 +40,133 @@ export function registerTeamAdminRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .orderBy(asc(profiles.fullName), asc(classMemberships.userId));
     c.header("Cache-Control", "no-store");
     return c.json(rows);
+  });
+
+  app.get("/v1/class/teams", async (c) => {
+    const userId = c.get("user").id;
+    const classId = await adminClassId(userId);
+    if (!classId) return c.json({ error: "Class admin access required" }, 403);
+    const [admin] = await deps.db
+      .select({ currentTeamId: classMemberships.currentTeamId })
+      .from(classMemberships)
+      .where(and(eq(classMemberships.classId, classId), eq(classMemberships.userId, userId)))
+      .limit(1);
+    const [teams, members] = await Promise.all([
+      deps.db
+        .select({ id: organizations.id, name: organizations.name })
+        .from(organizations)
+        .where(eq(organizations.classId, classId))
+        .orderBy(asc(organizations.name)),
+      deps.db
+        .select({
+          orgId: memberships.orgId,
+          userId: memberships.userId,
+          name: profiles.fullName,
+          email: profiles.profileEmail,
+          isActualMember: memberships.isActualMember,
+        })
+        .from(memberships)
+        .innerJoin(organizations, eq(organizations.id, memberships.orgId))
+        .leftJoin(profiles, eq(profiles.id, memberships.userId))
+        .where(eq(organizations.classId, classId)),
+    ]);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      currentTeamId: admin?.currentTeamId ?? null,
+      teams: teams.map((team) => ({
+        ...team,
+        included: members.some(
+          (member) => member.orgId === team.id && member.userId === userId && member.isActualMember,
+        ),
+        members: members
+          .filter((member) => member.orgId === team.id && member.isActualMember)
+          .map(({ userId, name, email }) => ({ userId, name, email })),
+      })),
+    });
+  });
+
+  app.post("/v1/class/teams/:id/membership", async (c) => {
+    const teamId = teamIdSchema.safeParse(c.req.param("id"));
+    const body = z
+      .object({ included: z.boolean() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!teamId.success || !body.success) return c.json({ error: "Ugyldig teamvalg." }, 400);
+    const userId = c.get("user").id;
+    const result = await deps.db.transaction(async (tx) => {
+      const [admin] = await tx
+        .select({
+          classId: classMemberships.classId,
+          currentTeamId: classMemberships.currentTeamId,
+        })
+        .from(classMemberships)
+        .where(and(eq(classMemberships.userId, userId), eq(classMemberships.role, "admin")))
+        .for("update");
+      if (!admin) return "forbidden" as const;
+      const [team] = await tx
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(and(eq(organizations.id, teamId.data), eq(organizations.classId, admin.classId)));
+      if (!team) return "missing" as const;
+      if (!body.data.included && admin.currentTeamId === team.id) return "current" as const;
+      await tx
+        .insert(memberships)
+        .values({ orgId: team.id, userId, role: "admin", isActualMember: body.data.included })
+        .onConflictDoUpdate({
+          target: [memberships.orgId, memberships.userId],
+          set: { isActualMember: body.data.included },
+        });
+      if (body.data.included && !admin.currentTeamId)
+        await tx
+          .update(classMemberships)
+          .set({ currentTeamId: team.id })
+          .where(
+            and(eq(classMemberships.classId, admin.classId), eq(classMemberships.userId, userId)),
+          );
+      return "ok" as const;
+    });
+    if (result === "forbidden") return c.json({ error: "Class admin access required" }, 403);
+    if (result === "missing") return c.json({ error: "Teamet finnes ikke." }, 404);
+    if (result === "current")
+      return c.json({ error: "Velg et annet nåværende team før du fjerner deg selv." }, 409);
+    return c.json({ included: body.data.included });
+  });
+
+  app.post("/v1/class/teams/:id/current", async (c) => {
+    const teamId = teamIdSchema.safeParse(c.req.param("id"));
+    if (!teamId.success) return c.json({ error: "Ugyldig teamvalg." }, 400);
+    const userId = c.get("user").id;
+    const result = await deps.db.transaction(async (tx) => {
+      const [admin] = await tx
+        .select({ classId: classMemberships.classId })
+        .from(classMemberships)
+        .where(and(eq(classMemberships.userId, userId), eq(classMemberships.role, "admin")))
+        .for("update");
+      if (!admin) return "forbidden" as const;
+      const [member] = await tx
+        .select({ orgId: memberships.orgId })
+        .from(memberships)
+        .innerJoin(organizations, eq(organizations.id, memberships.orgId))
+        .where(
+          and(
+            eq(memberships.orgId, teamId.data),
+            eq(memberships.userId, userId),
+            eq(memberships.isActualMember, true),
+            eq(organizations.classId, admin.classId),
+          ),
+        );
+      if (!member) return "not-member" as const;
+      await tx
+        .update(classMemberships)
+        .set({ currentTeamId: teamId.data })
+        .where(
+          and(eq(classMemberships.classId, admin.classId), eq(classMemberships.userId, userId)),
+        );
+      return "ok" as const;
+    });
+    if (result === "forbidden") return c.json({ error: "Class admin access required" }, 403);
+    if (result === "not-member")
+      return c.json({ error: "Du må være med i teamet før det kan være nåværende." }, 409);
+    return c.json({ currentTeamId: teamId.data });
   });
 
   app.post("/v1/class/members/:userId/recovery-code", async (c) => {
