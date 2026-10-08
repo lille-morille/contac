@@ -13,6 +13,13 @@ The API uses the Supabase session pooler on port 5432. Apply the checked-in
 `packages/core/migrations` in order with `bun run db:migrate` before deploying
 schema changes. Never commit production credentials.
 
+For the search update, apply `0052_vector_search.sql` before deploying the API.
+It converts existing 384-dimensional JSON embeddings to pgvector and builds
+vector and text indexes. The API image downloads the local multilingual model
+during the Docker build, so the first user search after a deployment does not
+download model weights. Verify `/v1/org/search` with a signed-in team and
+refresh the MCP client's tool list to discover `search_contacts`.
+
 ## DNS records
 
 Create these records in Domeneshop:

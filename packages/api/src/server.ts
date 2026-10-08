@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createDb } from "@contac/core/db";
 import { createApp } from "./app.ts";
+import { warmSearchModel } from "./embedding.ts";
 
 const dbUrl = process.env.DATABASE_URL;
 const sbUrl = process.env.SUPABASE_URL;
@@ -24,6 +25,7 @@ const server = Bun.serve({
   hostname: process.env.API_HOST ?? "0.0.0.0",
 });
 console.log(`API listening on ${server.url}`);
+void warmSearchModel().catch((error) => console.error("Search model warmup failed", error));
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     server.stop();

@@ -84,6 +84,7 @@ before it queries or writes data.
 | Tool | Access |
 | --- | --- |
 | `get_team_identity` | Verify the connected team ID and workspace name |
+| `search_contacts` | Find team contacts and matching contact, activity, note, or additional-information passages by meaning and keywords |
 | `list_contacts` | Paginated active contacts and their fields |
 | `get_contact` | Contact, organization, tags, shared note, separate additional information, activities, email records, transcripts, participants, and attachment metadata |
 | `list_team_reference` | Organizations (with `domainsRevision`), domains (with `revision`), links, and person tags |
@@ -101,7 +102,13 @@ before it queries or writes data.
 
 The agent cannot delete contacts, edit or delete activities, change team settings,
 or read personal reminders, inbox suggestions, AI credentials, or another team's data. Duplicate contacts are
-excluded from ordinary reads. `create_contact` and `batch_create_contacts`
+excluded from ordinary reads. Use `search_contacts` before paginating through
+`list_contacts` when looking for a person or topic. It accepts `query` (2–500
+characters), optional `limit` (1–30, default 10), and `expectedTeamId`. Results
+include a matching passage, score, contact ID, and optional activity ID; follow
+up with `get_contact` for full context. MCP search is limited to the connected
+team, including its shared notes and additional information; it does not return
+cross-team grants. `create_contact` and `batch_create_contacts`
 check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed

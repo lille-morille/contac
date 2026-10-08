@@ -27,6 +27,7 @@ import { z } from "zod";
 import * as Y from "yjs";
 import { runContactAutomations } from "./ai.ts";
 import { replaceCompanyDomains } from "./domain-management.ts";
+import { searchTeam } from "./search.ts";
 import {
   authorizeMcpOauth,
   hasTeamAccess,
@@ -307,6 +308,33 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
       return { status: "created" as const, contact };
     });
   }
+
+  server.registerTool(
+    "search_contacts",
+    {
+      description:
+        "Search this team's active contacts and conversation passages by meaning and keywords. Use this before listing all contacts when looking for a person, topic, quote, or prior discussion. Results include contact IDs, matched passages, and activity IDs; use get_contact for the complete record. Search stays on the Contac server.",
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        query: z.string().trim().min(2).max(500),
+        limit: z.number().int().min(1).max(30).default(10),
+      }),
+      annotations: { readOnlyHint: true },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, query, limit }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      try {
+        return result({
+          items: await searchTeam(deps, orgId, query, { includeShared: false, limit }),
+        });
+      } catch (error) {
+        console.error("MCP search failed", error);
+        return failed("Contac search is temporarily unavailable");
+      }
+    },
+  );
 
   server.registerTool(
     "list_contacts",

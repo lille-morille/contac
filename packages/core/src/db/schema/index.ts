@@ -10,6 +10,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  vector,
 } from "drizzle-orm/pg-core";
 
 export const membershipRole = pgEnum("membership_role", ["owner", "admin", "member"]);
@@ -690,7 +691,7 @@ export const searchChunks = pgTable(
     sourceKey: text("source_key").notNull(),
     sourceVersion: text("source_version").notNull(),
     body: text("body").notNull(),
-    embedding: jsonb("embedding").$type<number[]>().notNull(),
+    embedding: vector("embedding", { dimensions: 384 }).notNull(),
     createdAt: createdAt(),
   },
   (table) => [

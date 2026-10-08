@@ -9,6 +9,9 @@ COPY packages/agent/package.json packages/agent/package.json
 COPY packages/app/package.json packages/app/package.json
 COPY packages/mail/package.json packages/mail/package.json
 RUN bun install --frozen-lockfile
+ENV SEARCH_MODEL_CACHE_DIR=/app/.cache/search-model
+COPY packages/api/src/embedding.ts packages/api/src/preload-search-model.ts packages/api/src/
+RUN bun packages/api/src/preload-search-model.ts
 COPY packages/core packages/core
 COPY packages/api packages/api
 EXPOSE 8787

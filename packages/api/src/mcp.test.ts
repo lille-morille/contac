@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { contacts, organizations } from "@contac/core/db";
 import { makeServer, registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
+import { searchTeam } from "./search.ts";
+
+vi.mock("./search.ts", () => ({ searchTeam: vi.fn() }));
 
 const teamId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -73,9 +76,44 @@ describe("personal MCP team boundary", () => {
     expect(tables).toEqual([]);
   });
 
+  it("searches only the connected team after checking its expected ID", async () => {
+    const { deps, tables } = fakeDeps();
+    vi.mocked(searchTeam).mockResolvedValueOnce([
+      {
+        contactId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        activityId: null,
+        kind: "contact",
+        passage: "Kari Nordmann · Hav AS",
+        contactName: "Kari Nordmann",
+        companyName: "Hav AS",
+        ownerOrgId: teamId,
+        score: 0.9,
+      },
+    ]);
+    const response = await toolRequest(deps, "search_contacts", {
+      expectedTeamId: teamId,
+      query: "Kari",
+    });
+    expect(await response.text()).toContain("Kari Nordmann");
+    expect(searchTeam).toHaveBeenCalledWith(deps, teamId, "Kari", {
+      includeShared: false,
+      limit: 10,
+    });
+    expect(tables).toEqual([]);
+
+    vi.mocked(searchTeam).mockClear();
+    const wrongTeam = await toolRequest(deps, "search_contacts", {
+      expectedTeamId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      query: "Kari",
+    });
+    expect(await wrongTeam.text()).toContain("team ID does not match");
+    expect(searchTeam).not.toHaveBeenCalled();
+  });
+
   it("requires expectedTeamId on every data tool", async () => {
     const { deps, tables } = fakeDeps();
     for (const name of [
+      "search_contacts",
       "list_contacts",
       "get_contact",
       "list_team_reference",

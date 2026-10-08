@@ -13,9 +13,10 @@ import {
   personTags,
   searchChunks,
 } from "@contac/core/db";
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import type { ApiDeps, ApiEnv } from "./types.ts";
+import { embed, searchModelId } from "./embedding.ts";
 
 type SearchDocument = {
   key: string;
@@ -27,24 +28,6 @@ type SearchDocument = {
   version: string;
 };
 
-const modelId = "Xenova/paraphrase-multilingual-MiniLM-L12-v2";
-type LocalExtractor = (
-  input: string,
-  options: { pooling: "mean"; normalize: true },
-) => Promise<{ data: Float32Array }>;
-let extractorPromise: Promise<LocalExtractor> | null = null;
-async function embed(input: string): Promise<number[]> {
-  const transformers = await import("@huggingface/transformers");
-  const make = transformers.pipeline as unknown as (
-    task: string,
-    model: string,
-    options: { dtype: string },
-  ) => Promise<LocalExtractor>;
-  extractorPromise ??= make("feature-extraction", modelId, { dtype: "q8" });
-  const extractor = await extractorPromise!;
-  const tensor = await extractor(input.slice(0, 2500), { pooling: "mean", normalize: true });
-  return Array.from(tensor.data as Float32Array);
-}
 function fingerprint(body: string) {
   return createHash("sha256").update(body).digest("hex");
 }
@@ -57,14 +40,16 @@ function passages(value: string) {
   }
   return chunks;
 }
-function cosine(a: number[], b: number[]) {
-  if (a.length !== b.length) return 0;
-  let score = 0;
-  for (let i = 0; i < a.length; i++) score += a[i]! * b[i]!;
-  return score;
+function groupBy<T>(rows: T[], key: (row: T) => string) {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const id = key(row);
+    const group = groups.get(id) ?? [];
+    group.push(row);
+    groups.set(id, group);
+  }
+  return groups;
 }
-const normal = (value: string) => value.toLocaleLowerCase("nb-NO").normalize("NFKC");
-
 async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]> {
   const [people, links, tagRows, domainRows, emailRows, additionalInfoRows] = await Promise.all([
     deps.db
@@ -106,6 +91,10 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
     deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
   ]);
   const active = new Set(people.map((row) => row.contact.id));
+  const tagsByContact = groupBy(tagRows, (row) => row.contactId);
+  const domainsByCompany = groupBy(domainRows, (row) => row.companyId);
+  const infoByContact = groupBy(additionalInfoRows, (row) => row.contactId);
+  const emailByActivity = new Map(emailRows.map((row) => [row.activityId, row]));
   const result: SearchDocument[] = [];
   function add(
     contactId: string,
@@ -126,10 +115,8 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
     });
   }
   for (const { contact, company } of people) {
-    const tags = tagRows.filter((row) => row.contactId === contact.id).map((row) => row.name);
-    const domains = domainRows
-      .filter((row) => row.companyId === contact.companyId)
-      .map((row) => row.name);
+    const tags = (tagsByContact.get(contact.id) ?? []).map((row) => row.name);
+    const domains = (domainsByCompany.get(contact.companyId) ?? []).map((row) => row.name);
     add(
       contact.id,
       null,
@@ -147,12 +134,12 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
         .join(" · "),
     );
     if (contact.sharedNote.trim()) add(contact.id, null, "note", contact.sharedNote);
-    for (const entry of additionalInfoRows.filter((entry) => entry.contactId === contact.id))
+    for (const entry of infoByContact.get(contact.id) ?? [])
       add(contact.id, null, "additional_info", entry.markdown);
   }
   for (const { contactId, activity } of links) {
     if (!active.has(contactId)) continue;
-    const mail = emailRows.find((row) => row.activityId === activity.id);
+    const mail = emailByActivity.get(activity.id);
     const body = [
       mail?.subject,
       mail?.from,
@@ -169,6 +156,7 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
 }
 
 const indexing = new Map<string, Promise<void>>();
+const lastIndexed = new Map<string, number>();
 async function ensureIndexed(deps: ApiDeps, orgId: string) {
   if (indexing.has(orgId)) return indexing.get(orgId)!;
   const promise = (async () => {
@@ -204,6 +192,7 @@ async function ensureIndexed(deps: ApiDeps, orgId: string) {
           set: { sourceVersion: doc.version, body: doc.body, embedding },
         });
     }
+    lastIndexed.set(orgId, Date.now());
   })();
   indexing.set(orgId, promise);
   try {
@@ -213,80 +202,115 @@ async function ensureIndexed(deps: ApiDeps, orgId: string) {
   }
 }
 
+export type SearchResult = {
+  contactId: string;
+  activityId: string | null;
+  kind: SearchDocument["kind"];
+  passage: string;
+  contactName: string;
+  companyName: string;
+  ownerOrgId: string;
+  score: number;
+};
+
+export async function searchTeam(
+  deps: ApiDeps,
+  orgId: string,
+  query: string,
+  options: { includeShared?: boolean; limit?: number } = {},
+): Promise<SearchResult[]> {
+  query = query.trim().slice(0, 500);
+  if (query.length < 2) return [];
+  const includeShared = options.includeShared ?? true;
+  const limit = Math.min(Math.max(options.limit ?? 30, 1), 30);
+  const approvals = includeShared
+    ? await deps.db
+        .select({ ownerOrgId: logAccessRequests.ownerOrgId })
+        .from(logAccessRequests)
+        .where(
+          and(
+            eq(logAccessRequests.requesterOrgId, orgId),
+            eq(logAccessRequests.status, "approved"),
+          ),
+        )
+    : [];
+  const orgIds = [...new Set([orgId, ...approvals.map((item) => item.ownerOrgId)])];
+  // The index is durable in Postgres. Serve it immediately after a restart and
+  // refresh changed passages after the response; an empty index must be built first.
+  const refreshLater: string[] = [];
+  for (const id of orgIds) {
+    if (Date.now() - (lastIndexed.get(id) ?? 0) < 30_000) continue;
+    const existing = await deps.db
+      .select({ id: searchChunks.id })
+      .from(searchChunks)
+      .where(eq(searchChunks.orgId, id))
+      .limit(1);
+    if (existing.length) refreshLater.push(id);
+    else await ensureIndexed(deps, id);
+  }
+  const vector = JSON.stringify(await embed(query));
+  const access = includeShared
+    ? sql`(
+        sc.org_id = ${orgId}::uuid OR (
+          sc.source_kind NOT IN ('note', 'additional_info') AND EXISTS (
+            SELECT 1 FROM public.log_access_requests lar
+            WHERE lar.requester_org_id = ${orgId}::uuid
+              AND lar.owner_org_id = sc.org_id
+              AND lar.owner_contact_id = sc.contact_id
+              AND lar.status = 'approved'
+          )
+        )
+      )`
+    : sql`sc.org_id = ${orgId}::uuid`;
+  const eligible = sql`
+    FROM public.search_chunks sc
+    JOIN public.contacts c ON c.id = sc.contact_id AND c.org_id = sc.org_id
+    WHERE ${access} AND c.deleted_at IS NULL AND c.status <> 'duplicate'
+  `;
+  const rows = await deps.db.execute(sql<SearchResult>`
+    WITH semantic AS (
+      SELECT sc.id ${eligible}
+      ORDER BY sc.embedding <=> ${vector}::extensions.vector(384)
+      LIMIT 120
+    ), lexical AS (
+      SELECT sc.id ${eligible}
+        AND to_tsvector('simple', sc.body) @@ websearch_to_tsquery('simple', ${query})
+      ORDER BY ts_rank_cd(to_tsvector('simple', sc.body), websearch_to_tsquery('simple', ${query})) DESC
+      LIMIT 120
+    ), candidates AS (
+      SELECT id FROM semantic UNION SELECT id FROM lexical
+    )
+    SELECT sc.contact_id AS "contactId", sc.activity_id AS "activityId",
+      sc.source_kind AS kind, sc.body AS passage, c.name AS "contactName",
+      co.name AS "companyName", sc.org_id AS "ownerOrgId",
+      (1 - (sc.embedding <=> ${vector}::extensions.vector(384))
+        + LEAST(ts_rank_cd(to_tsvector('simple', sc.body), websearch_to_tsquery('simple', ${query})), 1) * 0.2)::double precision AS score
+    FROM candidates candidate
+    JOIN public.search_chunks sc ON sc.id = candidate.id
+    JOIN public.contacts c ON c.id = sc.contact_id AND c.org_id = sc.org_id
+    JOIN public.companies co ON co.id = c.company_id AND co.org_id = sc.org_id
+    WHERE ${access} AND c.deleted_at IS NULL AND c.status <> 'duplicate'
+    ORDER BY score DESC, sc.id
+    LIMIT ${limit}
+  `);
+  for (const id of refreshLater)
+    setTimeout(() => {
+      void ensureIndexed(deps, id).catch((error) =>
+        console.error("Search index refresh failed", error),
+      );
+    }, 0);
+  return Array.from(rows) as SearchResult[];
+}
+
 export function registerSearchRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   app.get("/v1/org/search", async (c) => {
     const query = (c.req.query("q") ?? "").trim().slice(0, 500);
-    if (query.length < 2) return c.json({ results: [], model: modelId });
-    const orgId = c.get("org").id;
-    const approvals = await deps.db
-      .select({
-        ownerOrgId: logAccessRequests.ownerOrgId,
-        ownerContactId: logAccessRequests.ownerContactId,
-      })
-      .from(logAccessRequests)
-      .where(
-        and(eq(logAccessRequests.requesterOrgId, orgId), eq(logAccessRequests.status, "approved")),
-      );
-    const orgIds = [...new Set([orgId, ...approvals.map((item) => item.ownerOrgId)])];
     try {
-      for (const id of orgIds) await ensureIndexed(deps, id);
-    } catch {
-      return c.json(
-        { error: "Local search model is unavailable. Check server model download/cache." },
-        503,
-      );
+      const results = await searchTeam(deps, c.get("org").id, query);
+      return c.json({ results, model: searchModelId });
+    } catch (error) {
+      console.error("Search failed", error);
+      return c.json({ error: "Local search is temporarily unavailable." }, 503);
     }
-    const [rows, people, vector] = await Promise.all([
-      deps.db.select().from(searchChunks).where(inArray(searchChunks.orgId, orgIds)),
-      deps.db
-        .select({
-          id: contacts.id,
-          orgId: contacts.orgId,
-          name: contacts.name,
-          status: contacts.status,
-          companyName: companies.name,
-        })
-        .from(contacts)
-        .innerJoin(companies, eq(companies.id, contacts.companyId))
-        .where(and(inArray(contacts.orgId, orgIds), isNull(contacts.deletedAt))),
-      embed(query),
-    ]);
-    const approved = new Set(approvals.map((item) => item.ownerContactId));
-    const byId = new Map(people.map((person) => [person.id, person]));
-    const words = normal(query)
-      .split(/\s+/)
-      .filter((word) => word.length > 2);
-    const results = rows
-      .filter(
-        (row) =>
-          row.orgId === orgId ||
-          (approved.has(row.contactId) &&
-            row.sourceKind !== "note" &&
-            row.sourceKind !== "additional_info"),
-      )
-      .filter((row) => {
-        const person = byId.get(row.contactId);
-        return !!person && person.status !== "duplicate";
-      })
-      .map((row) => {
-        const person = byId.get(row.contactId)!;
-        const body = normal(row.body);
-        const lexical = words.length
-          ? words.filter((word) => body.includes(word)).length / words.length
-          : 0;
-        return {
-          contactId: row.contactId,
-          activityId: row.activityId,
-          kind: row.sourceKind,
-          passage: row.body,
-          contactName: person.name,
-          companyName: person.companyName,
-          ownerOrgId: person.orgId,
-          score: cosine(vector, row.embedding) + lexical * 0.2,
-        };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 30);
-    return c.json({ results, model: modelId });
   });
 }
