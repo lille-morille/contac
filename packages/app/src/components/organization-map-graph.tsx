@@ -41,12 +41,15 @@ const companyStatusTokens: Record<string, string> = {
 let reactNodeRegistered = false;
 
 function currentMapView(graph: Graph): OrganizationMapView {
-  const position = graph.getPosition();
+  // G6 getPosition() returns the inverse transform in canvas units; restoring
+  // it with translateTo() (viewport pixels) shifts the view at non-unit zoom.
+  const position = graph.getViewportByCanvas([0, 0]);
   return { zoom: graph.getZoom(), position: [position[0], position[1]] };
 }
 async function restoreMapView(graph: Graph, view: OrganizationMapView) {
   await graph.zoomTo(view.zoom, false, [0, 0]);
-  await graph.translateTo(view.position, false);
+  const origin = graph.getViewportByCanvas([0, 0]);
+  await graph.translateBy([view.position[0] - origin[0], view.position[1] - origin[1]], false);
 }
 
 function keepFocusedCardVisible(graph: Graph, container: HTMLElement, element: HTMLElement) {
@@ -439,8 +442,14 @@ export function OrganizationMapGraph({
           const view =
             (displayedViewScope.current === viewScope ? previousView : null) ??
             readMapView(viewScope);
-          if (view) await restoreMapView(graph, view);
-          else await graph.fitView({ when: "always" }, false);
+          if (view) {
+            try {
+              await restoreMapView(graph, view);
+            } catch (error) {
+              console.warn("Could not restore organization map view; showing all", error);
+              await graph.fitView({ when: "always" }, false);
+            }
+          } else await graph.fitView({ when: "always" }, false);
         }
         if (graphRef.current === graph) {
           displayedViewScope.current = viewScope;

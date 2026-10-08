@@ -1,6 +1,7 @@
 export type OrganizationMapView = { zoom: number; position: [number, number] };
 const views = new Map<string, OrganizationMapView>();
-const storageKey = (key: string) => `contac:organization-map-view:${key}`;
+// Ignore views stored with the previous canvas-coordinate representation.
+const storageKey = (key: string) => `contac:organization-map-view:v2:${key}`;
 
 export function validMapView(value: unknown): value is OrganizationMapView {
   if (!value || typeof value !== "object") return false;
