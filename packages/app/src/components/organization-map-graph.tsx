@@ -1,3 +1,9 @@
+import { mapWheelAction, type MapInputMode } from "../lib/organization-map-input.ts";
+import {
+  readMapView,
+  saveMapView,
+  type OrganizationMapView,
+} from "../lib/organization-map-view.ts";
 import { useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Graph, GraphData, NodeData } from "@antv/g6";
@@ -32,54 +38,15 @@ const companyStatusTokens: Record<string, string> = {
   konkurrent: "--coral",
   samarbeidspartner: "--blue",
 };
-const minimumReadableZoom = 0.85;
 let reactNodeRegistered = false;
 
-function findDomainPanel(container: HTMLElement, id: string) {
-  return [...container.querySelectorAll<HTMLElement>("[data-graph-panel]")]
-    .find((panel) => panel.dataset.graphPanel === id) ?? null;
+function currentMapView(graph: Graph): OrganizationMapView {
+  const position = graph.getPosition();
+  return { zoom: graph.getZoom(), position: [position[0], position[1]] };
 }
-
-function waitForDomainPanel(container: HTMLElement, id: string): Promise<HTMLElement | null> {
-  const existing = findDomainPanel(container, id);
-  if (existing) return Promise.resolve(existing);
-  return new Promise((resolve) => {
-    const observer = new MutationObserver(() => {
-      const panel = findDomainPanel(container, id);
-      if (!panel) return;
-      observer.disconnect();
-      window.clearTimeout(timeout);
-      resolve(panel);
-    });
-    const timeout = window.setTimeout(() => {
-      observer.disconnect();
-      resolve(null);
-    }, 2500);
-    observer.observe(container, { childList: true, subtree: true });
-  });
-}
-
-async function fitReadableView(graph: Graph, container: HTMLElement) {
-  await graph.fitView({ when: "always" }, false);
-  const readableZoom = container.clientWidth < 900 ? 0.7 : minimumReadableZoom;
-  if (graph.getZoom() >= readableZoom) return;
-  await graph.zoomTo(readableZoom, false);
-  const focusId = graph.getNodeData()[0]?.id;
-  if (!focusId) return;
-  await graph.focusElement(focusId, false);
-  // React nodes can mount after G6 finishes positioning the canvas.
-  const panel = await waitForDomainPanel(container, focusId);
-  if (!panel) return;
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  const panelBounds = panel.getBoundingClientRect();
-  const viewport = container.getBoundingClientRect();
-  const desiredX = panelBounds.width > viewport.width - 48
-    ? viewport.left + 24
-    : viewport.left + (viewport.width - panelBounds.width) / 2;
-  const desiredY = panelBounds.height > viewport.height - 48
-    ? viewport.top + 24
-    : viewport.top + (viewport.height - panelBounds.height) / 2;
-  await graph.translateBy([desiredX - panelBounds.left, desiredY - panelBounds.top], false);
+async function restoreMapView(graph: Graph, view: OrganizationMapView) {
+  await graph.zoomTo(view.zoom, false, [0, 0]);
+  await graph.translateTo(view.position, false);
 }
 
 function keepFocusedCardVisible(graph: Graph, container: HTMLElement, element: HTMLElement) {
@@ -236,6 +203,8 @@ function DomainPanel({
 }
 
 export function OrganizationMapGraph({
+  workspaceId,
+  inputMode,
   data,
   selection,
   onOpenNode,
@@ -244,6 +213,8 @@ export function OrganizationMapGraph({
   fitToken,
   zoomAction,
 }: {
+  workspaceId: string;
+  inputMode: MapInputMode;
   data: MapSource;
   selection: MapSelection;
   onOpenNode: (kind: "domain" | "company" | "contact", id: string, anchor: Element) => void;
@@ -256,6 +227,8 @@ export function OrganizationMapGraph({
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
+  const inputModeRef = useRef(inputMode);
+  inputModeRef.current = inputMode;
   const onOpenNodeRef = useRef(onOpenNode);
   const onCloseNodeRef = useRef(onCloseNode);
   const renderQueue = useRef(Promise.resolve());
@@ -264,7 +237,8 @@ export function OrganizationMapGraph({
   const [rendered, setRendered] = useState(false);
   const [renderError, setRenderError] = useState(false);
   const [renderRetry, setRenderRetry] = useState(0);
-  const renderedSelectionRef = useRef<string | null>(null);
+  const viewScope = `${workspaceId}:${selection.kind === "all" ? "all" : `${selection.kind}:${selection.id}`}`;
+  const displayedViewScope = useRef<string | null>(null);
   const graphMap = useMemo(() => buildOrganizationMap(data, selection), [data, selection]);
   onOpenNodeRef.current = onOpenNode;
   onCloseNodeRef.current = onCloseNode;
@@ -275,7 +249,7 @@ export function OrganizationMapGraph({
     let resizeTimer: number | undefined;
     let removeWheelListener: (() => void) | null = null;
     async function initialize() {
-      const [{ Graph, ExtensionCategory, CanvasEvent, register }, { ReactNode }] =
+      const [{ Graph, ExtensionCategory, CanvasEvent, GraphEvent, register }, { ReactNode }] =
         await Promise.all([import("@antv/g6"), import("@antv/g6-extension-react")]);
       if (disposed || !containerRef.current) return;
       if (!reactNodeRegistered) {
@@ -306,33 +280,90 @@ export function OrganizationMapGraph({
           },
         },
         behaviors: [
-          { type: "drag-canvas", range: Infinity },
           { type: "zoom-canvas", key: "map-pinch", trigger: ["pinch"], sensitivity: 1.5 },
         ],
       });
       graph.on(CanvasEvent.CLICK, () => onCloseNodeRef.current());
+      graph.on(GraphEvent.AFTER_TRANSFORM, () => {
+        if (hasRendered.current && displayedViewScope.current)
+          saveMapView(displayedViewScope.current, currentMapView(graph));
+      });
       graphRef.current = graph;
       const container = containerRef.current;
       // Capture gestures over HTML cards as well as the G6 canvas.
       const onWheel = (event: WheelEvent) => {
         if (graphRef.current !== graph) return;
-        const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? 16
-          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? container.clientHeight
-            : 1;
+        const unit =
+          event.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? 16
+            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? container.clientHeight
+              : 1;
         event.preventDefault();
-        if (event.ctrlKey) {
+        const action = mapWheelAction(inputModeRef.current, event.deltaX, event.deltaY, event.ctrlKey, unit);
+        if (action.kind === "zoom") {
           const bounds = container.getBoundingClientRect();
-          const origin: [number, number] = [event.clientX - bounds.left, event.clientY - bounds.top];
-          const zoom = graph.getZoom() * Math.exp(-event.deltaY * unit * 0.006);
+          const origin: [number, number] = [
+            event.clientX - bounds.left,
+            event.clientY - bounds.top,
+          ];
+          const zoom = graph.getZoom() * action.factor;
           void graph.zoomTo(zoom, false, origin);
         } else {
-          void graph.translateBy([-event.deltaX * unit, -event.deltaY * unit], false);
+          void graph.translateBy(action.offset, false);
         }
       };
       container.addEventListener("wheel", onWheel, { capture: true, passive: false });
-      removeWheelListener = () => container.removeEventListener("wheel", onWheel, true);
+      let drag: { id: number; startX: number; startY: number; x: number; y: number; active: boolean } | null = null;
+      let suppressClick = false;
+      let clickTimer: number | undefined;
+      const onPointerDown = (event: PointerEvent) => {
+        if (inputModeRef.current !== "mouse" || event.button !== 0 || !event.isPrimary) return;
+        suppressClick = false;
+        drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, active: false };
+      };
+      const onPointerMove = (event: PointerEvent) => {
+        if (!drag || drag.id !== event.pointerId) return;
+        if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+        if (!drag.active) {
+          drag.active = true;
+          container.setPointerCapture(event.pointerId);
+          container.style.cursor = "grabbing";
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void graph.translateBy([event.clientX - drag.x, event.clientY - drag.y], false);
+        drag.x = event.clientX;
+        drag.y = event.clientY;
+        suppressClick = true;
+      };
+      const onPointerUp = (event: PointerEvent) => {
+        if (drag?.id !== event.pointerId) return;
+        if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
+        drag = null;
+        container.style.cursor = "";
+        clickTimer = window.setTimeout(() => { suppressClick = false; }, 0);
+      };
+      const onClick = (event: MouseEvent) => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopPropagation();
+        suppressClick = false;
+      };
+      container.addEventListener("pointerdown", onPointerDown, true);
+      window.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });
+      window.addEventListener("pointerup", onPointerUp, true);
+      window.addEventListener("pointercancel", onPointerUp, true);
+      container.addEventListener("click", onClick, true);
+      removeWheelListener = () => {
+        window.clearTimeout(clickTimer);
+        container.removeEventListener("wheel", onWheel, true);
+        container.removeEventListener("pointerdown", onPointerDown, true);
+        window.removeEventListener("pointermove", onPointerMove, true);
+        window.removeEventListener("pointerup", onPointerUp, true);
+        window.removeEventListener("pointercancel", onPointerUp, true);
+        container.removeEventListener("click", onClick, true);
+      };
       let previousWidth = container.clientWidth;
       let previousHeight = container.clientHeight;
       resizeObserver = new ResizeObserver(() => {
@@ -345,11 +376,14 @@ export function OrganizationMapGraph({
         if (!hasRendered.current || !graph.getNodeData().length) return;
         window.clearTimeout(resizeTimer);
         resizeTimer = window.setTimeout(() => {
-          renderQueue.current = renderQueue.current.catch(() => undefined).then(async () => {
-            if (graphRef.current !== graph) return;
-            graph.resize();
-            await fitReadableView(graph, container);
-          });
+          renderQueue.current = renderQueue.current
+            .catch(() => undefined)
+            .then(async () => {
+              if (graphRef.current !== graph) return;
+              const view = currentMapView(graph);
+              graph.resize();
+              await restoreMapView(graph, view);
+            });
         }, 120);
       });
       resizeObserver.observe(containerRef.current);
@@ -361,6 +395,8 @@ export function OrganizationMapGraph({
       window.clearTimeout(resizeTimer);
       removeWheelListener?.();
       resizeObserver?.disconnect();
+      if (hasRendered.current && graphRef.current && displayedViewScope.current)
+        saveMapView(displayedViewScope.current, currentMapView(graphRef.current));
       hasRendered.current = false;
       graphRef.current?.destroy();
       graphRef.current = null;
@@ -374,43 +410,53 @@ export function OrganizationMapGraph({
     if (!ready || !graph) return;
     setRendered(false);
     setRenderError(false);
-    renderQueue.current = renderQueue.current.catch(() => undefined).then(async () => {
-      if (graphRef.current !== graph) return;
-      // G6's React node layer positions every HTML panel relative to the first
-      // node's top-left corner, so all coordinates use that panel as an anchor.
-      const anchor = graphMap.nodes[0];
-      const graphData: GraphData = {
-        nodes: graphMap.nodes.map((panel) => ({
-          id: panel.id,
-          data: { ...panel },
-          style: {
-            x: panel.x + anchor.width / 2,
-            y: panel.y + anchor.height / 2,
-            size: [panel.width, panel.height],
-          },
-        })),
-        edges: [],
-        combos: [],
-      };
-      graph.setData(graphData);
-      await graph.render();
-      if (graphRef.current !== graph) return;
-      const selectionKey = selection.kind === "all" ? "all" : `${selection.kind}:${selection.id}`;
-      if (graphMap.nodes.length && renderedSelectionRef.current !== selectionKey && containerRef.current)
-        await fitReadableView(graph, containerRef.current);
-      renderedSelectionRef.current = selectionKey;
-      if (graphRef.current === graph) {
-        hasRendered.current = true;
-        setRendered(true);
-      }
-    }).catch((error) => {
-      console.error("Could not render organization map", error);
-      if (graphRef.current === graph) {
-        setRenderError(true);
-        setRendered(true);
-      }
-    });
-  }, [graphMap, ready, reducedMotion, renderRetry, theme]);
+    renderQueue.current = renderQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (graphRef.current !== graph) return;
+        // G6's React node layer positions every HTML panel relative to the first
+        // node's top-left corner, so all coordinates use that panel as an anchor.
+        const anchor = graphMap.nodes[0];
+        const graphData: GraphData = {
+          nodes: graphMap.nodes.map((panel) => ({
+            id: panel.id,
+            data: { ...panel },
+            style: {
+              x: panel.x + anchor.width / 2,
+              y: panel.y + anchor.height / 2,
+              size: [panel.width, panel.height],
+            },
+          })),
+          edges: [],
+          combos: [],
+        };
+        const previousView = hasRendered.current ? currentMapView(graph) : null;
+        hasRendered.current = false;
+        graph.setData(graphData);
+        await graph.render();
+        if (graphRef.current !== graph) return;
+        if (graphMap.nodes.length) {
+          const view =
+            (displayedViewScope.current === viewScope ? previousView : null) ??
+            readMapView(viewScope);
+          if (view) await restoreMapView(graph, view);
+          else await graph.fitView({ when: "always" }, false);
+        }
+        if (graphRef.current === graph) {
+          displayedViewScope.current = viewScope;
+          hasRendered.current = true;
+          if (graphMap.nodes.length) saveMapView(viewScope, currentMapView(graph));
+          setRendered(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Could not render organization map", error);
+        if (graphRef.current === graph) {
+          setRenderError(true);
+          setRendered(true);
+        }
+      });
+  }, [graphMap, ready, reducedMotion, renderRetry, theme, viewScope]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -426,39 +472,49 @@ export function OrganizationMapGraph({
 
   useEffect(() => {
     const activeId = activeNode ? `${activeNode.kind}:${activeNode.id}` : null;
-    containerRef.current?.querySelectorAll<HTMLButtonElement>("[data-graph-card]").forEach((card) => {
-      const selected = card.dataset.graphCard === activeId;
-      card.classList.toggle("is-active", selected);
-      card.setAttribute("aria-pressed", String(selected));
-    });
+    containerRef.current
+      ?.querySelectorAll<HTMLButtonElement>("[data-graph-card]")
+      .forEach((card) => {
+        const selected = card.dataset.graphCard === activeId;
+        card.classList.toggle("is-active", selected);
+        card.setAttribute("aria-pressed", String(selected));
+      });
   }, [activeNode, graphMap]);
 
   return (
     <div className="relative h-full w-full" role="group" aria-label="Organisasjonskart">
       <div
         ref={containerRef}
-        className="h-full w-full touch-none"
+        className={`h-full w-full touch-none ${inputMode === "mouse" ? "cursor-grab select-none" : ""}`}
         aria-label={
           selection.kind === "company"
-              ? `Kart for ${graphMap.companies[0]?.name ?? "organisasjonen"}`
-              : "Alle organisasjoner og domener"
+            ? `Kart for ${graphMap.companies[0]?.name ?? "organisasjonen"}`
+            : "Alle organisasjoner og domener"
         }
       />
       {renderError ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card/90 text-sm text-muted-foreground" role="status">
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card/90 text-sm text-muted-foreground"
+          role="status"
+        >
           <p>Kunne ikke vise organisasjonskartet.</p>
           <Button variant="outline" onClick={() => setRenderRetry((current) => current + 1)}>
             Prøv igjen
           </Button>
         </div>
       ) : !rendered ? (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground" role="status">
+        <p
+          className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground"
+          role="status"
+        >
           Laster organisasjonskart …
         </p>
-      ) : graphMap.companies.length === 0 && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          Ingen organisasjoner i dette utvalget.
-        </p>
+      ) : (
+        graphMap.companies.length === 0 && (
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+            Ingen organisasjoner i dette utvalget.
+          </p>
+        )
       )}
     </div>
   );

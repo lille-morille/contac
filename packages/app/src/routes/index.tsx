@@ -1,3 +1,4 @@
+import { readMapInputMode, type MapInputMode } from "../lib/organization-map-input.ts";
 import { nextPickerIndex, pickerDirection } from "../lib/picker-keyboard.ts";
 import { compareContactUpdated } from "../lib/contact-sort.ts";
 import { Dialog as InboxDialog } from "@base-ui-components/react/dialog";
@@ -2342,6 +2343,7 @@ function Home() {
         ) : page === "organizations" ? (
           <OrganizationMap
             key={organizationTarget.nonce}
+            workspaceId={org.id}
             initialFocus={organizationTarget.focus}
             onFocusChange={(focus) => setOrganizationTarget((current) => ({ ...current, focus }))}
             loaded={query.isSuccess}
@@ -6734,6 +6736,8 @@ function DuplicateCompare({
 type OrganizationSelection = { kind: "all" } | { kind: "company"; id: string };
 
 function OrganizationGraph({
+  workspaceId,
+  inputMode,
   data,
   companies,
   selection,
@@ -6743,6 +6747,8 @@ function OrganizationGraph({
   fitToken,
   zoomAction,
 }: {
+  workspaceId: string;
+  inputMode: MapInputMode;
   data: Data;
   companies: Company[];
   selection: OrganizationSelection;
@@ -6764,6 +6770,8 @@ function OrganizationGraph({
   );
   return (
     <OrganizationMapGraph
+      workspaceId={workspaceId}
+      inputMode={inputMode}
       data={mapData}
       selection={selection}
       onOpenNode={onOpenNode}
@@ -6776,6 +6784,7 @@ function OrganizationGraph({
 }
 
 function OrganizationMap({
+  workspaceId,
   initialFocus,
   onFocusChange,
   loaded,
@@ -6784,6 +6793,7 @@ function OrganizationMap({
   onOpenContact,
   busy,
 }: {
+  workspaceId: string;
   initialFocus: MapFocus;
   onFocusChange: (focus: MapFocus) => void;
   loaded: boolean;
@@ -6820,6 +6830,12 @@ function OrganizationMap({
     id: string;
     name: string;
   } | null>(null);
+  const [inputMode, setInputMode] = useState<MapInputMode>(readMapInputMode);
+  const [inputModeOpen, setInputModeOpen] = useState(false);
+  function changeInputMode(mode: MapInputMode) {
+    setInputMode(mode);
+    try { localStorage.setItem("contac:map-input-mode", mode); } catch { /* Keep this session's mode. */ }
+  }
   const [fitToken, setFitToken] = useState(0);
   const [zoomAction, setZoomAction] = useState({ sequence: 0, factor: 1 });
 
@@ -6974,6 +6990,8 @@ function OrganizationMap({
         aria-label="Relasjoner"
       >
         <OrganizationGraph
+          workspaceId={workspaceId}
+          inputMode={inputMode}
           data={data}
           companies={graphCompanies}
           selection={selection}
@@ -7013,6 +7031,9 @@ function OrganizationMap({
             <Plus size={15} /> Nytt domene
           </Button>
         )}
+        <Button size="sm" variant="outline" className="absolute bottom-16 right-3 bg-card shadow-card" onClick={() => setInputModeOpen(true)}>
+          Input-modus
+        </Button>
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-card">
           <Button
             type="button"
@@ -7031,7 +7052,7 @@ function OrganizationMap({
             variant="ghost"
             onClick={() => setFitToken((current) => current + 1)}
           >
-            Tilpass kart
+            Vis alt
           </Button>
           <Button
             type="button"
@@ -7046,6 +7067,23 @@ function OrganizationMap({
           </Button>
         </div>
       </section>
+      <Dialog open={inputModeOpen} onOpenChange={setInputModeOpen}>
+        <DialogContent>
+          <DialogTitle>Input-modus</DialogTitle>
+          <DialogDescription>Velg hvordan du vil bevege deg rundt i organisasjonskartet.</DialogDescription>
+          <div className="mt-4 space-y-3">
+            <button type="button" aria-pressed={inputMode === "mouse"} onClick={() => changeInputMode("mouse")} className={`w-full rounded-xl border p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${inputMode === "mouse" ? "border-primary bg-primary-soft/40" : "border-border"}`}>
+              <span className="block text-sm font-medium">Dra og scroll</span>
+              <span className="mt-1 block text-sm text-muted-foreground">Klikk og dra for å flytte kartet, også over kortene. Rull for å zoome inn og ut.</span>
+            </button>
+            <button type="button" aria-pressed={inputMode === "trackpad"} onClick={() => changeInputMode("trackpad")} className={`w-full rounded-xl border p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${inputMode === "trackpad" ? "border-primary bg-primary-soft/40" : "border-border"}`}>
+              <span className="block text-sm font-medium">Swipe og zoom</span>
+              <span className="mt-1 block text-sm text-muted-foreground">Sveip med to fingre for å flytte kartet vannrett og loddrett. Spre eller knip sammen to fingre for å zoome inn og ut.</span>
+            </button>
+          </div>
+          <Button className="mt-4" onClick={() => setInputModeOpen(false)}>Ferdig</Button>
+        </DialogContent>
+      </Dialog>
       <Popover
         open={!!activeNode}
         onOpenChange={(open) => {
