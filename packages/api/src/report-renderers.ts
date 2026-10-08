@@ -38,34 +38,58 @@ function displayDate(value: string) {
   }).format(new Date(value));
 }
 
-function entryText(entry: ReportEntry): string {
+export function reportEntryParts(entry: ReportEntry): {
+  heading: string;
+  body: string;
+  before: string[];
+  summary: string | null;
+  after: string[];
+} {
   const activity = entry.activity;
   const heading = `${displayDate(activity.occurredAt)} · ${kindLabels[activity.kind]}`;
-  if (entry.kind === "reference")
-    return `${heading}\nSe oppføringen under K-${entry.owner.number} (${entry.owner.name}).`;
+  if (entry.kind === "reference") {
+    const body = `Se oppføringen under K-${entry.owner.number} (${entry.owner.name}).`;
+    return {
+      heading,
+      body,
+      before: [],
+      summary: null,
+      after: [],
+    };
+  }
   const others = entry.participants.filter((person) => person.id !== entry.owner.id);
-  const parts = [heading];
+  const before: string[] = [];
   if (others.length)
-    parts.push(
+    before.push(
       `Andre deltakere: ${others.map((person) => `K-${person.number} ${person.name}`).join(", ")}`,
     );
-  if (activity.missedOutcome) parts.push(`Utfall: ${activity.missedOutcome}`);
+  if (activity.missedOutcome) before.push(`Utfall: ${activity.missedOutcome}`);
   if (activity.email) {
-    parts.push(`Fra: ${activity.email.from}`);
-    parts.push(`Til: ${activity.email.to.join(", ")}`);
-    if (activity.email.cc.length) parts.push(`Kopi: ${activity.email.cc.join(", ")}`);
-    if (activity.email.bcc.length) parts.push(`Blindkopi: ${activity.email.bcc.join(", ")}`);
-    parts.push(`Emne: ${activity.email.subject}`);
+    before.push(`Fra: ${activity.email.from}`);
+    before.push(`Til: ${activity.email.to.join(", ")}`);
+    if (activity.email.cc.length) before.push(`Kopi: ${activity.email.cc.join(", ")}`);
+    if (activity.email.bcc.length) before.push(`Blindkopi: ${activity.email.bcc.join(", ")}`);
+    before.push(`Emne: ${activity.email.subject}`);
   }
-  parts.push(`Sammendrag/notater: ${activity.summary || "(ingen)"}`);
-  if (activity.transcript) parts.push(`Transkripsjon: ${activity.transcript}`);
+  const after: string[] = [];
   if (activity.attachments.length)
-    parts.push(
+    after.push(
       `Vedlegg: ${activity.attachments
         .map((file) => `${file.name} (${file.mimeType}, ${file.sizeBytes} byte)`)
         .join(", ")}`,
     );
-  return parts.join("\n");
+  return {
+    heading,
+    body: [...before, `Sammendrag/notater: ${activity.summary || "(ingen)"}`, ...after].join("\n"),
+    before,
+    summary: activity.summary,
+    after,
+  };
+}
+
+function entryText(entry: ReportEntry): string {
+  const { heading, body } = reportEntryParts(entry);
+  return `${heading}\n${body}`;
 }
 
 export function reportCell(row: ReportRow, column: ReportColumnId): string {
@@ -163,7 +187,15 @@ function typstString(value: string): string {
 function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
   return rows.map((row) => ({
     number: row.contact.contactNumber,
-    values: Object.fromEntries(columns.map((column) => [column, reportCell(row, column)])),
+    values: Object.fromEntries(
+      columns
+        .filter((column) => column !== "log")
+        .map((column) => [column, reportCell(row, column)]),
+    ),
+    entries: row.entries.map((entry) => {
+      const { heading, body } = reportEntryParts(entry);
+      return { heading, body };
+    }),
   }));
 }
 
@@ -211,45 +243,86 @@ export function renderReportTypst(report: ReportData): string {
     if index < lines.len() - 1 { linebreak() }
   }
 }
-#let column-width(column) = {
-  if column == "number" { 11mm }
-  else if column == "log" { 4fr }
-  else if column == "stikkord" { 1.6fr }
-  else if column == "contactInfo" { 1.35fr }
-  else if column == "name" or column == "organization" { 1.2fr }
-  else { 1fr }
+#let navy = rgb("#16384c")
+#let pale = rgb("#f1f6f9")
+#let metadata-field(row, column) = [
+  #text(size: 7.5pt, weight: "bold", fill: navy, report-data.labels.at(column))
+  #linebreak()
+  #v(1.5pt)
+  #log-lines(row.values.at(column, default: ""))
+]
+#let log-box(row) = {
+  if row.entries.len() > 0 {
+    block(width: 100%, breakable: true, above: 3pt, below: 3pt,
+      inset: 7pt, radius: 2pt, fill: pale)[
+      #text(size: 9pt, weight: "bold", fill: navy, "Logg")
+      #for (index, entry) in row.entries.enumerate() {
+        block(width: 100%, breakable: true, above: 6pt, below: 0pt)[
+          #if index > 0 { line(length: 100%, stroke: 0.35pt + rgb("#cbd8e0")) }
+          #text(size: 8.5pt, weight: "bold", fill: navy, entry.heading)
+          #linebreak()
+          #v(1.5pt)
+          #log-lines(entry.body)
+        ]
+      }
+    ]
+  }
 }
-#let report-table(rows, columns) = {
-  let cells = rows.map(row => columns.map(column => {
-    let value = row.values.at(column, default: "")
-    if column == "number" {
-      table.cell(breakable: true)[#contact-anchor(row.number)#value]
-    } else {
-      table.cell(breakable: true, log-lines(value))
-    }
-  })).flatten()
-  table(
-    columns: columns.map(column-width),
-    align: left + top,
-    inset: (x: 3pt, y: 3pt),
-    stroke: 0.35pt + rgb("#d6dee3"),
-    fill: (_, y) => if y == 0 { rgb("#16384c") } else if calc.even(y) { rgb("#f4f7f8") } else { white },
-    table.header(repeat: true, ..columns.map(column => text(size: 9pt, weight: "bold", fill: white, report-data.labels.at(column)))),
-    ..cells,
+#let detail-box(row, column) = {
+  let value = row.values.at(column, default: "")
+  if value != "" {
+    block(width: 100%, breakable: true, above: 3pt, below: 3pt,
+      inset: 7pt, radius: 2pt, fill: pale)[
+      #text(size: 9pt, weight: "bold", fill: navy, report-data.labels.at(column))
+      #linebreak()
+      #log-lines(value)
+    ]
+  }
+}
+#let contact-card(row, columns, compact: false) = {
+  let metadata = columns.filter(column =>
+    column != "number" and column != "description" and
+    column != "stikkord" and column != "log" and
+    (column == "name" or row.values.at(column, default: "") != "")
   )
+  [
+    #block(width: 100%, breakable: false, above: 9pt, below: if compact { 5pt } else { 3pt })[
+      #line(length: 100%, stroke: 0.5pt + rgb("#cbd8e0"))
+      #v(3pt)
+      #grid(
+        columns: (9mm, 1fr), gutter: 3mm,
+        align: top,
+        [#contact-anchor(row.number)#text(size: 8pt, weight: "bold", fill: navy, str(row.number))],
+        grid(columns: (1fr, 1fr), column-gutter: 6mm, row-gutter: if compact { 7pt } else { 5pt },
+          ..metadata.map(column => metadata-field(row, column))),
+      )
+    ]
+    #if compact {
+      if "stikkord" in columns and row.values.at("stikkord", default: "") != "" {
+        [#v(6pt)#text(size: 8pt, weight: "bold", fill: navy, "Stikkord: ")#log-lines(row.values.at("stikkord"))]
+      }
+    } else {
+      for column in columns {
+        if column == "log" { log-box(row) }
+        else if column == "description" or column == "stikkord" {
+          detail-box(row, column)
+        }
+      }
+    }
+  ]
 }
 #let render-contact-log(data, settings) = [
   #pagebreak(weak: true)
-  #set page(paper: "a4", flipped: true, margin: (x: 9mm, y: 10mm))
+  #set page(paper: "a4", flipped: false, margin: (x: 16mm, y: 15mm))
   #set text(size: 9pt, lang: "nb", fill: rgb("#172129"))
-  #set par(leading: 0.4em)
+  #set par(leading: 0.45em)
   #text(size: 16pt, weight: "bold", settings.title)
   #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
-  #v(4mm)
-  #if data.rows.len() > 0 { report-table(data.rows, settings.columns) }
+  #v(5mm)
+  #for row in data.rows { contact-card(row, settings.columns) }
   #if data.compactRows.len() > 0 {
-    [#v(7mm)#text(size: 13pt, weight: "bold", "Uten aktivitet")#v(3mm)]
-    report-table(data.compactRows, data.compactColumns)
+    [#v(7mm)#heading(level: 2, outlined: false)[Uten aktivitet]#v(2mm)]
+    for row in data.compactRows { contact-card(row, data.compactColumns, compact: true) }
   }
   #pagebreak(weak: true)
 ]

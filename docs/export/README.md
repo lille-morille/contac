@@ -1,16 +1,8 @@
-# YAML contact-log contract (v1)
+# Contact-log report export
 
-Copy the complete YAML from **Eksport → Rapportverktøy** with `Kopier fullstendig YAML`, then paste it into `kontaktlogg.yaml` beside the report template. It contains one team, a list of non-duplicate contacts, and a chronological list of activities. Each activity occurs exactly once. `exportOwnerContactId` is one of its `linkedContactIds`; all linked contacts remain listed even when the activity is printed under one owner.
+The team's **Eksport** page saves contact inclusion, manual relevance order, title, subtitle, columns, and selected format. Its live contact cards show full field content beside the selection and reorder controls. Click Stikkord or an activity's notes to edit the underlying content; changes save when the editor loses focus. Activity dates, participants, email headers, and attachment details remain read-only in the export view. Every download or copy reads current contact data. Select Typst, LaTeX, or CSV, then use `Last ned` or `Kopier til utklippstavle`. CSV can be imported into Google Sheets. `Kopier som tabell` copies an HTML table for Google Docs. All report formats omit transcripts. The Typst report template can be downloaded alongside these actions.
 
-The top-level keys are `schemaVersion`, `team`, `contacts`, and `activities`. `team` has `id` and `name`. Each contact carries its immutable team-scoped `contactNumber`, identifying fields, organization, status, assignee ID, person tags, and organization domains. Each activity carries its kind and timestamps, creator ID, export owner, all linked IDs, complete summary and transcript, missed-call outcome, AI override, email headers when present, and attachment metadata (`id`, name, MIME type, size). Binary attachment bytes are not embedded in YAML. Shared research notes and confirmed duplicate contacts are excluded.
-
-[`kontaktlogg.typ`](kontaktlogg.typ) is a minimal example of importing the YAML and constructing a table. Put it beside the exported file and run `typst compile kontaktlogg.typ kontaktlogg.pdf`. Adapt its columns and layout for the university's final document.
-
-## Saved report export
-
-The team's **Eksport** page saves contact inclusion, manual relevance order, title, subtitle, columns, and selected format. Every download or copy reads current contact data. Select Typst, LaTeX, or CSV, then use `Last ned` or `Kopier til utklippstavle`. CSV can be imported into Google Sheets. `Kopier som tabell` copies an HTML table for Google Docs.
-
-The generated `kontaktlogg.typ` is self-contained; it does not read CSV or YAML. Replace the report's contact-log include with this file. Include it where the table should appear, and import its citation helper in report sections:
+Download or copy the generated `kontaktlogg.typ` and replace the report's contact-log include with it. The file is self-contained. Include it where the contact log should appear, and import its citation helper in report sections:
 
 ```typst
 #import "dependencies/kontaktlogg.typ": cite-contact
@@ -18,9 +10,9 @@ Et sitat #cite-contact(12).
 #include "dependencies/kontaktlogg.typ"
 ```
 
-The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. One contact row may span pages. A shared activity is printed in full once, under its creation contact when available; other linked contacts point to that person's `K-nummer`. The compact `Uten aktivitet` section comes last.
+The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards: a narrow number marker, compact contact details, and wide Stikkord and Logg sections. Each activity has a highlighted date and type heading, and a long log can continue across pages. A shared activity is printed in full once, under its creation contact when available; other linked contacts point to that person's `K-nummer`. The compact `Uten aktivitet` section comes last.
 
-# Typst report template
+## Typst report template
 
 The Norwegian and English templates are versioned in
 [`packages/api/src/templates/syretest`](../../packages/api/src/templates/syretest).
@@ -28,7 +20,7 @@ The API builds ZIP downloads from shared `common/` and localized `nb/`/`en/`
 source files. Edit, push and deploy normally; no storage upload or separate key
 is required. The API image already copies the template source folder.
 
-In **Eksport → Rapportverktøy**, choose the Norwegian or English template.
+At the top of **Eksport**, choose the Norwegian or English template beside the contact-log download and copy actions.
 The review form prefills case name from the team's product name (falling back
 to team name), group from team name/number, and authors from members' profile
 names. Edit these values, add/remove authors, optionally add their backgrounds,
@@ -48,7 +40,7 @@ all of the template's root `kontaktlogg.typ`. It retains the selected contacts,
 columns and relevance order. Report sections import `cite-contact` through
 `dependencies/helpers.typ`, which delegates to that exported file's helper.
 Citations therefore use exactly the same `kontaktlogg-k-N` targets as the
-backend's landscape tables. The template also supports direct imports from
+backend's portrait contact cards. The template also supports direct imports from
 `kontaktlogg.typ`. No second contact-log renderer or CSV import is involved.
 
 **Last ned signerte LOI-er** downloads `/v1/org/export/signed-lois.zip`, containing

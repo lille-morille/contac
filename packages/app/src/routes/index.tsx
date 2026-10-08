@@ -2055,6 +2055,21 @@ function Home() {
             </button>
           </div>
         )}
+        {(query.isError || activityQuery.isError || personalQuery.isError) && (
+          <div
+            role="alert"
+            className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-risk-soft px-4 py-3 text-sm text-risk"
+          >
+            <span className="flex-1">Kunne ikke laste kontaktdata. Prøv igjen.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
+            >
+              Last inn på nytt
+            </Button>
+          </div>
+        )}
         {createdNotice && (
           <div
             role="status"
@@ -2159,7 +2174,7 @@ function Home() {
             onRestore={(id) => void mutate(`/contacts/${id}/restore`, {})}
           />
         ) : page === "export" ? (
-          <ExportPage key={org.id} orgId={org.id} />
+          <ExportPage key={org.id} orgId={org.id} onOpenContact={setSelectedId} />
         ) : page === "library" ? (
           <LibraryPage
             key={libraryNonce}

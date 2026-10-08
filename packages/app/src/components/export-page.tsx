@@ -7,14 +7,15 @@ import {
   type ReportFormat,
   type ReportSettings,
 } from "@contac/core";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, GripVertical, RotateCcw } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, Download, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { contactStatusName, type ContactStatus } from "./contact-status.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
 import { Checkbox } from "./ui/checkbox.tsx";
 import { Input } from "./ui/input.tsx";
+import { Textarea } from "./ui/textarea.tsx";
 import { ApiError, downloadOrgFile, readOrgText, request } from "../lib/api.ts";
 import { copyHtmlTable, copyText } from "../lib/clipboard.ts";
 
@@ -32,7 +33,16 @@ type PreviewContact = {
   domains: string[];
   stikkord: string | null;
   activityCount: number;
-  logExcerpt: string;
+  log: string;
+  logEntries: {
+    activityId: string;
+    kind: "full" | "reference";
+    heading: string;
+    body: string;
+    before: string[];
+    summary: string | null;
+    after: string[];
+  }[];
 };
 type ExportWorkspace = {
   settings: ReportSettings;
@@ -58,6 +68,14 @@ const compactCandidates: ReportColumnId[] = [
   "status",
   "stikkord",
 ];
+const detailColumns = new Set<ReportColumnId>(["description", "stikkord", "log"]);
+
+function layoutColumns(columns: ReportColumnId[]): ReportColumnId[] {
+  return [
+    ...columns.filter((column) => !detailColumns.has(column)),
+    ...columns.filter((column) => detailColumns.has(column)),
+  ];
+}
 
 function orderContacts(contacts: PreviewContact[], settings: ReportSettings) {
   const manual = new Map(settings.contactOrder.map((id, index) => [id, index]));
@@ -102,56 +120,309 @@ function previewCell(contact: PreviewContact, column: ReportColumnId): string {
     case "stikkord":
       return contact.stikkord ?? "";
     case "log":
-      return contact.logExcerpt;
+      return contact.log;
   }
 }
 
-function PreviewTable({
-  contacts,
-  columns,
+function InlineReportEditor({
+  value,
+  label,
+  field,
+  maxLength,
+  onSave,
+  onRefresh,
 }: {
-  contacts: PreviewContact[];
-  columns: ReportColumnId[];
+  value: string | null;
+  label: string;
+  field: "stikkord" | "summary";
+  maxLength: number;
+  onSave: (next: string, expected: string | null) => Promise<void>;
+  onRefresh: () => void;
 }) {
-  if (!contacts.length) return null;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+  const [expected, setExpected] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [remote, setRemote] = useState<string | null | undefined>(undefined);
+  const cancelBlurRef = useRef(false);
+
+  useEffect(() => {
+    if (editing) return;
+    setDraft(value ?? "");
+    setExpected(value);
+  }, [value, editing]);
+
+  async function save(currentExpected = expected, resolveConflict = false) {
+    if (saving || (remote !== undefined && !resolveConflict)) return;
+    if (draft === (currentExpected ?? "")) {
+      setEditing(false);
+      setError("");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(draft, currentExpected);
+      setEditing(false);
+      setRemote(undefined);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        const current = cause.details.current as Record<string, unknown> | undefined;
+        const latest = current?.[field];
+        if (typeof latest === "string" || latest === null) {
+          setRemote(latest);
+          setError("Teksten ble endret av noen andre. Velg hvilken versjon du vil bruke.");
+        } else setError(cause.message);
+      } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre teksten.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="min-w-full border-collapse text-left text-sm">
-        <thead className="bg-primary text-primary-foreground">
-          <tr>
-            {columns.map((column) => (
-              <th
-                key={column}
-                className="min-w-28 border-r border-primary-foreground/20 px-3 py-2 font-semibold last:border-r-0"
-              >
-                {reportColumnLabels[column]}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {contacts.map((contact, index) => (
-            <tr key={contact.id} className={index % 2 ? "bg-muted/40" : "bg-card"}>
-              {columns.map((column) => (
-                <td
-                  key={column}
-                  className="max-w-80 border-r border-t border-border px-3 py-2 align-top last:border-r-0"
-                >
-                  <span className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words">
-                    {previewCell(contact, column) || "—"}
-                  </span>
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {editing ? (
+        <Textarea
+          autoFocus
+          aria-label={label}
+          value={draft}
+          maxLength={maxLength}
+          rows={field === "stikkord" ? 3 : 6}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            if (cancelBlurRef.current) {
+              cancelBlurRef.current = false;
+              return;
+            }
+            void save();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              cancelBlurRef.current = true;
+              setEditing(false);
+              setRemote(undefined);
+              setError("");
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          aria-label={`Rediger ${label}`}
+          title="Klikk for å redigere"
+          className="w-full cursor-text rounded text-left whitespace-pre-wrap break-words hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary"
+          onClick={() => {
+            cancelBlurRef.current = false;
+            setEditing(true);
+          }}
+        >
+          {value || <span className="text-muted-foreground">Klikk for å legge til tekst.</span>}
+        </button>
+      )}
+      {saving && <p className="mt-1 text-xs text-muted-foreground">Lagrer …</p>}
+      {error && (
+        <p role="alert" className="mt-1 text-xs text-risk">
+          {error}
+        </p>
+      )}
+      {remote !== undefined && (
+        <div className="mt-2 rounded-lg border border-warn bg-warn-soft p-2 text-xs">
+          <p className="font-semibold">Nyere lagret tekst</p>
+          <p className="mt-1 whitespace-pre-wrap">{remote || "(tomt)"}</p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setDraft(remote ?? "");
+                setExpected(remote);
+                setRemote(undefined);
+                setEditing(false);
+                setError("");
+                onRefresh();
+              }}
+            >
+              Bruk nyeste
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setRemote(undefined);
+                setExpected(remote);
+                void save(remote, true);
+              }}
+            >
+              Lagre min tekst
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export function ExportPage({ orgId }: { orgId: string }) {
+function PreviewCards({
+  contacts,
+  columns,
+  excluded,
+  onMove,
+  onToggle,
+  onOpen,
+  onSaveStikkord,
+  onSaveSummary,
+  onRefresh,
+}: {
+  contacts: PreviewContact[];
+  columns: ReportColumnId[];
+  excluded: Set<string>;
+  onMove: (id: string, target: string) => void;
+  onToggle: (id: string, include: boolean) => void;
+  onOpen: (id: string) => void;
+  onSaveStikkord: (id: string, next: string, expected: string | null) => Promise<void>;
+  onSaveSummary: (id: string, next: string, expected: string) => Promise<void>;
+  onRefresh: () => void;
+}) {
+  if (!contacts.length) return null;
+  return (
+    <div className="max-h-[75vh] space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/20 p-3">
+      {contacts.map((contact, index) => {
+        const previous = contacts[index - 1];
+        const next = contacts[index + 1];
+        const metadata = columns.filter(
+          (column) =>
+            column !== "number" &&
+            column !== "description" &&
+            column !== "stikkord" &&
+            column !== "log" &&
+            (column === "name" || previewCell(contact, column)),
+        );
+        const details = columns.filter(
+          (column) =>
+            (column === "description" || column === "stikkord" || column === "log") &&
+            (column === "stikkord" || previewCell(contact, column)),
+        );
+        return (
+          <article key={contact.id} className="rounded-xl border border-border bg-card p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+              <span className="text-xs font-semibold text-primary">{contact.contactNumber}</span>
+              <div className="flex items-center gap-1">
+                <Checkbox
+                  checked={!excluded.has(contact.id)}
+                  aria-label={`Ta med K-${contact.contactNumber} ${contact.name}`}
+                  onCheckedChange={(include) => onToggle(contact.id, !!include)}
+                />
+                <Button size="sm" variant="outline" onClick={() => onOpen(contact.id)}>
+                  Åpne
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={!previous}
+                  aria-label={`Flytt ${contact.name} opp`}
+                  onClick={() => previous && onMove(contact.id, previous.id)}
+                >
+                  <ArrowUp />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={!next}
+                  aria-label={`Flytt ${contact.name} ned`}
+                  onClick={() => next && onMove(next.id, contact.id)}
+                >
+                  <ArrowDown />
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-x-6 gap-y-3 py-3 sm:grid-cols-2">
+              {metadata.map((column) => (
+                <div key={column} className="min-w-0">
+                  <div className="text-xs font-semibold text-primary">
+                    {reportColumnLabels[column]}
+                  </div>
+                  <div className="whitespace-pre-wrap break-words">
+                    {previewCell(contact, column) || "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {details.map((column) => (
+              <div key={column} className="mb-2 rounded-lg bg-muted/50 p-3 last:mb-0">
+                <div className="mb-1 font-semibold text-primary">{reportColumnLabels[column]}</div>
+                {column === "stikkord" ? (
+                  <InlineReportEditor
+                    value={contact.stikkord}
+                    label={`Stikkord for ${contact.name}`}
+                    field="stikkord"
+                    maxLength={300}
+                    onSave={(next, expected) => onSaveStikkord(contact.id, next, expected)}
+                    onRefresh={onRefresh}
+                  />
+                ) : column === "log" && contact.logEntries.length ? (
+                  <div className="space-y-3">
+                    {contact.logEntries.map((entry, entryIndex) => (
+                      <div
+                        key={entry.activityId}
+                        className={`border-t border-border/70 pt-2 ${entryIndex === 0 ? "border-t-0 pt-0" : ""}`}
+                      >
+                        <div className="font-semibold text-primary">{entry.heading}</div>
+                        {entry.kind === "full" ? (
+                          <>
+                            {entry.before.map((line, index) => (
+                              <div key={index} className="whitespace-pre-wrap break-words">
+                                {line}
+                              </div>
+                            ))}
+                            <div className="text-xs font-medium text-muted-foreground">
+                              Sammendrag/notater
+                            </div>
+                            <InlineReportEditor
+                              value={entry.summary}
+                              label={`Notater for ${entry.heading} hos ${contact.name}`}
+                              field="summary"
+                              maxLength={20000}
+                              onSave={(next, expected) =>
+                                onSaveSummary(entry.activityId, next, expected ?? "")
+                              }
+                              onRefresh={onRefresh}
+                            />
+                            {entry.after.map((line, index) => (
+                              <div key={index} className="whitespace-pre-wrap break-words">
+                                {line}
+                              </div>
+                            ))}
+                          </>
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{entry.body}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap break-words">
+                    {previewCell(contact, column)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ExportPage({
+  orgId,
+  onOpenContact,
+}: {
+  orgId: string;
+  onOpenContact: (id: string) => void;
+}) {
   const { org } = useOrg();
+  const queryClient = useQueryClient();
   const workspace = useQuery({
     queryKey: ["report-workspace", orgId],
     queryFn: () => request<ExportWorkspace>("/org/export/workspace", orgId),
@@ -162,7 +433,6 @@ export function ExportPage({ orgId }: { orgId: string }) {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState(false);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
   const draftRef = useRef<ReportSettings | null>(null);
   const revisionRef = useRef(0);
   const dirtyRef = useRef(false);
@@ -226,9 +496,10 @@ export function ExportPage({ orgId }: { orgId: string }) {
       inFlightRef.current = tracked;
       const success = await tracked;
       if (success && dirtyRef.current) return persistChanges();
+      if (success) void queryClient.invalidateQueries({ queryKey: ["report-workspace", orgId] });
       return success;
     },
-    [orgId],
+    [orgId, queryClient],
   );
 
   const scheduleSave = useCallback(
@@ -290,27 +561,65 @@ export function ExportPage({ orgId }: { orgId: string }) {
     ids.splice(to, 0, id);
     update((current) => ({ ...current, orderMode: "manual", contactOrder: ids }), true);
   }
+  function toggleContact(id: string, include: boolean) {
+    update(
+      (current) => ({
+        ...current,
+        excludedContactIds: include
+          ? current.excludedContactIds.filter((value) => value !== id)
+          : [...current.excludedContactIds, id],
+      }),
+      true,
+    );
+  }
   function moveColumn(column: ReportColumnId, direction: -1 | 1) {
     update((current) => {
-      const columns = [...current.columns];
+      const columns = layoutColumns(current.columns);
       const index = columns.indexOf(column);
       const target = index + direction;
-      if (index < 0 || target < 1 || target >= columns.length) return current;
+      if (
+        index < 0 ||
+        target < 1 ||
+        target >= columns.length ||
+        detailColumns.has(column) !== detailColumns.has(columns[target]!)
+      )
+        return current;
       [columns[index], columns[target]] = [columns[target]!, columns[index]!];
       return { ...current, columns };
     }, true);
   }
 
+  async function refreshContactData() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["report-workspace", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["contact-data", orgId] }),
+    ]);
+  }
+  async function saveStikkord(id: string, next: string, expected: string | null) {
+    await request(`/org/contacts/${id}`, orgId, {
+      stikkord: next.trim() || null,
+      expected: { stikkord: expected },
+    });
+    await refreshContactData();
+  }
+  async function saveSummary(id: string, next: string, expected: string) {
+    await request(`/org/activities/${id}`, orgId, {
+      summary: next,
+      expected: { summary: expected },
+    });
+    await refreshContactData();
+  }
+
   const ordered = draft && workspace.data ? orderContacts(workspace.data.contacts, draft) : [];
   const excluded = new Set(draft?.excludedContactIds ?? []);
   const included = ordered.filter((contact) => !excluded.has(contact.id));
-  const active = included.filter((contact) => contact.activityCount > 0);
-  const inactive = included.filter((contact) => contact.activityCount === 0);
   const visible = ordered.filter((contact) =>
-    `${contact.name} ${contact.companyName} ${contact.contactNumber}`
+    `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.log}`
       .toLocaleLowerCase("nb")
       .includes(search.toLocaleLowerCase("nb")),
   );
+  const visibleActive = visible.filter((contact) => contact.activityCount > 0);
+  const visibleInactive = visible.filter((contact) => contact.activityCount === 0);
   const compactColumns =
     draft?.columns.filter((column) => compactCandidates.includes(column)) ?? [];
   const formatLabels: Record<ReportFormat, { label: string; extension: string }> = {
@@ -396,7 +705,11 @@ export function ExportPage({ orgId }: { orgId: string }) {
           >
             Kopier som tabell
           </Button>
+          <ReportTemplateDownload key={orgId} teamId={orgId} teamName={org?.name ?? ""} />
         </div>
+        <p className="text-sm text-muted-foreground">
+          Typst-sitater bruker permanente kontaktnumre, for eksempel <code>#cite-contact(12)</code>.
+        </p>
         <p role="status" className="text-xs text-muted-foreground">
           {saveState === "saved"
             ? "Alle endringer er lagret"
@@ -460,12 +773,107 @@ export function ExportPage({ orgId }: { orgId: string }) {
           </p>
         )}
       </Card>
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+      <div className="space-y-5">
         <Card className="space-y-4 p-5">
-          <h2 className="font-semibold">Kontakter og relevans</h2>
+          <h2 className="font-semibold">Innhold og kolonner</h2>
+          <label className="block text-sm font-medium">
+            Tittel
+            <Input
+              className="mt-1"
+              value={draft.title}
+              onChange={(event) => update((current) => ({ ...current, title: event.target.value }))}
+              onBlur={() => void persist()}
+            />
+          </label>
+          <label className="block text-sm font-medium">
+            Undertittel
+            <Input
+              className="mt-1"
+              value={draft.subtitle}
+              onChange={(event) =>
+                update((current) => ({ ...current, subtitle: event.target.value }))
+              }
+              onBlur={() => void persist()}
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Nr. og Kontaktperson er alltid med. Flytt feltene innenfor kontaktopplysningene eller de
+            brede boksene for Kort beskrivelse, Stikkord og Logg.
+          </p>
+          <div className="space-y-1">
+            {[
+              ...layoutColumns(draft.columns),
+              ...reportColumnIds.filter((column) => !draft.columns.includes(column)),
+            ].map((column) => {
+              const selected = draft.columns.includes(column);
+              const required = column === "number" || column === "name";
+              const shownColumns = layoutColumns(draft.columns);
+              const index = shownColumns.indexOf(column);
+              const previous = shownColumns[index - 1];
+              const next = shownColumns[index + 1];
+              return (
+                <div
+                  key={column}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-muted/40"
+                >
+                  <Checkbox
+                    checked={selected}
+                    disabled={required}
+                    aria-label={`Vis ${reportColumnLabels[column]}`}
+                    onCheckedChange={(checked) =>
+                      update(
+                        (current) => ({
+                          ...current,
+                          columns: layoutColumns(
+                            checked
+                              ? [...current.columns, column]
+                              : current.columns.filter((value) => value !== column),
+                          ),
+                        }),
+                        true,
+                      )
+                    }
+                  />
+                  <span className="min-w-0 flex-1 text-sm">{reportColumnLabels[column]}</span>
+                  {selected && (
+                    <>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={
+                          index <= 1 || detailColumns.has(previous!) !== detailColumns.has(column)
+                        }
+                        aria-label={`Flytt ${reportColumnLabels[column]} opp`}
+                        onClick={() => moveColumn(column, -1)}
+                      >
+                        <ArrowUp />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        disabled={!next || detailColumns.has(next) !== detailColumns.has(column)}
+                        aria-label={`Flytt ${reportColumnLabels[column]} ned`}
+                        onClick={() => moveColumn(column, 1)}
+                      >
+                        <ArrowDown />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+        <Card className="space-y-4 p-5">
+          <div>
+            <h2 className="font-semibold">Kontakter og relevans</h2>
+            <p className="text-xs text-muted-foreground">
+              Hele loggen vises i kontaktkortene. Bla nedover for å se alle oppføringer.
+            </p>
+          </div>
           <Input
             aria-label="Søk etter kontakt i eksportoppsettet"
-            placeholder="Søk etter navn, selskap eller nummer"
+            placeholder="Søk etter navn, selskap, nummer eller logginnhold"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -522,198 +930,49 @@ export function ExportPage({ orgId }: { orgId: string }) {
               </Button>
             </div>
           </div>
-          <div className="max-h-[32rem] space-y-1 overflow-y-auto pr-1">
-            {visible.map((contact) => {
-              const index = ordered.findIndex((item) => item.id === contact.id);
-              const section = contact.activityCount > 0;
-              const previous = ordered
-                .slice(0, index)
-                .reverse()
-                .find((item) => item.activityCount > 0 === section);
-              const next = ordered
-                .slice(index + 1)
-                .find((item) => item.activityCount > 0 === section);
-              const checked = !draft.excludedContactIds.includes(contact.id);
-              return (
-                <div
-                  key={contact.id}
-                  draggable
-                  onDragStart={() => setDraggingId(contact.id)}
-                  onDragEnd={() => setDraggingId(null)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    if (
-                      draggingId &&
-                      (ordered.find((item) => item.id === draggingId)?.activityCount ?? 0) > 0 ===
-                        section
-                    )
-                      moveContact(draggingId, contact.id);
-                    setDraggingId(null);
-                  }}
-                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2"
-                >
-                  <GripVertical size={16} className="shrink-0 text-muted-foreground" aria-hidden />
-                  <Checkbox
-                    checked={checked}
-                    aria-label={`Ta med K-${contact.contactNumber} ${contact.name}`}
-                    onCheckedChange={(include) =>
-                      update(
-                        (current) => ({
-                          ...current,
-                          excludedContactIds: include
-                            ? current.excludedContactIds.filter((id) => id !== contact.id)
-                            : [...current.excludedContactIds, contact.id],
-                        }),
-                        true,
-                      )
-                    }
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      K-{contact.contactNumber} · {contact.name}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {contact.companyName} · {contactStatusName(contact.status)} ·{" "}
-                      {contact.activityCount} aktiviteter
-                    </span>
-                  </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={!previous}
-                    aria-label={`Flytt ${contact.name} opp`}
-                    onClick={() => previous && moveContact(contact.id, previous.id)}
-                  >
-                    <ArrowUp />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    disabled={!next}
-                    aria-label={`Flytt ${contact.name} ned`}
-                    onClick={() => next && moveContact(next.id, contact.id)}
-                  >
-                    <ArrowDown />
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+          {visibleActive.length > 0 && (
+            <PreviewCards
+              contacts={visibleActive}
+              columns={draft.columns}
+              excluded={excluded}
+              onMove={moveContact}
+              onToggle={toggleContact}
+              onOpen={onOpenContact}
+              onSaveStikkord={saveStikkord}
+              onSaveSummary={saveSummary}
+              onRefresh={() => void refreshContactData()}
+            />
+          )}
+          {visibleInactive.length > 0 && (
+            <>
+              <h3 className="font-semibold">Uten aktivitet</h3>
+              <PreviewCards
+                contacts={visibleInactive}
+                columns={compactColumns}
+                excluded={excluded}
+                onMove={moveContact}
+                onToggle={toggleContact}
+                onOpen={onOpenContact}
+                onSaveStikkord={saveStikkord}
+                onSaveSummary={saveSummary}
+                onRefresh={() => void refreshContactData()}
+              />
+            </>
+          )}
           {visible.length === 0 && (
             <p className="text-sm text-muted-foreground">Ingen kontakter funnet.</p>
           )}
-        </Card>
-        <Card className="space-y-4 p-5">
-          <h2 className="font-semibold">Innhold og kolonner</h2>
-          <label className="block text-sm font-medium">
-            Tittel
-            <Input
-              className="mt-1"
-              value={draft.title}
-              onChange={(event) => update((current) => ({ ...current, title: event.target.value }))}
-              onBlur={() => void persist()}
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            Undertittel
-            <Input
-              className="mt-1"
-              value={draft.subtitle}
-              onChange={(event) =>
-                update((current) => ({ ...current, subtitle: event.target.value }))
-              }
-              onBlur={() => void persist()}
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Nr. og Kontaktperson er alltid med. Kolonner kan flyttes med pilene.
-          </p>
-          <div className="space-y-1">
-            {[
-              ...draft.columns,
-              ...reportColumnIds.filter((column) => !draft.columns.includes(column)),
-            ].map((column) => {
-              const selected = draft.columns.includes(column);
-              const required = column === "number" || column === "name";
-              const index = draft.columns.indexOf(column);
-              return (
-                <div
-                  key={column}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-muted/40"
-                >
-                  <Checkbox
-                    checked={selected}
-                    disabled={required}
-                    aria-label={`Vis ${reportColumnLabels[column]}`}
-                    onCheckedChange={(checked) =>
-                      update(
-                        (current) => ({
-                          ...current,
-                          columns: checked
-                            ? [...current.columns, column]
-                            : current.columns.filter((value) => value !== column),
-                        }),
-                        true,
-                      )
-                    }
-                  />
-                  <span className="min-w-0 flex-1 text-sm">{reportColumnLabels[column]}</span>
-                  {selected && (
-                    <>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        disabled={index <= 1}
-                        aria-label={`Flytt ${reportColumnLabels[column]} opp`}
-                        onClick={() => moveColumn(column, -1)}
-                      >
-                        <ArrowUp />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        disabled={index < 1 || index >= draft.columns.length - 1}
-                        aria-label={`Flytt ${reportColumnLabels[column]} ned`}
-                        onClick={() => moveColumn(column, 1)}
-                      >
-                        <ArrowDown />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          {included.length === 0 && (
+            <p className="text-sm text-muted-foreground">Velg minst én kontakt.</p>
+          )}
         </Card>
       </div>
-      <Card className="space-y-4 p-5">
-        <div>
-          <h2 className="font-semibold">Forhåndsvisning</h2>
-          <p className="text-xs text-muted-foreground">
-            Loggen er forkortet her. Eksporten inneholder hele teksten.
-          </p>
-        </div>
-        {active.length > 0 && <PreviewTable contacts={active} columns={draft.columns} />}
-        {inactive.length > 0 && (
-          <>
-            <h3 className="font-semibold">Uten aktivitet</h3>
-            <PreviewTable contacts={inactive} columns={compactColumns} />
-          </>
-        )}
-        {included.length === 0 && (
-          <p className="text-sm text-muted-foreground">Velg minst én kontakt.</p>
-        )}
-      </Card>
       <Card className="space-y-3 p-5">
-        <h2 className="font-semibold">Rapportverktøy</h2>
+        <h2 className="font-semibold">Rapportvedlegg</h2>
         <p className="text-sm text-muted-foreground">
-          Last ned en mal, og erstatt <code>kontaktlogg.typ</code> med Typst-eksporten ovenfor.
-          Sitater bruker permanente kontaktnumre, for eksempel <code>#cite-contact(12)</code>. Pakk
-          ut signerte LOI-er i prosjektmappen for å legge alle sider til som vedlegg.
+          Pakk ut signerte LOI-er i prosjektmappen for å legge alle sider til som vedlegg.
         </p>
         <div className="flex flex-wrap gap-2">
-          <ReportTemplateDownload key={orgId} teamId={orgId} teamName={org?.name ?? ""} />
           <Button
             variant="outline"
             onClick={() =>
@@ -724,17 +983,6 @@ export function ExportPage({ orgId }: { orgId: string }) {
             }
           >
             Last ned signerte LOI-er
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() =>
-              void act(
-                async () => copyText(await readOrgText(orgId, "/org/export/contact-log.yaml")),
-                "Den fullstendige YAML-kontaktloggen er kopiert.",
-              )
-            }
-          >
-            Kopier fullstendig YAML
           </Button>
         </div>
       </Card>

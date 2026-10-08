@@ -9,6 +9,8 @@
 
 ## Full log and YAML export
 
+**Superseded:** The YAML contact log and its example Typst file were retired by [spec 08](08-saved-report-export.md). The current workflow exports a generated `.typ` file directly.
+
 The deterministic full log orders each contact's activities by editable activity time. It preserves the complete transcript, summary, notes, and meaningful metadata, without AI paraphrasing. Shared research notes and confirmed duplicate contacts are excluded. The full text is available on the contact page and for export. Optional AI `stikkord` is a separate condensed view.
 
 The team-wide **YAML** export appears on contact pages. A shared meeting, call, or email is one record and appears once, even when linked to multiple contacts. Its default export owner is the first contact it was created on. Members can change the owner to another linked contact. Every linked contact remains listed on the exported activity. Binary attachment bytes are omitted; attachment metadata is retained. The v1 YAML contract and a working Typst table example are in [the export documentation](../export/README.md).

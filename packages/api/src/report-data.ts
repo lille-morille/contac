@@ -151,5 +151,5 @@ export async function loadReportSnapshot(db: Database, orgId: string) {
     ...activity,
     exportOwnerContactId: originalOwnerByActivity.get(activity.id) ?? null,
   }));
-  return { result, reportContacts, reportActivities };
+  return { reportContacts, reportActivities };
 }

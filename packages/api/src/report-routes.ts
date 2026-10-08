@@ -10,6 +10,8 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { loadReportSnapshot } from "./report-data.ts";
 import {
+  reportCell,
+  reportEntryParts,
   renderReportCsv,
   renderReportHtml,
   renderReportLatex,
@@ -37,16 +39,27 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       loadReportSnapshot(deps.db, orgId),
     ]);
     if (!snapshot) return c.json({ error: "Teamet finnes ikke." }, 404);
-    const activityLinks = new Map<string, { count: number; latest: string }>();
+    const activityLinks = new Map<string, number>();
     for (const activity of snapshot.reportActivities) {
       for (const id of activity.linkedContactIds) {
-        const previous = activityLinks.get(id);
-        activityLinks.set(id, {
-          count: (previous?.count ?? 0) + 1,
-          latest: activity.summary || previous?.latest || "",
-        });
+        activityLinks.set(id, (activityLinks.get(id) ?? 0) + 1);
       }
     }
+    const selected = buildReportData({
+      contacts: snapshot.reportContacts,
+      activities: snapshot.reportActivities,
+      settings: saved.settings,
+    });
+    const all = buildReportData({
+      contacts: snapshot.reportContacts,
+      activities: snapshot.reportActivities,
+      settings: { ...saved.settings, excludedContactIds: [] },
+    });
+    const previewRows = new Map(
+      [...all.rows, ...all.noActivityRows, ...selected.rows, ...selected.noActivityRows].map(
+        (row) => [row.contact.id, row],
+      ),
+    );
     return c.json({
       ...saved,
       contacts: orderedReportContacts(
@@ -66,8 +79,14 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         personTags: contact.personTags,
         domains: contact.domains,
         stikkord: contact.stikkord,
-        activityCount: activityLinks.get(contact.id)?.count ?? 0,
-        logExcerpt: activityLinks.get(contact.id)?.latest.slice(0, 280) ?? "",
+        activityCount: activityLinks.get(contact.id) ?? 0,
+        log: previewRows.has(contact.id) ? reportCell(previewRows.get(contact.id)!, "log") : "",
+        logEntries:
+          previewRows.get(contact.id)?.entries.map((entry) => ({
+            activityId: entry.activity.id,
+            kind: entry.kind,
+            ...reportEntryParts(entry),
+          })) ?? [],
       })),
     });
   });

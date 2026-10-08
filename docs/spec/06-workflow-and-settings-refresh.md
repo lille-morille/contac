@@ -1,5 +1,7 @@
 # 06 — Workflow, organization map, reporting, agents, and settings refresh
 
+**Export update:** The YAML contact log in this historical specification was retired by [spec 08](08-saved-report-export.md). The current export generates a `.typ` file directly.
+
 **Status:** Reviewed and assigned for implementation on 2026-10-05. Track completed changes below. Keyboard shortcuts are in spec 07.
 
 Reduce friction in contact entry and day-to-day work, make every workspace view linkable, improve the organization map and quote library, add a report workflow, and simplify team and agent settings. Preserve the Anvinn-derived design tokens and generic UI components. This is a behavioral and layout change, not a visual-system replacement.
