@@ -476,6 +476,7 @@ export function ExportPage({
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState(false);
   const [tableSelected, setTableSelected] = useState(false);
+  const [resetOrderOpen, setResetOrderOpen] = useState(false);
   const [copiedFormat, setCopiedFormat] = useState<"typst" | "latex" | "table" | null>(null);
   const draftRef = useRef<ReportSettings | null>(null);
   const revisionRef = useRef(0);
@@ -988,20 +989,7 @@ export function ExportPage({
               >
                 Fjern alle
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  update(
-                    (current) => ({
-                      ...current,
-                      orderMode: "default",
-                      contactOrder: [],
-                    }),
-                    true,
-                  )
-                }
-              >
+              <Button variant="ghost" size="sm" onClick={() => setResetOrderOpen(true)}>
                 <RotateCcw /> Tilbakestill rekkefølge
               </Button>
             </div>
@@ -1043,6 +1031,28 @@ export function ExportPage({
           )}
         </ExportSection>
       </div>
+      <Dialog open={resetOrderOpen} onOpenChange={setResetOrderOpen}>
+        <DialogContent>
+          <DialogTitle>Tilbakestill rekkefølge?</DialogTitle>
+          <DialogDescription>
+            Den manuelle rekkefølgen erstattes med standardsortering etter status og navn. Endringen
+            gjelder hele teamets eksportoppsett.
+          </DialogDescription>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setResetOrderOpen(false)}>
+              Avbryt
+            </Button>
+            <Button
+              onClick={() => {
+                update((current) => ({ ...current, orderMode: "default", contactOrder: [] }), true);
+                setResetOrderOpen(false);
+              }}
+            >
+              Tilbakestill rekkefølge
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={copiedFormat !== null} onOpenChange={(open) => !open && setCopiedFormat(null)}>
         <DialogContent>
           <DialogTitle>
