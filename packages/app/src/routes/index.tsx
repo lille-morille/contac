@@ -103,6 +103,12 @@ import { MultiSelect } from "../components/ui/multi-select.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover.tsx";
 import { Select } from "../components/ui/select.tsx";
 import { Textarea } from "../components/ui/textarea.tsx";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.tsx";
 import { ApiError, profileAvatarUrl, request, uploadFile } from "../lib/api.ts";
 import { useAuth } from "../lib/auth.tsx";
 import { copyText } from "../lib/clipboard.ts";
@@ -1497,12 +1503,6 @@ function Home() {
   const contactNav: [Page, string, typeof LayoutGrid][] = [
     ["contacts", "Kontaktlogg", LayoutGrid],
     ["contacted", "Sist kontaktet", CalendarDays],
-    ...(data.contacts.some((contact) => contact.status === "duplicate")
-      ? ([["duplicates", "Duplikate kontakter", Copy]] as [Page, string, typeof LayoutGrid][])
-      : []),
-    ...(deletedContacts.length
-      ? ([["deleted", "Slettede kontakter", Trash2]] as [Page, string, typeof LayoutGrid][])
-      : []),
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
@@ -1517,7 +1517,9 @@ function Home() {
       ? `favorite:${selectedId}`
       : page === "team_settings" || page === "class_settings"
         ? "profile"
-        : page;
+        : page === "duplicates" || page === "deleted"
+          ? "contacts"
+          : page;
   const shortcutNavigation = [
     ...contactNav.map(([id]) => id),
     ...overviewNav.map(([id]) => id),
@@ -2115,6 +2117,57 @@ function Home() {
             </button>
           </div>
         )}
+        {!selectedId && ["contacts", "duplicates", "deleted"].includes(page) && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            {page === "contacts" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-expanded={filtersOpen}
+                  aria-controls="contact-filters-and-sort"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                >
+                  <ListFilter size={16} /> Filtre og sortering
+                  {activeControls > 0 && (
+                    <span className="rounded-full bg-primary-soft px-1.5 text-xs text-primary">
+                      {activeControls}
+                    </span>
+                  )}
+                  <ChevronDown size={15} className={filtersOpen ? "rotate-180" : ""} />
+                </Button>
+                <div
+                  role="group"
+                  aria-label="Kontaktvisning"
+                  className="inline-flex items-center rounded-xl border border-border bg-muted p-0.5"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={layout === "board"}
+                    onClick={() => setLayout("board")}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "board" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <LayoutGrid size={16} /> Kanban
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={layout === "list"}
+                    onClick={() => setLayout("list")}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <List size={16} /> Liste
+                  </button>
+                </div>
+              </div>
+            )}
+            <ContactCategorySelector
+              page={page as "contacts" | "duplicates" | "deleted"}
+              hasDuplicates={data.contacts.some((contact) => contact.status === "duplicate")}
+              hasDeleted={deletedContacts.length > 0}
+              onChange={go}
+            />
+          </div>
+        )}
         {selectedId ? (
           selectedDeletedContact ? (
             <div className="mx-auto max-w-2xl space-y-4 rounded-2xl border border-border bg-card p-6 shadow-card">
@@ -2246,47 +2299,6 @@ function Home() {
             <h1 className="sr-only">
               {page === "duplicates" ? "Duplikate kontakter" : "Kontaktlogg"}
             </h1>
-            {page === "contacts" && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-expanded={filtersOpen}
-                  aria-controls="contact-filters-and-sort"
-                  onClick={() => setFiltersOpen((open) => !open)}
-                >
-                  <ListFilter size={16} /> Filtre og sortering
-                  {activeControls > 0 && (
-                    <span className="rounded-full bg-primary-soft px-1.5 text-xs text-primary">
-                      {activeControls}
-                    </span>
-                  )}
-                  <ChevronDown size={15} className={filtersOpen ? "rotate-180" : ""} />
-                </Button>
-                <div
-                  role="group"
-                  aria-label="Kontaktvisning"
-                  className="inline-flex items-center rounded-xl border border-border bg-muted p-0.5"
-                >
-                  <button
-                    type="button"
-                    aria-pressed={layout === "board"}
-                    onClick={() => setLayout("board")}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "board" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    <LayoutGrid size={16} /> Kanban
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={layout === "list"}
-                    onClick={() => setLayout("list")}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${layout === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    <List size={16} /> Liste
-                  </button>
-                </div>
-              </div>
-            )}
             {page === "contacts" && (
               <div
                 id="contact-filters-and-sort"
@@ -2932,6 +2944,77 @@ function NoTeam() {
     </main>
   );
 }
+function ContactCategorySelector({
+  page,
+  hasDuplicates,
+  hasDeleted,
+  onChange,
+}: {
+  page: "contacts" | "duplicates" | "deleted";
+  hasDuplicates: boolean;
+  hasDeleted: boolean;
+  onChange: (page: "contacts" | "duplicates" | "deleted") => void;
+}) {
+  const categories = [
+    { page: "contacts", label: "Aktive", disabled: false, tooltip: "" },
+    {
+      page: "duplicates",
+      label: "Duplikate",
+      disabled: !hasDuplicates,
+      tooltip: "Det finnes ingen duplikate kontakter",
+    },
+    {
+      page: "deleted",
+      label: "Slettede",
+      disabled: !hasDeleted,
+      tooltip: "Det finnes ingen slettede kontakter",
+    },
+  ] as const;
+  return (
+    <TooltipProvider>
+      <div
+        role="group"
+        aria-label="Kontaktkategori"
+        className="ml-auto inline-flex items-center rounded-xl border border-border bg-muted p-0.5"
+      >
+        {categories.map((category) => {
+          const button = (
+            <button
+              type="button"
+              disabled={category.disabled}
+              aria-pressed={page === category.page}
+              onClick={() => onChange(category.page)}
+              className={`inline-flex h-8 items-center rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 ${page === category.page ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {category.label}
+            </button>
+          );
+          return category.disabled ? (
+            <Tooltip key={category.page}>
+              <TooltipTrigger
+                render={
+                  <span
+                    tabIndex={0}
+                    aria-label={category.tooltip}
+                    className="inline-flex rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                }
+              >
+                {button}
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{category.tooltip}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span key={category.page} className="inline-flex">
+              {button}
+            </span>
+          );
+        })}
+      </div>
+    </TooltipProvider>
+  );
+}
+
 function DeletedContactsPage({
   contacts,
   companies,
