@@ -542,6 +542,49 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (!current) return c.json({ error: "Domain not found" }, 404);
     return c.json({ error: "Domain changed while you were editing", current }, 409);
   });
+  app.post("/v1/org/domains/:id/rename", async (c) => {
+    const domainId = id.safeParse(c.req.param("id"));
+    const data = await parse(
+      c,
+      z.object({
+        name: z.string().trim().min(1).max(100),
+        expected: z.object({ revision: z.number().int().nonnegative() }),
+      }),
+    );
+    if (!domainId.success || !data) return c.json({ error: "Invalid domain name" }, 400);
+    const orgId = c.get("org").id;
+    const normalizedName = norm(data.name);
+    const [duplicate] = await deps.db
+      .select({ id: domainTags.id })
+      .from(domainTags)
+      .where(and(eq(domainTags.orgId, orgId), eq(domainTags.normalizedName, normalizedName)));
+    if (duplicate && duplicate.id !== domainId.data)
+      return c.json({ error: "Domenenavnet finnes allerede." }, 409);
+    try {
+      const [updated] = await deps.db
+        .update(domainTags)
+        .set({ name: data.name, normalizedName, revision: sql`${domainTags.revision} + 1` })
+        .where(
+          and(
+            eq(domainTags.orgId, orgId),
+            eq(domainTags.id, domainId.data),
+            eq(domainTags.revision, data.expected.revision),
+          ),
+        )
+        .returning();
+      if (updated) return c.json(updated);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "23505")
+        return c.json({ error: "Domenenavnet finnes allerede." }, 409);
+      throw error;
+    }
+    const [current] = await deps.db
+      .select({ name: domainTags.name, revision: domainTags.revision })
+      .from(domainTags)
+      .where(and(eq(domainTags.orgId, orgId), eq(domainTags.id, domainId.data)));
+    if (!current) return c.json({ error: "Domain not found" }, 404);
+    return c.json({ error: "Domenet ble endret mens du redigerte.", current }, 409);
+  });
   app.post("/v1/org/companies/:id/domains", async (c) => {
     const companyId = id.safeParse(c.req.param("id"));
     const data = await parse(

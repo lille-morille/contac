@@ -1246,7 +1246,11 @@ function Home() {
       setNow(Date.now());
       return result;
     } catch (cause) {
-      if (
+      if (path.endsWith("/rename") && cause instanceof ApiError && cause.status === 409) {
+        setError(cause.message);
+        if (cause.details.current)
+          void qc.invalidateQueries({ queryKey: ["contact-data", org.id, "core"] });
+      } else if (
         (path.startsWith("/person-tags/") || path.startsWith("/domains/")) &&
         cause instanceof ApiError &&
         cause.status === 409
@@ -6562,6 +6566,9 @@ function OrganizationMap({
   const [newDomain, setNewDomain] = useState("");
   const [newDomainDescription, setNewDomainDescription] = useState("");
   const [domainColor, setDomainColor] = useState<Color>("blue");
+  const [editingDomainId, setEditingDomainId] = useState<string | null>(null);
+  const [domainNameDraft, setDomainNameDraft] = useState("");
+  const [domainNameError, setDomainNameError] = useState("");
   const [loiCompanyId, setLoiCompanyId] = useState<string | null>(null);
   const [summaryScope, setSummaryScope] = useState<{
     kind: "company" | "domain";
@@ -6584,6 +6591,8 @@ function OrganizationMap({
     setActiveNode(null);
     setEditingCompanyId(null);
     setCompanyNameError("");
+    setEditingDomainId(null);
+    setDomainNameError("");
   }
   function chooseSelection(next: OrganizationSelection) {
     closeActiveNode();
@@ -6643,6 +6652,29 @@ function OrganizationMap({
     setNewDomain("");
     setNewDomainDescription("");
     setDomainDialogOpen(false);
+  }
+  async function renameDomain(event: FormEvent) {
+    event.preventDefault();
+    if (!popupDomain || editingDomainId !== popupDomain.id) return;
+    const name = domainNameDraft.trim();
+    if (!name) {
+      setDomainNameError("Domenenavnet kan ikke være tomt.");
+      return;
+    }
+    if (name === popupDomain.name) {
+      setEditingDomainId(null);
+      return;
+    }
+    try {
+      await mutate(`/domains/${popupDomain.id}/rename`, {
+        name,
+        expected: { revision: popupDomain.revision },
+      });
+      setEditingDomainId(null);
+      setDomainNameError("");
+    } catch (cause) {
+      setDomainNameError(cause instanceof Error ? cause.message : "Kunne ikke endre navn.");
+    }
   }
   async function setCompanyDomain(id: string | null) {
     if (!popupCompany) return;
@@ -6704,6 +6736,8 @@ function OrganizationMap({
           onOpenNode={(kind, id, anchor) => {
             setEditingCompanyId(null);
             setCompanyNameError("");
+            setEditingDomainId(null);
+            setDomainNameError("");
             setActiveNode((current) =>
               current?.kind === kind && current.id === id ? null : { kind, id, anchor },
             );
@@ -6782,6 +6816,68 @@ function OrganizationMap({
         >
           {popupDomain && (
             <div>
+              {editingDomainId === popupDomain.id ? (
+                <form
+                  className="mb-3 flex items-center gap-1"
+                  onSubmit={(event) => void renameDomain(event)}
+                >
+                  <Input
+                    autoFocus
+                    aria-label="Domenenavn"
+                    className="min-w-0"
+                    maxLength={100}
+                    value={domainNameDraft}
+                    onChange={(event) => setDomainNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setEditingDomainId(null);
+                        setDomainNameError("");
+                      }
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label="Lagre domenenavn"
+                  >
+                    <Check size={16} />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Avbryt navneendring"
+                    onClick={() => {
+                      setEditingDomainId(null);
+                      setDomainNameError("");
+                    }}
+                  >
+                    <X size={16} />
+                  </Button>
+                </form>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mb-3"
+                  onClick={() => {
+                    setEditingDomainId(popupDomain.id);
+                    setDomainNameDraft(popupDomain.name);
+                    setDomainNameError("");
+                  }}
+                >
+                  <Pencil size={14} /> Endre navn
+                </Button>
+              )}
+              {domainNameError && editingDomainId === popupDomain.id && (
+                <p role="alert" className="mb-3 text-xs text-risk">
+                  {domainNameError}
+                </p>
+              )}
               <TagDescription
                 key={popupDomain.id}
                 tag={popupDomain}
