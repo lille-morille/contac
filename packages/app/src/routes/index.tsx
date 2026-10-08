@@ -1,3 +1,5 @@
+import { compareContactUpdated } from "../lib/contact-sort.ts";
+import { Dialog as InboxDialog } from "@base-ui-components/react/dialog";
 import { ManualEmailComposer } from "../components/manual-email-composer.tsx";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
@@ -197,6 +199,7 @@ type Contact = {
   allowExternalAi: boolean;
   createdAt: string;
   updatedAt: string;
+  sortUpdatedAt?: string;
   deletedAt: string | null;
 };
 type Activity = {
@@ -776,7 +779,11 @@ function Home() {
   const [feedNonce, setFeedNonce] = useState(0);
   const [libraryNonce, setLibraryNonce] = useState(0);
   const [inboxOpen, setInboxOpen] = useState(false);
-  const inboxPanelRef = useRef<HTMLElement>(null);
+  const assigneeWrites = useRef(new Map<string, Promise<unknown>>());
+  const assigneeWriteToken = useRef(0);
+  const [optimisticAssignees, setOptimisticAssignees] = useState<
+    Record<string, { assigneeId: string | null; token: number }>
+  >({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
@@ -809,16 +816,6 @@ function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [canOpenCommand, commandOpen]);
-  useEffect(() => {
-    if (!inboxOpen) return;
-    inboxPanelRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      setInboxOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [inboxOpen]);
   useEffect(() => {
     if (!selectedId) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -909,6 +906,10 @@ function Home() {
     refetchInterval: 60_000,
   });
   const data: Data = { ...emptyData, ...query.data, ...activityQuery.data, ...personalQuery.data };
+  data.contacts = data.contacts.map((contact) => {
+    const pending = optimisticAssignees[`${org?.id}:${contact.id}`];
+    return pending ? { ...contact, assigneeId: pending.assigneeId } : contact;
+  });
   const deletedContactsQuery = useQuery({
     queryKey: ["deleted-contacts", org?.id],
     queryFn: () => request<Contact[]>("/org/contacts/deleted", org!.id),
@@ -1167,6 +1168,32 @@ function Home() {
     }
   }, [notificationPermission, state.user?.id, data.reminders, data.contacts, now]);
   async function mutate<T = unknown>(path: string, body: unknown): Promise<T> {
+    const contactId = path.match(/^\/contacts\/([0-9a-f-]{36})$/i)?.[1];
+    const input = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    if (!org || !contactId || input.assigneeId === undefined) return saveMutation<T>(path, body);
+    const key = `${org.id}:${contactId}`;
+    const token = ++assigneeWriteToken.current;
+    setOptimisticAssignees((current) => ({
+      ...current,
+      [key]: { assigneeId: input.assigneeId as string | null, token },
+    }));
+    const write = (assigneeWrites.current.get(key) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => saveMutation<T>(path, body));
+    assigneeWrites.current.set(key, write);
+    try {
+      return await write;
+    } finally {
+      if (assigneeWrites.current.get(key) === write) assigneeWrites.current.delete(key);
+      setOptimisticAssignees((current) => {
+        if (current[key]?.token !== token) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+  async function saveMutation<T = unknown>(path: string, body: unknown): Promise<T> {
     if (!org) throw new Error("Velg et team");
     setBusy(true);
     setError("");
@@ -1177,7 +1204,11 @@ function Home() {
     const tagContactId = path.match(/^\/contacts\/([0-9a-f-]{36})\/tags$/i)?.[1];
     const domainCompanyId = path.match(/^\/companies\/([0-9a-f-]{36})\/domains$/i)?.[1];
     const source = contactId
-      ? data.contacts.find((item) => item.id === contactId)
+      ? (
+          qc.getQueryData<Pick<Data, "contacts">>(["contact-data", org.id, "core"])?.contacts ??
+          query.data?.contacts ??
+          []
+        ).find((item) => item.id === contactId)
       : activityId
         ? data.activities.find((item) => item.id === activityId)
         : companyId
@@ -1325,7 +1356,7 @@ function Home() {
             ? (lastActivity(b.id)?.occurredAt ?? "").localeCompare(
                 lastActivity(a.id)?.occurredAt ?? "",
               )
-            : b.updatedAt.localeCompare(a.updatedAt),
+            : compareContactUpdated(a, b),
     );
     return rows;
   })();
@@ -1984,28 +2015,21 @@ function Home() {
           >
             <Keyboard size={16} /> Tastatursnarveier <kbd className="ml-auto text-xs">?</kbd>
           </button>
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${["profile", "team_settings", "class_settings"].includes(page) ? "sidebar-settings-active bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
-            onClick={() => go("profile")}
-          >
-            <Avatar
-              name={state.user?.name ?? "Bruker"}
-              src={profileAvatarUrl(state.user?.avatarPath)}
-              className="size-8"
-            />
-            <span className="min-w-0">
-              <span className="block truncate font-medium">{state.user?.name ?? "Bruker"}</span>
-              <span className="block text-xs text-muted-foreground">Innstillinger</span>
-            </span>
-          </button>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-card/70 hover:text-foreground"
-              onClick={() => void auth.signOut()}
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-2 text-left text-sm transition-colors ${["profile", "team_settings", "class_settings"].includes(page) ? "sidebar-settings-active bg-card font-medium text-foreground shadow-sm" : "hover:bg-card/70"}`}
+              onClick={() => go("profile")}
             >
-              <LogOut size={16} /> Logg ut
+              <Avatar
+                name={state.user?.name ?? "Bruker"}
+                src={profileAvatarUrl(state.user?.avatarPath)}
+                className="size-8"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{state.user?.name ?? "Bruker"}</span>
+                <span className="block text-xs text-muted-foreground">Innstillinger</span>
+              </span>
             </button>
             <button
               type="button"
@@ -2269,6 +2293,7 @@ function Home() {
             busy={busy}
             onSectionChange={go}
             onSelectTeam={selectTeam}
+            onSignOut={() => void auth.signOut()}
           />
         ) : page === "organizations" && !query.data ? (
           <div className="flex min-h-[560px] flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-card" role="status">
@@ -2725,123 +2750,130 @@ function Home() {
         </DialogContent>
       </Dialog>
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
-      {inboxOpen && (
-        <aside
-          id="sidebar-inbox"
-          ref={inboxPanelRef}
-          tabIndex={-1}
-          aria-label="Innboks"
-          className="fixed inset-y-0 right-0 z-[70] flex w-full flex-col border-l border-border bg-card shadow-2xl outline-none sm:max-w-md lg:right-auto lg:left-60 lg:w-[min(30rem,calc(100vw-15rem))]"
-        >
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border p-4">
-            <div>
-              <h2 className="font-semibold">Innboks</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Påminnelser, meldinger, e-postforslag og forespørsler på ett sted.
-              </p>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Lukk innboks"
-              onClick={() => setInboxOpen(false)}
+      <InboxDialog.Root open={inboxOpen} onOpenChange={setInboxOpen}>
+        <InboxDialog.Portal>
+          <div className="pointer-events-none fixed inset-0 z-[70] overflow-hidden lg:left-60">
+            <InboxDialog.Backdrop className="pointer-events-auto absolute inset-0 bg-overlay backdrop-blur-sm transition-opacity duration-300 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none" />
+            <InboxDialog.Popup
+              id="sidebar-inbox"
+              className="pointer-events-auto absolute inset-y-0 left-0 flex w-full flex-col border-r border-border bg-card shadow-2xl outline-none transition-transform duration-300 ease-out data-[ending-style]:-translate-x-full data-[starting-style]:-translate-x-full motion-reduce:transition-none sm:max-w-md lg:w-[min(30rem,calc(100vw-15rem))] lg:max-w-none"
             >
-              <X size={18} />
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="mt-3">
-              <BrowserNotificationPrompt
-                permission={notificationPermission}
-                onEnable={() => void enableBrowserNotifications()}
-              />
-            </div>
-            <InboxItems
-              orgId={org.id}
-              inbox={inboxQuery.data}
-              adminItems={classInboxQuery.data}
-              feedbackItems={feedbackInboxQuery.data}
-              contacts={data.contacts}
-              teams={state.organizations}
-              onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
-              onOpenContact={(contactId) => {
-                setInboxOpen(false);
-                setPage("contacts");
-                setSelectedId(contactId);
-              }}
-            />
-            {data.reminders.length === 0 ? (
-              !inboxQuery.data?.overlaps?.length &&
-              !inboxQuery.data?.suggestions.length &&
-              !inboxQuery.data?.requests.length &&
-              !feedbackInboxQuery.data?.length &&
-              !classInboxQuery.data?.length ? (
-                <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
-              ) : null
-            ) : (
-              <div className="mt-4 space-y-4">
-                {[
-                  { title: "Klare nå", items: dueReminders },
-                  {
-                    title: "Kommende",
-                    items: data.reminders.filter((reminder) => !dueReminders.includes(reminder)),
-                  },
-                ].map((group) =>
-                  group.items.length ? (
-                    <section key={group.title}>
-                      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {group.title}
-                      </h3>
-                      <div className="space-y-2">
-                        {group.items.map((reminder) => {
-                          const contact = data.contacts.find(
-                            (item) => item.id === reminder.contactId,
-                          );
-                          return (
-                            <div key={reminder.id} className="rounded-xl border border-border p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <button
-                                    type="button"
-                                    className="font-medium text-primary hover:underline"
-                                    onClick={() => {
-                                      setInboxOpen(false);
-                                      setSelectedId(reminder.contactId);
-                                    }}
-                                  >
-                                    {contact?.name ?? "Kontakt"}
-                                  </button>
-                                  <p className="text-xs text-muted-foreground">
-                                    {dateTimeLabel(reminder.dueAt)}
-                                  </p>
-                                </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    void mutate(`/reminders/${reminder.id}/dismiss`, {})
-                                  }
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border p-4">
+                <div>
+                  <InboxDialog.Title className="font-semibold">Innboks</InboxDialog.Title>
+                  <InboxDialog.Description className="mt-1 text-sm text-muted-foreground">
+                    Påminnelser, meldinger, e-postforslag og forespørsler på ett sted.
+                  </InboxDialog.Description>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Lukk innboks"
+                  onClick={() => setInboxOpen(false)}
+                >
+                  <X size={18} />
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <div className="mt-3">
+                  <BrowserNotificationPrompt
+                    permission={notificationPermission}
+                    onEnable={() => void enableBrowserNotifications()}
+                  />
+                </div>
+                <InboxItems
+                  orgId={org.id}
+                  inbox={inboxQuery.data}
+                  adminItems={classInboxQuery.data}
+                  feedbackItems={feedbackInboxQuery.data}
+                  contacts={data.contacts}
+                  teams={state.organizations}
+                  onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
+                  onOpenContact={(contactId) => {
+                    setInboxOpen(false);
+                    setPage("contacts");
+                    setSelectedId(contactId);
+                  }}
+                />
+                {data.reminders.length === 0 ? (
+                  !inboxQuery.data?.overlaps?.length &&
+                  !inboxQuery.data?.suggestions.length &&
+                  !inboxQuery.data?.requests.length &&
+                  !feedbackInboxQuery.data?.length &&
+                  !classInboxQuery.data?.length ? (
+                    <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
+                  ) : null
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {[
+                      { title: "Klare nå", items: dueReminders },
+                      {
+                        title: "Kommende",
+                        items: data.reminders.filter(
+                          (reminder) => !dueReminders.includes(reminder),
+                        ),
+                      },
+                    ].map((group) =>
+                      group.items.length ? (
+                        <section key={group.title}>
+                          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {group.title}
+                          </h3>
+                          <div className="space-y-2">
+                            {group.items.map((reminder) => {
+                              const contact = data.contacts.find(
+                                (item) => item.id === reminder.contactId,
+                              );
+                              return (
+                                <div
+                                  key={reminder.id}
+                                  className="rounded-xl border border-border p-3"
                                 >
-                                  Fjern
-                                </Button>
-                              </div>
-                              {reminder.message && (
-                                <p className="mt-2 whitespace-pre-wrap text-sm">
-                                  {reminder.message}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ) : null,
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <button
+                                        type="button"
+                                        className="font-medium text-primary hover:underline"
+                                        onClick={() => {
+                                          setInboxOpen(false);
+                                          setSelectedId(reminder.contactId);
+                                        }}
+                                      >
+                                        {contact?.name ?? "Kontakt"}
+                                      </button>
+                                      <p className="text-xs text-muted-foreground">
+                                        {dateTimeLabel(reminder.dueAt)}
+                                      </p>
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        void mutate(`/reminders/${reminder.id}/dismiss`, {})
+                                      }
+                                    >
+                                      Fjern
+                                    </Button>
+                                  </div>
+                                  {reminder.message && (
+                                    <p className="mt-2 whitespace-pre-wrap text-sm">
+                                      {reminder.message}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : null,
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </InboxDialog.Popup>
           </div>
-        </aside>
-      )}
+        </InboxDialog.Portal>
+      </InboxDialog.Root>
       <Dialog open={!!scalarConflict} onOpenChange={(open) => !open && setScalarConflict(null)}>
         <DialogContent className="max-w-xl">
           <DialogTitle>Endringen ble ikke lagret</DialogTitle>
@@ -3537,8 +3569,9 @@ function ContactBoard({
     }
     frameRef.current = requestAnimationFrame(scrollWhileDragging);
   }
-  function onPointerDown(e: PointerEvent<HTMLButtonElement>, contact: Contact) {
+  function onPointerDown(e: PointerEvent<HTMLDivElement>, contact: Contact) {
     if (e.button !== 0 || !e.isPrimary || dragRef.current) return;
+    if ((e.target as HTMLElement).closest("[data-board-control]")) return;
     const rect = e.currentTarget.getBoundingClientRect();
     pendingRef.current = {
       gestureId: ++gestureIdRef.current,
@@ -3556,7 +3589,7 @@ function ContactBoard({
     };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
-  function onPointerMove(e: PointerEvent<HTMLButtonElement>) {
+  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     const pending = pendingRef.current;
     if (!pending || pending.pointerId !== e.pointerId) return;
     const current = dragRef.current;
@@ -3580,7 +3613,7 @@ function ContactBoard({
     });
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(scrollWhileDragging);
   }
-  function finishDrag(e: PointerEvent<HTMLButtonElement>) {
+  function finishDrag(e: PointerEvent<HTMLDivElement>) {
     if (pendingRef.current?.pointerId !== e.pointerId) return;
     pendingRef.current = null;
     stopScroll();
@@ -3614,19 +3647,21 @@ function ContactBoard({
     setDrag(null);
     if (current.target && current.target !== current.source) {
       const { id, target } = current;
-      setOptimistic((value) => ({ ...value, [id]: target! }));
-      // Keep writes for a contact in drag order. Refetches from earlier writes
-      // must not move a later, still pending drag back to an old column.
-      const write = (writesRef.current.get(id) ?? Promise.resolve())
-        .catch(() => {})
-        .then(() => mutate(`/contacts/${id}`, { status: target }))
-        .then(() => {});
-      writesRef.current.set(id, write);
-      void write.then(
-        () => clearOptimistic(id, write),
-        () => clearOptimistic(id, write),
-      );
+      updateStatus(id, target);
     }
+  }
+  function updateStatus(id: string, target: Status) {
+    setOptimistic((value) => ({ ...value, [id]: target }));
+    // Serialize picker and drag changes together so a pending drag cannot overwrite a selection.
+    const write = (writesRef.current.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => mutate(`/contacts/${id}`, { status: target }))
+      .then(() => {});
+    writesRef.current.set(id, write);
+    void write.then(
+      () => clearOptimistic(id, write),
+      () => clearOptimistic(id, write),
+    );
   }
   function clearOptimistic(id: string, write: Promise<void>) {
     if (writesRef.current.get(id) !== write) return;
@@ -3693,6 +3728,12 @@ function ContactBoard({
                         }
                         data={data}
                         onOpen={() => onOpen(contact.id)}
+                        onChangeStatus={(status) => updateStatus(contact.id, status)}
+                        onChangeAssignee={(assigneeId) => {
+                          void mutate(`/contacts/${contact.id}`, {
+                            assigneeId: assigneeId || null,
+                          }).catch(() => {});
+                        }}
                         onPointerDown={(e) => onPointerDown(e, contact)}
                         onPointerMove={onPointerMove}
                         onPointerUp={finishDrag}
@@ -3777,6 +3818,8 @@ function ContactCard({
   contact: c,
   data,
   onOpen,
+  onChangeStatus,
+  onChangeAssignee,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -3786,28 +3829,46 @@ function ContactCard({
   contact: Contact;
   data: Data;
   onOpen: () => void;
-  onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
-  onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
-  onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
-  onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void;
-  onClickCapture: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onChangeStatus: (status: Status) => void;
+  onChangeAssignee: (assigneeId: string) => void;
+  onPointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (event: PointerEvent<HTMLDivElement>) => void;
+  onClickCapture: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
       className="w-full cursor-grab touch-none rounded-xl text-left active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      onClick={onOpen}
+      onClick={(event) => {
+        if (!(event.target as HTMLElement).closest("[data-board-control]")) onOpen();
+      }}
       onClickCapture={onClickCapture}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      <ContactCardContent contact={c} data={data} />
-    </button>
+      <ContactCardContent
+        contact={c}
+        data={data}
+        onChangeStatus={onChangeStatus}
+        onChangeAssignee={onChangeAssignee}
+      />
+    </div>
   );
 }
-function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data }) {
+function ContactCardContent({
+  contact: c,
+  data,
+  onChangeStatus,
+  onChangeAssignee,
+}: {
+  contact: Contact;
+  data: Data;
+  onChangeStatus?: (status: Status) => void;
+  onChangeAssignee?: (assigneeId: string) => void;
+}) {
   const assignee = data.members.find((member) => member.userId === c.assigneeId);
   const company = data.companies.find((item) => item.id === c.companyId);
   return (
@@ -3815,8 +3876,35 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
       <span className="flex items-start justify-between gap-2">
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="inline-flex max-w-full shrink-0 items-center gap-2 text-sm font-semibold">
-            <ContactStatusIcon status={c.status} />
-            <span className="truncate">{c.name}</span>
+            {onChangeStatus ? (
+              <span
+                data-board-control
+                onClick={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <Select
+                  value={c.status}
+                  onValueChange={(status) => onChangeStatus(status as Status)}
+                  items={statusOptions}
+                  iconOnly
+                  aria-label={`Endre status for ${c.name}`}
+                  className="size-6 rounded-md border-transparent bg-transparent hover:bg-muted"
+                />
+              </span>
+            ) : (
+              <ContactStatusIcon status={c.status} />
+            )}
+            {onChangeStatus ? (
+              <button
+                type="button"
+                aria-label={`Åpne kontakt: ${c.name}`}
+                className="min-w-0 truncate rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                {c.name}
+              </button>
+            ) : (
+              <span className="truncate">{c.name}</span>
+            )}
           </span>
           {company && (
             <span
@@ -3827,13 +3915,31 @@ function ContactCardContent({ contact: c, data }: { contact: Contact; data: Data
             </span>
           )}
         </span>
-        <span className="shrink-0" title={assignee?.name ?? "Uten ansvarlig"}>
-          <Avatar
-            name={assignee?.name ?? "Uten ansvarlig"}
-            src={profileAvatarUrl(assignee?.avatarPath)}
-            className="size-6"
-          />
-        </span>
+        {onChangeAssignee ? (
+          <span
+            data-board-control
+            className="shrink-0"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <Select
+              value={c.assigneeId ?? ""}
+              onValueChange={onChangeAssignee}
+              items={assigneeOptions(data.members)}
+              iconOnly
+              aria-label={`Endre ansvarlig for ${c.name}`}
+              className="size-6 rounded-full border-transparent bg-transparent hover:bg-muted"
+            />
+          </span>
+        ) : (
+          <span className="shrink-0" title={assignee?.name ?? "Uten ansvarlig"}>
+            <Avatar
+              name={assignee?.name ?? "Uten ansvarlig"}
+              src={profileAvatarUrl(assignee?.avatarPath)}
+              className="size-6"
+            />
+          </span>
+        )}
       </span>
       {c.description && (
         <p className="mt-1 line-clamp-3 break-words text-xs leading-relaxed text-muted-foreground">
@@ -7511,6 +7617,7 @@ function Settings({
   busy,
   onSectionChange,
   onSelectTeam,
+  onSignOut,
 }: {
   section: "profile" | "team_settings" | "class_settings";
   state: ReturnType<typeof useOrg>;
@@ -7518,6 +7625,7 @@ function Settings({
   busy: boolean;
   onSectionChange: (section: Page) => void;
   onSelectTeam: (id: string) => Promise<void>;
+  onSignOut: () => void;
 }) {
   const [teamName, setTeamName] = useState("");
   const [editingTeam, setEditingTeam] = useState<{ id: string; name: string } | null>(null);
@@ -7863,6 +7971,13 @@ function Settings({
         </DialogContent>
       </Dialog>
       {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      {section === "profile" && (
+        <div className="border-t border-border pt-5">
+          <Button variant="outline" onClick={onSignOut}>
+            <LogOut size={16} /> Logg ut
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

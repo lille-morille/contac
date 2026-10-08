@@ -134,7 +134,7 @@ export function CommandPalette({
   return (
     <D.Root open={open} onOpenChange={setOpen}>
       <D.Portal>
-        <D.Backdrop className="fixed inset-0 z-[80] bg-foreground/40 backdrop-blur-sm transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 motion-reduce:transition-none" />
+        <D.Backdrop className="fixed inset-0 z-[80] bg-overlay backdrop-blur-sm transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 motion-reduce:transition-none" />
         <D.Popup className="glass-strong fixed left-1/2 top-[12vh] z-[80] w-[min(calc(100vw-2rem),44rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-border shadow-2xl outline-none transition-[opacity,transform] duration-200 ease-out data-[starting-style]:-translate-y-2 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:-translate-y-2 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 motion-reduce:transition-none">
           <D.Title className="sr-only">Søk og kommandoer</D.Title>
           <D.Description className="sr-only">

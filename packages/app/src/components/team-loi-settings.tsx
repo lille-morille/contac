@@ -94,6 +94,7 @@ export function TeamLoiSettings() {
         </label>
         {settings.logoFileId && <span className="text-xs text-muted-foreground">PNG valgt</span>}
       </div>
+      <p className="mt-1 text-xs text-muted-foreground">Brukes i intensjonsavtaler (LOI)</p>
       <Button
         className="mt-4"
         size="sm"

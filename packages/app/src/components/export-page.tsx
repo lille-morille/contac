@@ -862,17 +862,6 @@ export function ExportPage({
               onBlur={() => void persist()}
             />
           </label>
-          <label className="block text-sm font-medium">
-            Undertittel
-            <Input
-              className="mt-1"
-              value={draft.subtitle}
-              onChange={(event) =>
-                update((current) => ({ ...current, subtitle: event.target.value }))
-              }
-              onBlur={() => void persist()}
-            />
-          </label>
           <div className="space-y-1">
             {[
               ...layoutColumns(draft.columns),

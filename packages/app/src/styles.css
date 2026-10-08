@@ -18,6 +18,7 @@ html {
   /* Surfaces & text */
   --background: #f4f4fc; /* canvas base under the pastel gradient */
   --foreground: #1c1b2e; /* ink (violet-tinted near-black) */
+  --overlay: rgb(28 27 46 / 0.35);
   --card: #ffffff;
   --card-foreground: #1c1b2e;
   --popover: #ffffff;
@@ -95,6 +96,7 @@ html {
   color-scheme: dark;
   --background: #11121d;
   --foreground: #f2f1fa;
+  --overlay: rgb(0 0 0 / 0.6);
   --card: #1d1f2d;
   --card-foreground: #f2f1fa;
   --popover: #252738;
@@ -166,6 +168,7 @@ html {
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-overlay: var(--overlay);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);

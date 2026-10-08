@@ -20,7 +20,20 @@ import {
   aiEditLog,
   aiSuggestions,
 } from "@contac/core/db";
-import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
@@ -96,6 +109,14 @@ const contactScalarColumns = {
   assigneeId: contacts.assigneeId,
   allowExternalAi: contacts.allowExternalAi,
 } as const;
+// JSON lookup keeps rolling deployments compatible before the sorting migration lands.
+const contactReadColumns = {
+  ...getTableColumns(contacts),
+  sortUpdatedAt:
+    sql`coalesce((to_jsonb(${contacts})->>'sort_updated_at')::timestamptz, ${contacts.updatedAt})`.mapWith(
+      contacts.updatedAt,
+    ),
+};
 const parse = async <T extends z.ZodTypeAny>(
   c: { req: { json: () => Promise<unknown> } },
   schema: T,
@@ -168,7 +189,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .where(eq(personTags.orgId, orgId))
           .orderBy(asc(personTags.name)),
         deps.db
-          .select()
+          .select(contactReadColumns)
           .from(contacts)
           .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
           .orderBy(desc(contacts.updatedAt)),
@@ -300,7 +321,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .where(eq(personTags.orgId, orgId))
         .orderBy(asc(personTags.name)),
       deps.db
-        .select()
+        .select(contactReadColumns)
         .from(contacts)
         .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt)))
         .orderBy(desc(contacts.updatedAt)),
