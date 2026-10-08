@@ -70,6 +70,15 @@ const compactCandidates: ReportColumnId[] = [
   "stikkord",
 ];
 const detailColumns = new Set<ReportColumnId>(["description", "stikkord", "log"]);
+const columnDescriptions: Partial<Record<ReportColumnId, string>> = {
+  number: "Unik ID for hver kontakt, blir brukt til å referere til kontakten i teksten",
+  contactInfo: "Mobilnummer og/eller epost",
+  stikkord: "Key takeaways fra hele kontakten",
+  log: "Full logg med alle aktiviteter (telefonsamtaler, møter, eposter)",
+  description: "Én setning om personen. F.eks. stilling/avdeling/ekspertområde",
+  personTags: "Tags på personen, som beslutningstaker eller portvokter",
+  domains: 'Hvilket domene selskapet tilhører, f.eks. "Fiskeoppdrett"',
+};
 
 function ExportSection({ title, children }: { title: string; children: ReactNode }) {
   const [expanded, setExpanded] = useState(true);
@@ -892,7 +901,14 @@ export function ExportPage({
                       )
                     }
                   />
-                  <span className="min-w-0 flex-1 text-sm">{reportColumnLabels[column]}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-sm">{reportColumnLabels[column]}</span>
+                    {columnDescriptions[column] && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {columnDescriptions[column]}
+                      </p>
+                    )}
+                  </div>
                   {selected && (
                     <>
                       <Button
