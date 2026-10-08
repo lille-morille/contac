@@ -343,7 +343,9 @@ function PreviewCards({
         return (
           <article key={contact.id} className="rounded-xl border border-border bg-card p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-              <span className="text-xs font-semibold text-primary">{contact.contactNumber}</span>
+              <span className="text-xs font-semibold text-primary">
+                Nr. {contact.contactNumber}
+              </span>
               <div className="flex items-center gap-1">
                 <label className="mr-2 flex cursor-pointer items-center gap-2 text-xs">
                   <Checkbox
