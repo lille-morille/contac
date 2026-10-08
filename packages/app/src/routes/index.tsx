@@ -3729,7 +3729,7 @@ function ContactBoard({
     <LayoutGroup id="contact-board">
       <div
         ref={boardRef}
-        className="mt-6 flex min-h-[65vh] gap-3 overflow-x-auto overflow-y-hidden pb-4 lg:min-h-0 lg:flex-1"
+        className="mt-6 flex min-h-[65vh] gap-3 overflow-x-auto overflow-y-hidden overscroll-contain pb-4 [contain:paint] lg:min-h-0 lg:flex-1"
       >
         {statuses
           .filter(([key]) => !visibleStatuses?.length || visibleStatuses.includes(key))

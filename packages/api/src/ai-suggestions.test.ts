@@ -62,7 +62,7 @@ describe("field-level AI suggestions", () => {
         "dangerous",
       ),
     ).toEqual({
-      automatic: { email: "ada@example.no" },
+      automatic: {},
       pending: { description: "Senior fullstackutvikler" },
     });
   });

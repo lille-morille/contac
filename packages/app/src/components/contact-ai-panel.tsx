@@ -1,3 +1,4 @@
+import { canSuggestContactField } from "@contac/core/ai-suggestion-policy";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -314,6 +315,7 @@ export function ContactAiFieldSuggestions({
           .toLocaleLowerCase("nb-NO");
   const latestFields = new Set<string>();
   const proposals = (state.data?.suggestions ?? []).flatMap((item) => {
+    if (!canSuggestContactField(field, currentValue)) return [];
     if (item.status !== "pending") return [];
     const values =
       item.feature === "stikkord"
@@ -323,11 +325,14 @@ export function ContactAiFieldSuggestions({
           : ((item.payload.hierarchy as Record<string, unknown>) ?? {});
     const keys = field === "domainIds" ? ["domainIds", "newDomainName"] : [field];
     return keys.flatMap((key) => {
-      const value = values[key];
+      const value =
+        key === "domainIds" && Array.isArray(values[key]) ? values[key].slice(0, 1) : values[key];
       if (value === null || value === undefined || value === "") return [];
       if (Array.isArray(value) && !value.length) return [];
       if (latestFields.has(key)) return [];
       latestFields.add(key);
+      if (key === "domainIds") latestFields.add("newDomainName");
+      if (key === "newDomainName") latestFields.add("domainIds");
       if (key !== "newDomainName" && sameValue(value)) return [];
       return [{ item, key, value }];
     });

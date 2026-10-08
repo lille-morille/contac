@@ -27,6 +27,7 @@ import { decrypt } from "./ai-token.ts";
 import { normalizeDomainName, resolveDomainProposal } from "./ai-domain.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
+import { eligibleContactFields } from "@contac/core/ai-suggestion-policy";
 export const defaultModels = { low: "openai/gpt-4.1-nano", medium: "openai/gpt-4.1-mini" };
 export const aiFeatures = [
   "stikkord",
@@ -107,7 +108,7 @@ export function partitionSafeAutoFields(
 ) {
   const automatic: Record<string, string> = {};
   const pending: Record<string, string> = {};
-  for (const [key, value] of Object.entries(proposed)) {
+  for (const [key, value] of Object.entries(eligibleContactFields(proposed, current))) {
     const existing = current[key as "email" | "phone" | "description"]?.trim() ?? "";
     if (existing.toLocaleLowerCase("nb-NO") === value.trim().toLocaleLowerCase("nb-NO")) continue;
     // Generated descriptions need representative-output review before automatic application.
@@ -122,7 +123,7 @@ export function partitionAutomaticContactFields(
   mode: "safe_auto" | "dangerous",
 ) {
   if (mode === "safe_auto") return partitionSafeAutoFields(proposed, current);
-  const { description, ...automatic } = proposed;
+  const { description, ...automatic } = eligibleContactFields(proposed, current);
   return { automatic, pending: description ? { description } : {} };
 }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -486,7 +487,12 @@ async function applyChange(
   if (!before) throw new Error("Fant ikke kontakten");
   const filtered = Object.fromEntries(
     Object.entries(patch).filter(
-      ([key, value]) => editable.includes(key as Editable) && value !== before[key as Editable],
+      ([key, value]) =>
+        editable.includes(key as Editable) &&
+        value !== before[key as Editable] &&
+        (feature !== "contact_fields" ||
+          key === "description" ||
+          ((key === "email" || key === "phone") && !String(before[key] ?? "").trim())),
     ),
   );
   if (!Object.keys(filtered).length) return null;
@@ -575,7 +581,7 @@ async function applyTagSet(
             )
         ).map((row) => row.id);
   if (hash([...before].sort()) === hash([...unique].sort())) return;
-  if (kind === "domainIds" && merge && before.length) return;
+  if (merge && before.length) return;
   await deps.db.transaction(async (tx) => {
     if (kind === "personTagIds") {
       if (!merge)
@@ -731,14 +737,10 @@ async function generateContact(
     system =
       "Lag svært korte norske stikkord om viktigste funn for kontakten, maks 300 tegn. Bare dokumenterte fakta. Returner ren tekst.";
   if (feature === "contact_fields") {
-    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys email, phone, description, evidence. Ukjente felter utelates. Foreslå også et felt som allerede er fylt ut dersom samtalen gir konkret belegg for en annen verdi; den nye verdien skal da gjennomgås av en bruker. description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
+    system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys email, phone, description, evidence. Ukjente felter utelates. Foreslå email og phone bare når feltet er tomt. Allerede utfylt description kan oppdateres når samtalene gir konkret belegg. description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
   }
   if (feature === "hierarchy") {
-    const [companyRows, domainRows, tagRows] = await Promise.all([
-      deps.db
-        .select({ id: companies.id, name: companies.name })
-        .from(companies)
-        .where(eq(companies.orgId, orgId)),
+    const [domainRows, tagRows, existingTags, existingDomains] = await Promise.all([
       deps.db
         .select({ id: domainTags.id, name: domainTags.name, description: domainTags.description })
         .from(domainTags)
@@ -757,16 +759,33 @@ async function generateContact(
             sql`NULLIF(BTRIM(${personTags.description}), '') IS NOT NULL`,
           ),
         ),
+      deps.db
+        .select({ id: contactPersonTags.tagId })
+        .from(contactPersonTags)
+        .where(and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId))),
+      deps.db
+        .select({ id: companyDomains.domainId })
+        .from(companyDomains)
+        .where(
+          and(
+            eq(companyDomains.orgId, orgId),
+            eq(companyDomains.companyId, person.contact.companyId),
+          ),
+        ),
     ]);
+    if (existingTags.length && existingDomains.length) return null;
     payload = {
       ...base,
+      current: {
+        personTagIds: existingTags.map((row) => row.id),
+        domainIds: existingDomains.map((row) => row.id),
+      },
       options: {
-        companies: companyRows,
-        domains: domainRows,
-        personTags: tagRows,
+        domains: existingDomains.length ? [] : domainRows,
+        personTags: existingTags.length ? [] : tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå høyst ett domene og relevante persontagger. Returner KUN JSON med companyId, domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Bruk bare eksisterende ID-er i options. domainIds skal ha høyst én ID. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg domenet som best støttes av opplysningene, eller bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå høyst ett domene og relevante persontagger. Returner KUN JSON med domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Organisasjonen er valgt av brukeren og skal aldri foreslås endret. Persontagger beskriver bare denne personens dokumenterte rolle og ekspertise, aldri selskapets virksomhet, produkter eller fagområde. Begrunn persontagger med konkrete opplysninger om personen; utelat dem hvis slike opplysninger mangler. Foreslå bare persontagger og domene når det aktuelle feltet er tomt. Bruk bare eksisterende ID-er i options. domainIds skal ha høyst én ID. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg domenet som best støttes av opplysningene, eller bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -786,13 +805,16 @@ async function generateContact(
     evidence: clean(raw.evidence, 1000),
   };
   if (feature === "contact_fields") {
-    const fields = Object.fromEntries(
-      ["email", "phone", "description"]
-        .map((key) => [
-          key,
-          clean(raw[key], key === "description" ? CONTACT_DESCRIPTION_MAX_LENGTH : 200),
-        ])
-        .filter(([, value]) => !!value),
+    const fields = eligibleContactFields(
+      Object.fromEntries(
+        ["email", "phone", "description"]
+          .map((key) => [
+            key,
+            clean(raw[key], key === "description" ? CONTACT_DESCRIPTION_MAX_LENGTH : 200),
+          ])
+          .filter(([, value]) => !!value),
+      ),
+      person.contact,
     );
     if (fields.email && !z.email().safeParse(fields.email).success) delete fields.email;
     for (const key of Object.keys(fields)) {
@@ -806,8 +828,7 @@ async function generateContact(
     suggestion.fields = fields;
   }
   if (feature === "hierarchy") {
-    const [validCompanies, validDomains, validTags] = await Promise.all([
-      deps.db.select({ id: companies.id }).from(companies).where(eq(companies.orgId, orgId)),
+    const [validDomains, validTags] = await Promise.all([
       deps.db
         .select({ id: domainTags.id, normalizedName: domainTags.normalizedName })
         .from(domainTags)
@@ -827,19 +848,18 @@ async function generateContact(
           ),
         ),
     ]);
-    const proposedCompany = validCompanies.some((item) => item.id === raw.companyId)
-      ? (raw.companyId as string)
-      : null;
     const proposedDomain = resolveDomainProposal(raw.newDomainName, validDomains);
     const proposedDomainDescription = clean(raw.newDomainDescription, 500);
     const chosenDomainIds = Array.isArray(raw.domainIds)
       ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item)).slice(0, 1)
       : [];
     suggestion.hierarchy = {
-      companyId: proposedCompany === person.contact.companyId ? null : proposedCompany,
+      companyId: null,
       domainIds: chosenDomainIds.length
         ? chosenDomainIds
-        : proposedDomain.domainId ? [proposedDomain.domainId] : [],
+        : proposedDomain.domainId
+          ? [proposedDomain.domainId]
+          : [],
       newDomainName:
         chosenDomainIds.length || !proposedDomainDescription ? null : proposedDomain.newDomainName,
       newDomainDescription:
@@ -885,6 +905,7 @@ async function generateContact(
     hasExistingTags = existingTags.length > 0;
     hasExistingDomains = existingDomains.length > 0;
     if (
+      hasExistingTags ||
       sameSet(
         hierarchy.personTagIds,
         existingTags.map((row) => row.id),
@@ -892,12 +913,17 @@ async function generateContact(
     )
       hierarchy.personTagIds = [];
     if (
+      hasExistingDomains ||
       sameSet(
         hierarchy.domainIds,
         existingDomains.map((row) => row.id),
       )
     )
       hierarchy.domainIds = [];
+    if (hasExistingDomains) {
+      hierarchy.newDomainName = null;
+      hierarchy.newDomainDescription = null;
+    }
     if (
       !hierarchy.companyId &&
       !hierarchy.newDomainName &&
@@ -1004,7 +1030,8 @@ async function generateContact(
     }
     if (feature === "contact_fields")
       for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>)) {
-        if (mode === "dangerous" || !fresh[key as Editable]) patch[key as Editable] = value;
+        if (key === "description" || !String(fresh[key as Editable] ?? "").trim())
+          patch[key as Editable] = value;
       }
     if (feature === "hierarchy") {
       const hierarchy = suggestion.hierarchy as {
@@ -1014,8 +1041,6 @@ async function generateContact(
         newDomainDescription: string | null;
         personTagIds: string[];
       };
-      if (hierarchy.companyId && (mode === "dangerous" || !fresh.companyId))
-        patch.companyId = hierarchy.companyId;
       const [existingTags, existingDomains] = await Promise.all([
         deps.db
           .select({ id: contactPersonTags.tagId })
@@ -1030,7 +1055,7 @@ async function generateContact(
             and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, fresh.companyId)),
           ),
       ]);
-      if (hierarchy.personTagIds.length && (mode === "dangerous" || !existingTags.length)) {
+      if (hierarchy.personTagIds.length && !existingTags.length) {
         await applyTagSet(
           deps,
           orgId,
@@ -1040,16 +1065,16 @@ async function generateContact(
           null,
           undefined,
           true,
-          mode === "safe_auto",
+          true,
         );
         changedTags = true;
       }
       const proposedDomainIds = [...hierarchy.domainIds];
-      if (hierarchy.newDomainName && (mode === "dangerous" || !existingDomains.length))
+      if (hierarchy.newDomainName && !existingDomains.length)
         proposedDomainIds.push(
           await ensureDomain(deps, orgId, hierarchy.newDomainName, hierarchy.newDomainDescription),
         );
-      if (proposedDomainIds.length && (mode === "dangerous" || !existingDomains.length)) {
+      if (proposedDomainIds.length && !existingDomains.length) {
         await applyTagSet(
           deps,
           orgId,
@@ -1059,7 +1084,7 @@ async function generateContact(
           null,
           patch.companyId ?? fresh.companyId,
           true,
-          mode === "safe_auto",
+          true,
         );
         changedTags = true;
       }
@@ -1484,7 +1509,7 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       patch.stikkord = clean(suggestion.payload.text, 300);
     if (suggestion.feature === "contact_fields")
       for (const [key, value] of Object.entries(
-        (suggestion.payload.fields as Record<string, string>) ?? {},
+        eligibleContactFields((suggestion.payload.fields as Record<string, string>) ?? {}, current),
       ))
         if (selected.has(key as Editable)) patch[key as Editable] = value;
     if (suggestion.feature === "hierarchy") {
@@ -1497,7 +1522,25 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             personTagIds?: string[];
           }
         | undefined;
-      if (hierarchy?.companyId && selected.has("companyId")) patch.companyId = hierarchy.companyId;
+      const [existingTags, existingDomains] = await Promise.all([
+        deps.db
+          .select({ id: contactPersonTags.tagId })
+          .from(contactPersonTags)
+          .where(
+            and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, current.id)),
+          ),
+        deps.db
+          .select({ id: companyDomains.domainId })
+          .from(companyDomains)
+          .where(
+            and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, current.companyId)),
+          ),
+      ]);
+      if (existingTags.length) selected.delete("personTagIds");
+      if (existingDomains.length) {
+        selected.delete("domainIds");
+        selected.delete("newDomainName");
+      }
       if (hierarchy?.personTagIds && selected.has("personTagIds")) {
         await applyTagSet(
           deps,
@@ -1506,6 +1549,9 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           "personTagIds",
           hierarchy.personTagIds,
           c.get("user").id,
+          undefined,
+          false,
+          true,
         );
         changedTags = true;
       }
@@ -1524,6 +1570,8 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           [...new Set(proposedDomainIds)].slice(0, 1),
           c.get("user").id,
           targetCompanyId,
+          false,
+          true,
         );
         changedTags = true;
       }
