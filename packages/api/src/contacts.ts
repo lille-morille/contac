@@ -547,7 +547,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const data = await parse(
       c,
       z.object({
-        domainIds: z.array(id),
+        domainIds: z.array(id).max(1),
         expected: z.object({ domainIds: z.array(id), revision: z.number().int().nonnegative() }),
       }),
     );

@@ -626,7 +626,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "set_company_domains",
     {
       description:
-        "Replace an organization's complete domain set atomically; [] clears all links. Read companies[].domainsRevision from list_team_reference and pass expectedRevision. Every domain ID must belong to this team. Returns named previous and resulting links.",
+        "Set an organization's domain atomically: domainIds must contain zero or one ID; [] clears the link. Read companies[].domainsRevision from list_team_reference and pass expectedRevision. The domain ID must belong to this team. Returns named previous and resulting links.",
       inputSchema: domainReplacement.extend({ expectedTeamId: uuid }),
       annotations: { readOnlyHint: false, destructiveHint: true },
       _meta: mcpOauthToolMeta(),
@@ -642,7 +642,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "batch_set_company_domains",
     {
       description:
-        "Apply up to 100 explicit organization domain-set replacements. Each item needs companyId, the complete domainIds set (including [] to clear), and expectedRevision from list_team_reference. dryRun previews without writing. Each organization is atomic; failures do not stop other items. Read back with list_team_reference after writing.",
+        "Apply up to 100 organization domain replacements. Each item needs companyId, zero or one domain ID in domainIds ([] clears it), and expectedRevision from list_team_reference. dryRun previews without writing. Each organization is atomic; failures do not stop other items. Read back with list_team_reference after writing.",
       inputSchema: z.object({
         expectedTeamId: uuid,
         dryRun: z.boolean().default(false),

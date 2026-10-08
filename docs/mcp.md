@@ -116,9 +116,9 @@ does not edit the existing domain. `update_domain` accepts `domainId`,
 clear), and `color`. The palette is `blue`, `orange`, `mint`, `pink`, `violet`,
 `coral`, `yellow`, `lime`, `cyan`, and `slate`.
 
-`set_company_domains` accepts `companyId`, the complete `domainIds` array, and
+`set_company_domains` accepts `companyId`, zero or one ID in `domainIds`, and
 `expectedRevision` from `companies[].domainsRevision`. An empty array removes
-all domain links. The batch tool accepts `items` with these same three fields
+the domain link. The batch tool accepts `items` with these same three fields
 and optional `dryRun` (default `false`). Each result includes its input index,
 organization ID and name, status, previous named links and revision, and
 resulting named links and revision. Failed or stale items include an error and

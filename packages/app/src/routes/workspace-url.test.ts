@@ -8,7 +8,7 @@ describe("workspace links", () => {
       "&contact=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" +
       "&activity=cccccccc-cccc-4ccc-8ccc-cccccccccccc" +
       "&passage=et+funn&q=kostnad" +
-      "&mapDomain=dddddddd-dddd-4ddd-8ddd-dddddddddddd" +
+      "&mapCompany=dddddddd-dddd-4ddd-8ddd-dddddddddddd" +
       "&layout=list&sort=name&status=follow_up&status=skal_ringe" +
       "&assignee=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const first = readWorkspaceLocation(original);
@@ -16,7 +16,7 @@ describe("workspace links", () => {
     expect(restored).toEqual(first);
     expect(restored.view.filters.status).toEqual(["follow_up", "skal_ringe"]);
     expect(restored.mapFocus).toEqual({
-      kind: "domain",
+      kind: "company",
       id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     });
   });
@@ -33,5 +33,11 @@ describe("workspace links", () => {
     expect(location.page).toBe("contacts");
     expect(location.contact).toBeNull();
     expect(location.mapFocus.kind).toBe("all");
+  });
+
+  it("drops legacy domain focus links while preserving the overview", () => {
+    const location = readWorkspaceLocation("?page=organizations&mapDomain=dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+    expect(location.mapFocus).toEqual({ kind: "all", id: null });
+    expect(workspaceSearch(location)).not.toContain("mapDomain");
   });
 });

@@ -7,7 +7,7 @@ const sbUrl = process.env.SUPABASE_URL;
 const sbKey = process.env.SUPABASE_SECRET_KEY;
 if (!dbUrl || !sbUrl || !sbKey)
   throw new Error("DATABASE_URL, SUPABASE_URL and SUPABASE_SECRET_KEY are required");
-const poolSize = Number(process.env.DB_POOL_SIZE ?? 8);
+const poolSize = Number(process.env.DB_POOL_SIZE ?? process.env.DB_POOL_MAX ?? 8);
 if (!Number.isInteger(poolSize) || poolSize < 1 || poolSize > 8)
   throw new Error("DB_POOL_SIZE must be an integer from 1 to 8");
 const { db, client } = createDb(dbUrl, poolSize);

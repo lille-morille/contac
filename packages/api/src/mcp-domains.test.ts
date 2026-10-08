@@ -269,6 +269,9 @@ describe("MCP domain management", () => {
     expect(
       (await call(store.db, "set_company_domains", { ...base, domainIds: [foreignDomain] })).error,
     ).toContain("not found in this team");
+    expect(
+      (await call(store.db, "set_company_domains", { ...base, domainIds: [domainA, domainB] })).error,
+    ).toContain("at most one domain");
     expect(store.state().links).toEqual([
       { orgId: teamId, companyId: companyA, domainId: domainA },
     ]);

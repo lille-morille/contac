@@ -541,7 +541,7 @@ async function applyTagSet(
   record = true,
   merge = false,
 ) {
-  const unique = [...new Set(values)];
+  const unique = [...new Set(values)].slice(0, kind === "domainIds" ? 1 : undefined);
   const table = kind === "personTagIds" ? personTags : domainTags;
   const valid = unique.length
     ? await deps.db
@@ -575,6 +575,7 @@ async function applyTagSet(
             )
         ).map((row) => row.id);
   if (hash([...before].sort()) === hash([...unique].sort())) return;
+  if (kind === "domainIds" && merge && before.length) return;
   await deps.db.transaction(async (tx) => {
     if (kind === "personTagIds") {
       if (!merge)
@@ -765,7 +766,7 @@ async function generateContact(
         personTags: tagRows,
       },
     };
-    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå domener og persontagger. Returner KUN JSON med companyId, domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Bruk bare eksisterende ID-er i options. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg bare domener som opplysningene om organisasjonen støtter, og bare persontagger som konkrete opplysninger om personen støtter. Ikke velg alle tagger; bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
+    system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå høyst ett domene og relevante persontagger. Returner KUN JSON med companyId, domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Bruk bare eksisterende ID-er i options. domainIds skal ha høyst én ID. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg domenet som best støttes av opplysningene, eller bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
   const generated = await callModel(
     deps,
@@ -832,14 +833,13 @@ async function generateContact(
     const proposedDomain = resolveDomainProposal(raw.newDomainName, validDomains);
     const proposedDomainDescription = clean(raw.newDomainDescription, 500);
     const chosenDomainIds = Array.isArray(raw.domainIds)
-      ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item))
+      ? raw.domainIds.filter((item) => validDomains.some((row) => row.id === item)).slice(0, 1)
       : [];
     suggestion.hierarchy = {
       companyId: proposedCompany === person.contact.companyId ? null : proposedCompany,
-      domainIds: [
-        ...chosenDomainIds,
-        ...(proposedDomain.domainId ? [proposedDomain.domainId] : []),
-      ],
+      domainIds: chosenDomainIds.length
+        ? chosenDomainIds
+        : proposedDomain.domainId ? [proposedDomain.domainId] : [],
       newDomainName:
         chosenDomainIds.length || !proposedDomainDescription ? null : proposedDomain.newDomainName,
       newDomainDescription:
@@ -1055,7 +1055,7 @@ async function generateContact(
           orgId,
           contactId,
           "domainIds",
-          [...new Set(proposedDomainIds)],
+          [...new Set(proposedDomainIds)].slice(0, 1),
           null,
           patch.companyId ?? fresh.companyId,
           true,
@@ -1516,18 +1516,12 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         );
       if (proposedDomainIds.length) {
         const targetCompanyId = patch.companyId ?? current.companyId;
-        const existingDomainIds = await deps.db
-          .select({ id: companyDomains.domainId })
-          .from(companyDomains)
-          .where(
-            and(eq(companyDomains.orgId, orgId), eq(companyDomains.companyId, targetCompanyId)),
-          );
         await applyTagSet(
           deps,
           orgId,
           current.id,
           "domainIds",
-          [...new Set([...existingDomainIds.map((row) => row.id), ...proposedDomainIds])],
+          [...new Set(proposedDomainIds)].slice(0, 1),
           c.get("user").id,
           targetCompanyId,
         );

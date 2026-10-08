@@ -308,6 +308,10 @@
   box-shadow: var(--glass-strong-shadow);
 }
 
+.organization-map-card.is-active {
+  box-shadow: 0 0 0 3px var(--ring), var(--shadow-card-hover);
+}
+
 @keyframes new-contact-card-blink {
   0%,
   25%,

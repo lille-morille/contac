@@ -111,10 +111,7 @@ import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useOrg } from "../lib/org.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
 import { useTheme } from "../lib/theme.ts";
-import {
-  layoutOrganizationNodes,
-  routeOrganizationLink,
-} from "../lib/organization-graph-layout.ts";
+import { OrganizationMapGraph } from "../components/organization-map-graph.tsx";
 
 export const Route = createFileRoute("/")({ component: Home });
 const statusOptions = statuses.map(([value, label]) => ({
@@ -313,7 +310,7 @@ function normalizeFilters(input: Record<string, unknown>): Filters {
 type SortKey = "updated" | "name" | "last_contacted" | "created";
 type ViewSettings = { layout: "board" | "list"; filters: Filters; sortKey: SortKey };
 const defaultViewSettings: ViewSettings = { layout: "board", filters: {}, sortKey: "updated" };
-type MapFocus = { kind: "all" | "company" | "domain"; id: string | null };
+type MapFocus = { kind: "all" | "company"; id: string | null };
 type WorkspaceLocation = {
   team: string | null;
   page: Page;
@@ -365,11 +362,9 @@ export function readWorkspaceLocation(search: string): WorkspaceLocation {
       : uuid(params.get("activity")),
     passage: params.get("passage"),
     query: params.get("q") ?? "",
-    mapFocus: uuid(params.get("mapDomain"))
-      ? { kind: "domain", id: uuid(params.get("mapDomain")) }
-      : uuid(params.get("mapCompany"))
-        ? { kind: "company", id: uuid(params.get("mapCompany")) }
-        : { kind: "all", id: null },
+    mapFocus: uuid(params.get("mapCompany"))
+      ? { kind: "company", id: uuid(params.get("mapCompany")) }
+      : { kind: "all", id: null },
     view: {
       layout: params.get("layout") === "list" ? "list" : "board",
       sortKey: ["updated", "name", "last_contacted", "created"].includes(sort) ? sort : "updated",
@@ -394,8 +389,6 @@ export function workspaceSearch(location: WorkspaceLocation): string {
   if (location.activity) params.set("activity", location.activity);
   if (location.passage) params.set("passage", location.passage);
   if (location.query) params.set("q", location.query);
-  if (location.mapFocus.kind === "domain" && location.mapFocus.id)
-    params.set("mapDomain", location.mapFocus.id);
   if (location.mapFocus.kind === "company" && location.mapFocus.id)
     params.set("mapCompany", location.mapFocus.id);
   if (location.page === "library" && location.librarySearch)
@@ -2220,6 +2213,19 @@ function Home() {
             onSectionChange={go}
             onSelectTeam={selectTeam}
           />
+        ) : page === "organizations" && !query.data ? (
+          <div className="flex min-h-[560px] flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground shadow-card" role="status">
+            {query.isError ? (
+              <>
+                <p>Kunne ikke laste organisasjonene.</p>
+                <Button variant="outline" onClick={() => void query.refetch()}>
+                  Prøv igjen
+                </Button>
+              </>
+            ) : (
+              <p>Laster organisasjonene …</p>
+            )}
+          </div>
         ) : page === "organizations" ? (
           <OrganizationMap
             key={organizationTarget.nonce}
@@ -4964,7 +4970,9 @@ function ContactDetail({
     .map((tag) => tag.tagId);
   const domainIds = data.companyDomains
     .filter((link) => link.companyId === c.companyId)
-    .map((link) => link.domainId);
+    .map((link) => link.domainId)
+    .sort()
+    .slice(0, 1);
   const aiField = (
     field:
       | "email"
@@ -5263,7 +5271,7 @@ function ContactDetail({
                 </div>
                 {aiField("personTagIds", personTagIds)}
               </ContactDetailField>
-              <ContactDetailField icon={TagIcon} label="Domener" className="sm:col-span-2">
+              <ContactDetailField icon={TagIcon} label="Domene" className="sm:col-span-2">
                 <div className="flex flex-wrap gap-1.5 py-1">
                   {domainIds.map((id) => {
                     const domain = data.domains.find((item) => item.id === id);
@@ -5274,7 +5282,7 @@ function ContactDetail({
                     ) : null;
                   })}
                   {!domainIds.length && (
-                    <span className="text-xs text-muted-foreground">Ingen domener</span>
+                    <span className="text-xs text-muted-foreground">Uten domene</span>
                   )}
                 </div>
                 {aiField("domainIds", domainIds)}
@@ -6474,497 +6482,46 @@ function DuplicateCompare({
 }
 type OrganizationSelection =
   | { kind: "all" }
-  | { kind: "domain"; id: string }
   | { kind: "company"; id: string };
-
-function wrapMapDescription(description: string): string[] {
-  const words = description
-    .trim()
-    .split(/\s+/)
-    .flatMap((word) => word.match(/.{1,31}/g) ?? []);
-  const lines: string[] = [];
-  for (const word of words) {
-    const last = lines.length - 1;
-    if (last >= 0 && lines[last].length + word.length + 1 <= 31) lines[last] += ` ${word}`;
-    else lines.push(word);
-  }
-  return lines;
-}
-
-const graphSpring = { type: "spring" as const, stiffness: 230, damping: 19, mass: 0.85 };
 
 function OrganizationGraph({
   data,
   companies,
   selection,
-  onSelect,
   onOpenNode,
   onCloseNode,
   activeNode,
-  viewportHeight,
-  viewportWidth,
   fitToken,
   zoomAction,
 }: {
   data: Data;
   companies: Company[];
   selection: OrganizationSelection;
-  onSelect: (selection: OrganizationSelection) => void;
-  onOpenNode: (kind: "company" | "contact", id: string, anchor: Element) => void;
+  onOpenNode: (kind: "domain" | "company" | "contact", id: string, anchor: Element) => void;
   onCloseNode: () => void;
-  activeNode: { kind: "company" | "contact"; id: string } | null;
-  viewportHeight: number;
-  viewportWidth: number;
+  activeNode: { kind: "domain" | "company" | "contact"; id: string } | null;
   fitToken: number;
   zoomAction: { sequence: number; factor: number };
 }) {
-  const reducedMotion = useReducedMotion();
-  const transition = reducedMotion ? { duration: 0 } : graphSpring;
-  const selectionId = selection.kind === "all" ? null : selection.id;
-  const { domains, nodes, edges, contentWidth, contentHeight, fitCenterX, fitCenterY } =
-    useMemo(() => {
-      const domains = data.domains.filter((domain) =>
-        selection.kind === "domain"
-          ? domain.id === selectionId
-          : selection.kind === "company"
-            ? data.companyDomains.some(
-                (link) => link.companyId === selectionId && link.domainId === domain.id,
-              )
-            : true,
-      );
-      const companyPeople = companies.map((company) => ({
-        company,
-        people: data.contacts.filter(
-          (contact) => contact.companyId === company.id && contact.status !== "duplicate",
-        ),
-      }));
-      const domainRadius = domains.length > 1 ? Math.max(120, domains.length * 42) : 0;
-      const companyRadius =
-        domains.length === 0 && companies.length === 1
-          ? 0
-          : Math.max(domainRadius + 180, 250, companies.length * 58);
-      const contactHeight = (description: string) =>
-        Math.max(80, 58 + wrapMapDescription(description).length * 20);
-      const rowHeights = companyPeople.map(({ people }) =>
-        Array.from({ length: Math.ceil(people.length / 3) }, (_, row) =>
-          Math.max(
-            80,
-            ...people
-              .slice(row * 3, row * 3 + 3)
-              .map((person) =>
-                contactHeight(person.description?.trim() || "Ingen kort beskrivelse"),
-              ),
-          ),
-        ),
-      );
-      const angle = (index: number, count: number) =>
-        -Math.PI / 2 + (index * 2 * Math.PI) / Math.max(count, 1);
-      const polar = (radius: number, radians: number) => ({
-        x: Math.cos(radians) * radius,
-        y: Math.sin(radians) * radius,
-      });
-      type GraphNode = {
-        id: string;
-        entityId: string;
-        kind: "domain" | "company" | "contact";
-        label: string;
-        subtitle?: string;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        color?: Color;
-        status?: Company["status"];
-      };
-      type GraphEdge = {
-        id: string;
-        from: string;
-        to: string;
-        color: string;
-      };
-      const domainPositions = new Map(
-        domains.map((domain, index) => [
-          domain.id,
-          polar(domainRadius, angle(index, domains.length)),
-        ]),
-      );
-      const initialNodes: GraphNode[] = domains.map((domain) => ({
-        id: `domain:${domain.id}`,
-        entityId: domain.id,
-        kind: "domain",
-        label: domain.name,
-        ...domainPositions.get(domain.id)!,
-        width: 190,
-        height: 58,
-        color: domain.color,
-      }));
-      const edgeLinks: GraphEdge[] = [];
-      companyPeople.forEach(({ company, people }, index) => {
-        const radians = angle(index, companies.length);
-        const position = polar(companyRadius, radians);
-        initialNodes.push({
-          id: `company:${company.id}`,
-          entityId: company.id,
-          kind: "company",
-          label: company.name,
-          ...position,
-          width: 230,
-          height: 58,
-          status: company.status,
-        });
-        for (const domain of domains) {
-          if (
-            !data.companyDomains.some(
-              (link) => link.companyId === company.id && link.domainId === domain.id,
-            )
-          )
-            continue;
-          edgeLinks.push({
-            id: `domain:${domain.id}:company:${company.id}`,
-            from: `domain:${domain.id}`,
-            to: `company:${company.id}`,
-            color: colors[domain.color],
-          });
-        }
-        people.forEach((contact, contactIndex) => {
-          const row = Math.floor(contactIndex / 3);
-          const countInRow = Math.min(3, people.length - row * 3);
-          const column = contactIndex % 3;
-          const lateral = (column - (countInRow - 1) / 2) * 292;
-          const radius =
-            companyRadius +
-            110 +
-            rowHeights[index][row] / 2 +
-            rowHeights[index].slice(0, row).reduce((total, height) => total + height + 28, 0);
-          const x = Math.cos(radians) * radius - Math.sin(radians) * lateral;
-          const y = Math.sin(radians) * radius + Math.cos(radians) * lateral;
-          initialNodes.push({
-            id: `contact:${contact.id}`,
-            entityId: contact.id,
-            kind: "contact",
-            label: contact.name,
-            subtitle: contact.description?.trim() || "Ingen kort beskrivelse",
-            x,
-            y,
-            width: 260,
-            height: contactHeight(contact.description?.trim() || "Ingen kort beskrivelse"),
-          });
-          edgeLinks.push({
-            id: `company:${company.id}:contact:${contact.id}`,
-            from: `company:${company.id}`,
-            to: `contact:${contact.id}`,
-            color: "var(--border)",
-          });
-        });
-      });
-      const nodes = layoutOrganizationNodes(initialNodes, edgeLinks);
-      const nodeById = new Map(nodes.map((node) => [node.id, node]));
-      const edges = edgeLinks.flatMap((edge) => {
-        const from = nodeById.get(edge.from);
-        const to = nodeById.get(edge.to);
-        return from && to ? [{ ...edge, ...routeOrganizationLink(from, to, nodes) }] : [];
-      });
-      const bounds = nodes.reduce(
-        (current, node) => {
-          return {
-            minX: Math.min(current.minX, node.x - node.width / 2),
-            maxX: Math.max(current.maxX, node.x + node.width / 2),
-            minY: Math.min(current.minY, node.y - node.height / 2),
-            maxY: Math.max(current.maxY, node.y + node.height / 2),
-          };
-        },
-        { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
-      );
-      const contentWidth = nodes.length ? Math.max(300, bounds.maxX - bounds.minX) : 300;
-      const contentHeight = nodes.length ? Math.max(300, bounds.maxY - bounds.minY) : 300;
-      const fitCenterX = nodes.length ? (bounds.minX + bounds.maxX) / 2 : 0;
-      const fitCenterY = nodes.length ? (bounds.minY + bounds.maxY) / 2 : 0;
-      return { domains, nodes, edges, contentWidth, contentHeight, fitCenterX, fitCenterY };
-    }, [data, companies, selection.kind, selectionId]);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
-  const dragging = useRef<{
-    pointerId: number;
-    x: number;
-    y: number;
-    viewX: number;
-    viewY: number;
-  } | null>(null);
-  useEffect(() => {
-    const scale = Math.min(
-      1.5,
-      Math.max(
-        11 / 14,
-        Math.min(
-          Math.max(240, viewportWidth - 48) / contentWidth,
-          Math.max(240, viewportHeight - 48) / contentHeight,
-        ),
-      ),
-    );
-    setView({ x: 0, y: 0, scale });
-  }, [
-    viewportWidth,
-    viewportHeight,
-    contentWidth,
-    contentHeight,
-    selection.kind,
-    selectionId,
-    fitToken,
-  ]);
-  useEffect(() => {
-    if (!zoomAction.sequence) return;
-    setView((current) => ({
-      ...current,
-      scale: Math.min(3, Math.max(0.04, current.scale * zoomAction.factor)),
-    }));
-  }, [zoomAction]);
-  useEffect(() => {
-    const element = svgRef.current;
-    if (!element) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      if (event.ctrlKey) {
-        setView((current) => ({
-          ...current,
-          scale: Math.min(3, Math.max(0.04, current.scale * Math.exp(-event.deltaY / 320))),
-        }));
-      } else {
-        const panDelta = (delta: number) => {
-          if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return delta * 9;
-          if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE)
-            return delta * Math.min(viewportHeight * 0.4, 360);
-          // Most mice report a whole 100/120px notch in pixel mode. Keep smooth trackpad deltas.
-          const magnitude = Math.abs(delta);
-          const mouseNotch =
-            magnitude >= 80 &&
-            [100, 120].some(
-              (step) => Math.abs(magnitude / step - Math.round(magnitude / step)) < 0.01,
-            );
-          return mouseNotch ? delta * 0.35 : delta;
-        };
-        setView((current) => ({
-          ...current,
-          x: current.x - panDelta(event.deltaX),
-          y: current.y - panDelta(event.deltaY),
-        }));
-      }
-    };
-    element.addEventListener("wheel", onWheel, { passive: false });
-    return () => element.removeEventListener("wheel", onWheel);
-  }, [viewportHeight]);
-  const transform = `translate(${viewportWidth / 2 + view.x} ${viewportHeight / 2 + view.y}) scale(${view.scale}) translate(${-fitCenterX} ${-fitCenterY})`;
+  const mapData = useMemo(
+    () => ({
+      domains: data.domains,
+      companies,
+      companyDomains: data.companyDomains,
+      contacts: data.contacts,
+    }),
+    [data.domains, companies, data.companyDomains, data.contacts],
+  );
   return (
-    <svg
-      ref={svgRef}
-      className="block h-full w-full touch-none"
-      width={viewportWidth}
-      height={viewportHeight}
-      viewBox={`0 0 ${viewportWidth} ${viewportHeight}`}
-      role="group"
-      aria-label={
-        selection.kind === "domain"
-          ? `Organisasjoner under ${domains[0]?.name ?? "domenet"}`
-          : selection.kind === "company"
-            ? `Kart for ${companies[0]?.name ?? "organisasjonen"}`
-            : "Alle organisasjoner og domener"
-      }
-    >
-      <defs>
-        <pattern id="organization-graph-dots" width="24" height="24" patternUnits="userSpaceOnUse">
-          <circle cx="12" cy="12" r="1" fill="var(--border)" />
-        </pattern>
-      </defs>
-      <rect
-        width="100%"
-        height="100%"
-        fill="url(#organization-graph-dots)"
-        className="cursor-grab active:cursor-grabbing"
-        onClick={onCloseNode}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          dragging.current = {
-            pointerId: event.pointerId,
-            x: event.clientX,
-            y: event.clientY,
-            viewX: view.x,
-            viewY: view.y,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          const drag = dragging.current;
-          if (!drag || drag.pointerId !== event.pointerId) return;
-          setView((current) => ({
-            ...current,
-            x: drag.viewX + event.clientX - drag.x,
-            y: drag.viewY + event.clientY - drag.y,
-          }));
-        }}
-        onPointerUp={(event) => {
-          if (dragging.current?.pointerId === event.pointerId) dragging.current = null;
-        }}
-        onPointerCancel={() => {
-          dragging.current = null;
-        }}
-      />
-      <g transform={transform}>
-        <AnimatePresence initial={false}>
-          {edges.map((edge) =>
-            edge.points.length === 2 ? (
-              <motion.line
-                key={`line:${edge.id}`}
-                initial={{ opacity: 0, x1: edge.x1, y1: edge.y1, x2: edge.x1, y2: edge.y1 }}
-                animate={{ opacity: 1, x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2 }}
-                exit={{ opacity: 0 }}
-                transition={transition}
-                stroke={edge.color}
-                strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
-                strokeLinecap="round"
-                pointerEvents="none"
-              />
-            ) : (
-              <motion.path
-                key={`route:${edge.id}:${edge.path}`}
-                d={edge.path}
-                initial={{ opacity: 0, pathLength: 0 }}
-                animate={{ opacity: 1, pathLength: 1 }}
-                exit={{ opacity: 0 }}
-                transition={transition}
-                stroke={edge.color}
-                fill="none"
-                strokeWidth={edge.id.startsWith("domain:") ? 2.5 : 2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                pointerEvents="none"
-              />
-            ),
-          )}
-        </AnimatePresence>
-        <AnimatePresence initial={false}>
-          {nodes.map((node) => {
-            const interactive = true;
-            const width = node.width;
-            const descriptionLines = node.subtitle ? wrapMapDescription(node.subtitle) : [];
-            const height = node.height;
-            const companyColor = companyStatusColors[node.status ?? "ingen"];
-            const activate = (anchor: Element) => {
-              if (node.kind === "domain") onSelect({ kind: "domain", id: node.entityId });
-              else onOpenNode(node.kind as "company" | "contact", node.entityId, anchor);
-            };
-            return (
-              <motion.g
-                key={node.id}
-                initial={{ opacity: 0, x: node.x, y: node.y - 30, scale: 0.8 }}
-                animate={{ opacity: 1, x: node.x, y: node.y, scale: 1 }}
-                exit={{ opacity: 0, y: node.y - 24, scale: 0.8 }}
-                whileHover={!reducedMotion ? { scale: 1.055 } : undefined}
-                whileTap={!reducedMotion ? { scale: 0.97 } : undefined}
-                transition={transition}
-                className={interactive ? "cursor-pointer" : undefined}
-                role={interactive ? "button" : undefined}
-                tabIndex={interactive ? 0 : undefined}
-                aria-label={
-                  interactive
-                    ? node.kind === "contact"
-                      ? `Vis kontaktkort for ${node.label}`
-                      : `Vis ${node.label}`
-                    : undefined
-                }
-                onClick={interactive ? (event) => activate(event.currentTarget) : undefined}
-                onKeyDown={
-                  interactive
-                    ? (event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          activate(event.currentTarget);
-                        }
-                      }
-                    : undefined
-                }
-                style={{ transformBox: "fill-box", transformOrigin: "center" }}
-              >
-                <rect
-                  x={-width / 2}
-                  y={-height / 2}
-                  width={width}
-                  height={height}
-                  rx="12"
-                  fill={
-                    node.kind === "domain"
-                      ? "var(--card)"
-                      : node.kind === "company"
-                        ? node.status === "ingen"
-                          ? "var(--card)"
-                          : `color-mix(in srgb, ${companyColor} 24%, var(--card))`
-                        : "var(--muted)"
-                  }
-                  stroke={
-                    node.kind === "domain"
-                      ? colors[node.color ?? "blue"]
-                      : node.kind === "company"
-                        ? companyColor
-                        : node.kind === "contact" &&
-                            activeNode?.kind === "contact" &&
-                            activeNode.id === node.entityId
-                          ? "var(--primary)"
-                          : "var(--border)"
-                  }
-                  strokeWidth={node.kind === "domain" || node.kind === "company" ? 2 : 1.5}
-                />
-                <text
-                  x="0"
-                  y={node.subtitle ? -height / 2 + 29 : 6}
-                  textAnchor="middle"
-                  fontSize={node.kind === "contact" ? 17 : 18}
-                  fontWeight={node.kind === "company" || node.kind === "contact" ? 600 : 500}
-                  fill="var(--foreground)"
-                  className="pointer-events-none"
-                >
-                  {node.label.length > (node.kind === "company" ? 23 : 25)
-                    ? `${node.label.slice(0, node.kind === "company" ? 22 : 24)}…`
-                    : node.label}
-                </text>
-                {node.subtitle && (
-                  <text
-                    x="0"
-                    y={-height / 2 + 54}
-                    textAnchor="middle"
-                    fontSize="14"
-                    fill="var(--muted-foreground)"
-                    className="pointer-events-none"
-                  >
-                    {node.kind === "contact"
-                      ? descriptionLines.map((line, index) => (
-                          <tspan key={`${node.id}:${index}`} x="0" dy={index ? 20 : 0}>
-                            {line}
-                          </tspan>
-                        ))
-                      : node.subtitle}
-                  </text>
-                )}
-              </motion.g>
-            );
-          })}
-        </AnimatePresence>
-        <AnimatePresence initial={false}>
-          {companies.length === 0 && (
-            <motion.text
-              key="empty"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={transition}
-              x={fitCenterX}
-              y={fitCenterY + 35}
-              textAnchor="middle"
-              fill="var(--muted-foreground)"
-            >
-              Ingen organisasjoner i dette utvalget.
-            </motion.text>
-          )}
-        </AnimatePresence>
-      </g>
-    </svg>
+    <OrganizationMapGraph
+      data={mapData}
+      selection={selection}
+      onOpenNode={onOpenNode}
+      onCloseNode={onCloseNode}
+      activeNode={activeNode}
+      fitToken={fitToken}
+      zoomAction={zoomAction}
+    />
   );
 }
 
@@ -6986,12 +6543,12 @@ function OrganizationMap({
   busy: boolean;
 }) {
   const [selection, setSelection] = useState<OrganizationSelection>(
-    initialFocus.kind !== "all" && initialFocus.id
-      ? { kind: initialFocus.kind, id: initialFocus.id }
+    initialFocus.kind === "company" && initialFocus.id
+      ? { kind: "company", id: initialFocus.id }
       : { kind: "all" },
   );
   const [activeNode, setActiveNode] = useState<{
-    kind: "company" | "contact";
+    kind: "domain" | "company" | "contact";
     id: string;
     anchor: Element;
   } | null>(null);
@@ -7010,34 +6567,17 @@ function OrganizationMap({
     id: string;
     name: string;
   } | null>(null);
-  const graphRef = useRef<HTMLElement>(null);
-  const [viewportHeight, setViewportHeight] = useState(560);
-  const [viewportWidth, setViewportWidth] = useState(900);
   const [fitToken, setFitToken] = useState(0);
   const [zoomAction, setZoomAction] = useState({ sequence: 0, factor: 1 });
 
   useEffect(() => {
     if (!loaded || selection.kind === "all") return;
-    const valid =
-      selection.kind === "domain"
-        ? data.domains.some((domain) => domain.id === selection.id)
-        : data.companies.some((company) => company.id === selection.id);
+    const valid = data.companies.some((company) => company.id === selection.id);
     if (!valid) {
       setSelection({ kind: "all" });
       onFocusChange({ kind: "all", id: null });
     }
-  }, [loaded, selection, data.domains, data.companies, onFocusChange]);
-
-  useEffect(() => {
-    const element = graphRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => {
-      setViewportHeight(Math.max(560, element.clientHeight));
-      setViewportWidth(Math.max(320, element.clientWidth));
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+  }, [loaded, selection, data.companies, onFocusChange]);
 
   function closeActiveNode() {
     setActiveNode(null);
@@ -7049,19 +6589,18 @@ function OrganizationMap({
     setSelection(next);
     onFocusChange(next.kind === "all" ? { kind: "all", id: null } : next);
   }
-  const selectedDomain =
-    selection.kind === "domain"
-      ? (data.domains.find((candidate) => candidate.id === selection.id) ?? null)
-      : null;
-  const graphCompanies = data.companies.filter((candidate) =>
-    selection.kind === "company"
-      ? candidate.id === selection.id
-      : selection.kind === "domain"
-        ? data.companyDomains.some(
-            (link) => link.companyId === candidate.id && link.domainId === selection.id,
-          )
+  const graphCompanies = useMemo(
+    () => data.companies.filter((candidate) =>
+      selection.kind === "company"
+        ? candidate.id === selection.id
         : true,
+    ),
+    [data.companies, selection],
   );
+  const popupDomain =
+    activeNode?.kind === "domain"
+      ? (data.domains.find((candidate) => candidate.id === activeNode.id) ?? null)
+      : null;
   const popupCompany =
     activeNode?.kind === "company"
       ? (data.companies.find((candidate) => candidate.id === activeNode.id) ?? null)
@@ -7077,6 +6616,7 @@ function OrganizationMap({
         ),
       )
     : [];
+  const popupCompanyDomainId = popupCompanyDomains.map((domain) => domain.id).sort()[0] ?? null;
   const popupPeople = popupCompany
     ? data.contacts.filter(
         (contact) => contact.companyId === popupCompany.id && contact.status !== "duplicate",
@@ -7094,7 +6634,7 @@ function OrganizationMap({
   async function createDomain(event: FormEvent) {
     event.preventDefault();
     if (!newDomain.trim() || !newDomainDescription.trim()) return;
-    const tag = await mutate<Domain>("/domains", {
+    await mutate<Domain>("/domains", {
       name: newDomain.trim(),
       description: newDomainDescription.trim(),
       color: domainColor,
@@ -7102,15 +6642,12 @@ function OrganizationMap({
     setNewDomain("");
     setNewDomainDescription("");
     setDomainDialogOpen(false);
-    chooseSelection({ kind: "domain", id: tag.id });
   }
-  async function toggleDomain(id: string) {
+  async function setCompanyDomain(id: string | null) {
     if (!popupCompany) return;
     const currentIds = popupCompanyDomains.map((domain) => domain.id);
     await mutate(`/companies/${popupCompany.id}/domains`, {
-      domainIds: currentIds.includes(id)
-        ? currentIds.filter((domainId) => domainId !== id)
-        : [...currentIds, id],
+      domainIds: id ? [id] : [],
       expected: { domainIds: currentIds, revision: popupCompany.domainsRevision },
     });
   }
@@ -7156,7 +6693,6 @@ function OrganizationMap({
     <div className="relative flex min-h-[720px] min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
       <h1 className="sr-only">Organisasjoner</h1>
       <section
-        ref={graphRef}
         className="relative min-h-[560px] min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-card"
         aria-label="Relasjoner"
       >
@@ -7164,7 +6700,6 @@ function OrganizationMap({
           data={data}
           companies={graphCompanies}
           selection={selection}
-          onSelect={chooseSelection}
           onOpenNode={(kind, id, anchor) => {
             setEditingCompanyId(null);
             setCompanyNameError("");
@@ -7174,8 +6709,6 @@ function OrganizationMap({
           }}
           onCloseNode={closeActiveNode}
           activeNode={activeNode}
-          viewportHeight={viewportHeight}
-          viewportWidth={viewportWidth}
           fitToken={fitToken}
           zoomAction={zoomAction}
         />
@@ -7234,21 +6767,6 @@ function OrganizationMap({
           </Button>
         </div>
       </section>
-      {selectedDomain && (
-        <div className="absolute bottom-5 left-5 z-10 w-[min(360px,calc(100%-40px))] max-h-[40vh] overflow-y-auto rounded-xl border border-border bg-card p-3 shadow-card">
-          <TagDescription tag={selectedDomain} pathPrefix="/domains" mutate={mutate} busy={busy} />
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-3 w-full"
-            onClick={() =>
-              setSummaryScope({ kind: "domain", id: selectedDomain.id, name: selectedDomain.name })
-            }
-          >
-            <Sparkles size={14} /> Oppsummer samtaler fra {selectedDomain.name}
-          </Button>
-        </div>
-      )}
       <Popover
         open={!!activeNode}
         onOpenChange={(open) => {
@@ -7261,6 +6779,27 @@ function OrganizationMap({
           align="start"
           className="max-h-[min(620px,calc(100vh-24px))] w-[min(360px,calc(100vw-24px))] overflow-y-auto p-4"
         >
+          {popupDomain && (
+            <div>
+              <TagDescription
+                key={popupDomain.id}
+                tag={popupDomain}
+                pathPrefix="/domains"
+                mutate={mutate}
+                busy={busy}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 w-full"
+                onClick={() =>
+                  setSummaryScope({ kind: "domain", id: popupDomain.id, name: popupDomain.name })
+                }
+              >
+                <Sparkles size={14} /> Oppsummer samtaler fra {popupDomain.name}
+              </Button>
+            </div>
+          )}
           {popupCompany && (
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -7357,15 +6896,26 @@ function OrganizationMap({
                   {companyNameError}
                 </p>
               )}
-              <p className="mt-4 text-xs font-medium text-muted-foreground">Domener</p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <p className="mt-4 text-xs font-medium text-muted-foreground">Domene</p>
+              <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Domene">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={popupCompanyDomainId === null}
+                  disabled={busy}
+                  className={`rounded-lg border px-2 py-1 text-xs transition-colors ${popupCompanyDomainId === null ? "font-semibold text-foreground shadow-sm ring-1 ring-inset ring-primary/20" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => void setCompanyDomain(null)}
+                >
+                  Uten domene
+                </button>
                 {data.domains.map((domain) => {
-                  const linked = popupCompanyDomains.some((item) => item.id === domain.id);
+                  const linked = popupCompanyDomainId === domain.id;
                   return (
                     <button
                       key={domain.id}
                       type="button"
-                      aria-pressed={linked}
+                      role="radio"
+                      aria-checked={linked}
                       disabled={busy}
                       className={`rounded-lg border px-2 py-1 text-xs transition-colors ${linked ? "font-semibold text-foreground shadow-sm ring-1 ring-inset ring-primary/20" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
                       style={{
@@ -7374,7 +6924,7 @@ function OrganizationMap({
                           ? `color-mix(in srgb, ${colors[domain.color]} 24%, var(--card))`
                           : undefined,
                       }}
-                      onClick={() => void toggleDomain(domain.id)}
+                      onClick={() => void setCompanyDomain(domain.id)}
                     >
                       <span
                         className="mr-1.5 inline-block size-2 rounded-full"
@@ -7471,7 +7021,7 @@ function OrganizationMap({
         <DialogContent>
           <DialogTitle>Slett organisasjon?</DialogTitle>
           <DialogDescription>
-            {deletingCompany?.name} og koblingene til domener blir slettet. Organisasjonen kan bare
+            {deletingCompany?.name} og koblingen til domenet blir slettet. Organisasjonen kan bare
             slettes når den ikke har kontakter eller intensjonsavtaler.
           </DialogDescription>
           {deleteCompanyError && (

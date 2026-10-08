@@ -43,7 +43,7 @@ const labels: Record<string, string> = {
   phone: "Telefon",
   description: "Kort beskrivelse",
   companyId: "Organisasjon",
-  domainIds: "Domener",
+  domainIds: "Domene",
   newDomainName: "Nytt domene",
   personTagIds: "Persontagger",
 };

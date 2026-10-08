@@ -371,7 +371,10 @@ export const companyDomains = pgTable(
       .notNull()
       .references(() => domainTags.id, { onDelete: "cascade" }),
   },
-  (table) => [primaryKey({ columns: [table.companyId, table.domainId] })],
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.domainId] }),
+    uniqueIndex("company_domains_company_unique").on(table.companyId),
+  ],
 );
 export const personTags = pgTable(
   "person_tags",

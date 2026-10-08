@@ -10,12 +10,13 @@ export default defineConfig({
     allowedHosts: ["jeff.tail32eb5a.ts.net"],
     proxy: {
       "/sb-proxy": {
-        target: "http://127.0.0.1:57321",
+        target: process.env.CONTAC_DEV_SUPABASE_TARGET ?? "http://127.0.0.1:57321",
         rewrite: (p) => p.replace(/^\/sb-proxy/, ""),
+        changeOrigin: true,
         ws: true,
       },
       "/api-proxy": {
-        target: "http://127.0.0.1:8787",
+        target: process.env.CONTAC_DEV_API_TARGET ?? "http://127.0.0.1:8787",
         rewrite: (p) => p.replace(/^\/api-proxy/, ""),
       },
     },

@@ -53,6 +53,13 @@ export async function replaceCompanyDomains(
         error: "Duplicate domain ID in replacement",
         resulting: previous,
       };
+    if (input.domainIds.length > 1)
+      return {
+        ...base,
+        status: "error" as const,
+        error: "An organization can have at most one domain",
+        resulting: previous,
+      };
     const desired = input.domainIds.length
       ? await tx
           .select({ id: domainTags.id, name: domainTags.name })
