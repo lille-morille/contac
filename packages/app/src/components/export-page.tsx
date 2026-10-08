@@ -345,11 +345,14 @@ function PreviewCards({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
               <span className="text-xs font-semibold text-primary">{contact.contactNumber}</span>
               <div className="flex items-center gap-1">
-                <Checkbox
-                  checked={!excluded.has(contact.id)}
-                  aria-label={`Ta med K-${contact.contactNumber} ${contact.name}`}
-                  onCheckedChange={(include) => onToggle(contact.id, !!include)}
-                />
+                <label className="mr-2 flex cursor-pointer items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={!excluded.has(contact.id)}
+                    aria-label={`Inkluder i loggen: K-${contact.contactNumber} ${contact.name}`}
+                    onCheckedChange={(include) => onToggle(contact.id, !!include)}
+                  />
+                  Inkluder i loggen
+                </label>
                 <Button size="sm" variant="outline" onClick={() => onOpen(contact.id)}>
                   Åpne
                 </Button>
