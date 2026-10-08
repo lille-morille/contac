@@ -15,7 +15,8 @@ type Feature =
   | "contact_referral"
   | "hierarchy"
   | "group_findings"
-  | "email_draft";
+  | "email_draft"
+  | "email_matching";
 type Settings = {
   emailDraftEnabled: boolean;
   hasToken: boolean;
@@ -30,6 +31,12 @@ type Usage = {
   missingCost: number;
 };
 const features: { key: Feature; label: string; description: string; manualOnly?: boolean }[] = [
+  {
+    key: "email_matching",
+    label: "Matching av innkommende e-post",
+    description:
+      "Trekk ut kontaktadresser fra videresendt e-post når teamet er identifisert, men kontakten mangler. Teamets lave modell og token brukes. Umatchede meldinger blir liggende hos den identifiserte brukeren.",
+  },
   { key: "stikkord", label: "Stikkord", description: "Kort oppsummering av samtaler." },
   {
     key: "contact_fields",
@@ -203,7 +210,7 @@ export function TeamAiSettings() {
                 items={
                   feature.manualOnly
                     ? manualModeItems
-                    : feature.key === "contact_referral"
+                    : feature.key === "contact_referral" || feature.key === "email_matching"
                       ? contactModeItems.slice(0, 2)
                       : contactModeItems
                 }

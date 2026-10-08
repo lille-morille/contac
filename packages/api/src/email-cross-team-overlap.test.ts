@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import {
   activityContacts,
+  classMemberships,
   contactOverlapDismissals,
   contacts,
   inboundSuggestions,
@@ -51,6 +52,7 @@ function makeApp() {
       select: (fields: Record<string, unknown>) => ({
         from: (table: unknown) => {
           const result = () => {
+            if (table === classMemberships) return [];
             if (table === organizations) return [{ classId: "class-a" }];
             if (table === contactOverlapDismissals) return dismissals;
             if (table === inboundSuggestions || table === logAccessRequests) return [];

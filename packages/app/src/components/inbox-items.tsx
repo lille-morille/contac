@@ -28,6 +28,7 @@ export type InboxData = {
     body: string | null;
     receivedAt: string;
     contactNames?: string[];
+    matchedContactIds?: string[];
   }[];
   requests: {
     id: string;
@@ -205,7 +206,8 @@ export function InboxItems({
             {inbox.suggestions.map((item) => {
               const matches =
                 item.kind === "email"
-                  ? contacts
+                  ? (item.matchedContactIds ??
+                    contacts
                       .filter(
                         (contact) =>
                           contact.status !== "duplicate" &&
@@ -215,7 +217,7 @@ export function InboxItems({
                             ccEmails: item.ccEmails,
                           }),
                       )
-                      .map((contact) => contact.id)
+                      .map((contact) => contact.id))
                   : [];
               const values = selected[item.id] ?? matches;
               return (
@@ -249,8 +251,16 @@ export function InboxItems({
                         {item.body || "Tom melding"}
                       </p>
                       <div className="mt-3">
+                        {!values.length && (
+                          <p className="mb-2 text-xs text-muted-foreground">
+                            Ingen kontakt ble matchet. Velg kontakt for å ta inn e-posten i
+                            kontaktloggen.
+                          </p>
+                        )}
                         <MultiSelect
                           label="Knytt til kontakter"
+                          emptyLabel="Velg kontakter"
+                          positionerClassName="z-[80]"
                           icon={<Users size={15} />}
                           value={values}
                           options={contacts

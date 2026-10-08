@@ -270,6 +270,8 @@ export function registerActivityFeatureRoutes(app: Hono<ApiEnv>, deps: ApiDeps) 
       return c.json({ error: "Kontaktfunksjoner bruker automatiske forslag" }, 400);
     if (data.modes && ![undefined, "off", "suggest"].includes(data.modes.contact_referral))
       return c.json({ error: "Kontaktforslag støtter Av eller Automatisk forslag" }, 400);
+    if (data.modes && ![undefined, "off", "suggest"].includes(data.modes.email_matching))
+      return c.json({ error: "E-postmatching støtter Av eller Automatisk forslag" }, 400);
     const nextModes = {
       ...data.modes,
       email_draft: data.modes?.email_draft ?? (data.emailDraftEnabled ? "manual" : "off"),

@@ -13,6 +13,8 @@ export function MultiSelect({
   options,
   onChange,
   className = "",
+  positionerClassName,
+  emptyLabel = "Alle",
 }: {
   label: string;
   icon: ReactNode;
@@ -20,6 +22,8 @@ export function MultiSelect({
   options: MultiSelectOption[];
   onChange: (value: string[]) => void;
   className?: string;
+  positionerClassName?: string;
+  emptyLabel?: string;
 }) {
   const [search, setSearch] = useState("");
   const shown = options.filter((option) =>
@@ -27,7 +31,7 @@ export function MultiSelect({
   );
   const selectedLabel =
     value.length === 0
-      ? "Alle"
+      ? emptyLabel
       : value.length === 1
         ? (options.find((option) => option.value === value[0])?.label ?? "1 valgt")
         : `${value.length} valgt`;
@@ -42,7 +46,7 @@ export function MultiSelect({
         <span className="min-w-0 truncate text-muted-foreground">{selectedLabel}</span>
         <ChevronDown size={14} className="ml-auto shrink-0 text-muted-foreground" />
       </PopoverTrigger>
-      <PopoverContent className="w-64 p-2">
+      <PopoverContent className="w-64 p-2" positionerClassName={positionerClassName}>
         <div className="flex items-center justify-between gap-2 px-1 pb-2">
           <strong className="text-sm">{label}</strong>
           {value.length > 0 && (

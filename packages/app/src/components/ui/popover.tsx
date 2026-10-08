@@ -11,12 +11,14 @@ export function PopoverContent({
   align = "start",
   side = "bottom",
   anchor,
+  positionerClassName,
 }: {
   children: ReactNode;
   className?: string;
   align?: "start" | "center" | "end";
   side?: "top" | "bottom" | "left" | "right";
   anchor?: Element | null;
+  positionerClassName?: string;
 }) {
   return (
     <P.Portal>
@@ -27,7 +29,7 @@ export function PopoverContent({
         sideOffset={8}
         collisionPadding={12}
         collisionAvoidance={{ side: "flip", align: "shift" }}
-        className="z-50"
+        className={cn("z-50", positionerClassName)}
       >
         <P.Popup
           className={cn(

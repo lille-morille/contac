@@ -566,6 +566,8 @@ export const inboundSuggestions = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     kind: text("kind").$type<"email" | "alert">().notNull(),
+    recipientUserId: uuid("recipient_user_id"),
+    extractedEmails: jsonb("extracted_emails").$type<string[]>().notNull().default([]),
     status: text("status")
       .$type<"pending" | "accepted" | "dismissed">()
       .notNull()
