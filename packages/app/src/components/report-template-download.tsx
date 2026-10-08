@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { downloadOrgFile, request } from "../lib/api.ts";
+import { reportNumbersFromTeamName } from "../lib/report-team-name.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./ui/dialog.tsx";
 import { Input } from "./ui/input.tsx";
@@ -35,8 +36,7 @@ export function ReportTemplateDownload({ teamId, teamName }: { teamId: string; t
         .filter((name): name is string => !!name);
       setDraft({
         caseName: settings.businessName || teamName,
-        group: teamName.match(/^(?:gruppe|group|team)\s*#?\s*(\d+)$/i)?.[1] ?? teamName,
-        studyNumber: "",
+        ...reportNumbersFromTeamName(teamName),
         authors: names.length
           ? names.map((name) => ({ name, title: "" }))
           : [{ name: "", title: "" }],
