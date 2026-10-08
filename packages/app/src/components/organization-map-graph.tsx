@@ -118,7 +118,7 @@ function CompanyCard({
       <button
         type="button"
         data-graph-card={`company:${company.id}`}
-        className="organization-map-card flex w-full shrink-0 items-center justify-center border-b px-3 text-center text-[16px] font-semibold outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="organization-map-card flex w-full shrink-0 items-center justify-center border-b px-3 text-center text-[18px] font-semibold outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         style={{ height: company.headerHeight, backgroundColor: headerColor, borderColor }}
         title={company.label}
         aria-label={`Vis ${company.label}`}
@@ -131,7 +131,7 @@ function CompanyCard({
           onOpen("company", company.id, event.currentTarget);
         }}
       >
-        <span className="line-clamp-3 min-w-0 break-words leading-5">{company.label}</span>
+        <span className="line-clamp-3 min-w-0 break-words leading-6">{company.label}</span>
       </button>
       {company.people.length > 0 && (
         <div className="flex flex-col gap-2 p-2.5">
@@ -207,7 +207,7 @@ function DomainPanel({
         <button
           type="button"
           data-graph-card={panel.id}
-          className="organization-map-card flex h-16 w-full flex-col items-center justify-center border-b text-center outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="organization-map-card flex h-16 w-full items-center justify-center border-b text-center outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           style={{ borderColor: color, backgroundColor: `color-mix(in srgb, ${color} 8%, var(--card))` }}
           aria-label={`Vis ${panel.label}`}
           aria-pressed="false"
@@ -219,11 +219,10 @@ function DomainPanel({
             onOpen("domain", panel.entityId!, event.currentTarget);
           }}
         >
-          <span className="max-w-full truncate px-3 text-[17px] font-semibold leading-6" title={panel.label}>{panel.label}</span>
-          <span className="text-xs text-muted-foreground">{panel.companies.length} organisasjoner</span>
+          <span className="max-w-full truncate px-3 text-xl font-semibold leading-7" title={panel.label}>{panel.label}</span>
         </button>
       ) : (
-        <div className="flex h-16 items-center justify-center border-b font-semibold" style={{ borderColor: color }}>
+        <div className="flex h-16 items-center justify-center border-b text-xl font-semibold" style={{ borderColor: color }}>
           {panel.label}
         </div>
       )}

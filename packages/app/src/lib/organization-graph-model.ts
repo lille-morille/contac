@@ -60,7 +60,7 @@ const personGap = 8;
 const companyPadding = 10;
 const panelPadding = 18;
 const panelHeaderHeight = 64;
-const cardGap = 16;
+const cardGap = 24;
 const panelGap = 80;
 
 export function wrapMapDescription(description: string): string[] {
