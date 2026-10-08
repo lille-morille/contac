@@ -68,16 +68,9 @@ export function ReportTemplateDownload({ teamId, teamName }: { teamId: string; t
 
   return (
     <>
-      {(["nb", "en"] as const).map((language) => (
-        <Button
-          key={language}
-          variant="outline"
-          disabled={busy}
-          onClick={() => void review(language)}
-        >
-          {language === "nb" ? "Last ned norsk mal" : "Download English template"}
-        </Button>
-      ))}
+      <Button variant="outline" disabled={busy} onClick={() => void review(language)}>
+        Nedlast Typst rapportmal
+      </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogTitle>Se over rapportopplysninger</DialogTitle>

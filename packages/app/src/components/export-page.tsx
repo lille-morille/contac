@@ -8,14 +8,15 @@ import {
   type ReportSettings,
 } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, Copy, Download, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { contactStatusName, type ContactStatus } from "./contact-status.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
 import { Checkbox } from "./ui/checkbox.tsx";
 import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./ui/dialog.tsx";
 import { ApiError, downloadOrgFile, readOrgText, request } from "../lib/api.ts";
 import { copyHtmlTable, copyText } from "../lib/clipboard.ts";
 
@@ -69,6 +70,33 @@ const compactCandidates: ReportColumnId[] = [
   "stikkord",
 ];
 const detailColumns = new Set<ReportColumnId>(["description", "stikkord", "log"]);
+
+function ExportSection({ title, children }: { title: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(true);
+  const contentId = useId();
+  return (
+    <Card>
+      <h2>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 rounded-2xl p-5 text-left font-semibold outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {title}
+          <ChevronDown
+            aria-hidden="true"
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "" : "-rotate-90"}`}
+          />
+        </button>
+      </h2>
+      <div id={contentId} hidden={!expanded} className="space-y-4 px-5 pb-5">
+        {children}
+      </div>
+    </Card>
+  );
+}
 
 function layoutColumns(columns: ReportColumnId[]): ReportColumnId[] {
   return [
@@ -433,6 +461,8 @@ export function ExportPage({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState(false);
+  const [tableSelected, setTableSelected] = useState(false);
+  const [copiedFormat, setCopiedFormat] = useState<"typst" | "latex" | "table" | null>(null);
   const draftRef = useRef<ReportSettings | null>(null);
   const revisionRef = useRef(0);
   const dirtyRef = useRef(false);
@@ -625,7 +655,7 @@ export function ExportPage({
   const formatLabels: Record<ReportFormat, { label: string; extension: string }> = {
     typst: { label: "Typst", extension: "typ" },
     latex: { label: "LaTeX", extension: "tex" },
-    csv: { label: "CSV (kan lastes opp i Google Sheets)", extension: "csv" },
+    csv: { label: "CSV", extension: "csv" },
   };
 
   if (workspace.isError)
@@ -647,69 +677,84 @@ export function ExportPage({
           kontaktdataene.
         </p>
       </header>
-      <Card className="space-y-4 p-5">
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Eksportformat">
+      <ExportSection title="Contact log export">
+        <div
+          className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"
+          role="group"
+          aria-label="Eksportformat"
+        >
           {(["typst", "latex", "csv"] as ReportFormat[]).map((choice) => (
             <Button
               key={choice}
-              variant={choice === format ? "default" : "outline"}
-              aria-pressed={choice === format}
-              onClick={() => update((current) => ({ ...current, format: choice }), true)}
+              className="h-auto min-h-16 flex-col items-start gap-1 px-4 py-3 text-left"
+              variant={!tableSelected && choice === format ? "default" : "outline"}
+              aria-pressed={!tableSelected && choice === format}
+              onClick={() => {
+                setTableSelected(false);
+                update((current) => ({ ...current, format: choice }), true);
+              }}
             >
-              {formatLabels[choice].label}
+              <span>{formatLabels[choice].label}</span>
+              <span className="text-xs font-normal opacity-75">
+                {choice === "csv"
+                  ? "Kan lastes opp i Google Sheets"
+                  : "Last ned eller kopier kildekoden"}
+              </span>
             </Button>
           ))}
+          <Button
+            className="h-auto min-h-16 flex-col items-start gap-1 px-4 py-3 text-left"
+            variant={tableSelected ? "default" : "outline"}
+            aria-pressed={tableSelected}
+            onClick={() => setTableSelected(true)}
+          >
+            <span>Kopier som tabell</span>
+            <span className="text-xs font-normal opacity-75">Lim inn i Google Docs eller Word</span>
+          </Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={working || included.length === 0}
-            onClick={() =>
-              void act(
-                () =>
-                  downloadOrgFile(
-                    orgId,
-                    `/org/export/file?format=${format}`,
-                    `kontaktlogg.${extension}`,
-                  ),
-                `Kontaktloggen er lastet ned som .${extension}.`,
-              )
-            }
-          >
-            <Download /> Last ned som .{extension}-fil
-          </Button>
-          <Button
-            variant="outline"
-            disabled={working || included.length === 0}
-            onClick={() =>
-              void act(
-                async () => copyText(await readOrgText(orgId, `/org/export/file?format=${format}`)),
-                "Kontaktloggen er kopiert.",
-              )
-            }
-          >
-            Kopier til utklippstavle
-          </Button>
-          <Button
-            variant="outline"
-            disabled={working || included.length === 0}
-            onClick={() =>
-              void act(
-                async () =>
-                  copyHtmlTable(
-                    await readOrgText(orgId, "/org/export/file?format=html"),
-                    await readOrgText(orgId, "/org/export/file?format=csv"),
-                  ),
-                "Tabellen er kopiert for innliming i Google Docs.",
-              )
-            }
-          >
-            Kopier som tabell
-          </Button>
-          <ReportTemplateDownload key={orgId} teamId={orgId} teamName={org?.name ?? ""} />
+          {!tableSelected && (
+            <Button
+              disabled={working || included.length === 0}
+              onClick={() =>
+                void act(
+                  () =>
+                    downloadOrgFile(
+                      orgId,
+                      `/org/export/file?format=${format}`,
+                      `kontaktlogg.${extension}`,
+                    ),
+                  `Kontaktloggen er lastet ned som .${extension}.`,
+                )
+              }
+            >
+              <Download /> Last ned som .{extension}-fil
+            </Button>
+          )}
+          {(tableSelected || format !== "csv") && (
+            <Button
+              variant={tableSelected ? "default" : "outline"}
+              disabled={working || included.length === 0}
+              onClick={() =>
+                void act(async () => {
+                  if (tableSelected) {
+                    const [html, csv] = await Promise.all([
+                      readOrgText(orgId, "/org/export/file?format=html"),
+                      readOrgText(orgId, "/org/export/file?format=csv"),
+                    ]);
+                    await copyHtmlTable(html, csv);
+                    setCopiedFormat("table");
+                  } else if (format !== "csv") {
+                    await copyText(await readOrgText(orgId, `/org/export/file?format=${format}`));
+                    setCopiedFormat(format);
+                  }
+                }, "Kontaktloggen er kopiert.")
+              }
+            >
+              <Copy /> {tableSelected ? "Kopier tabell" : "Kopier til utklippstavle"}
+            </Button>
+          )}
         </div>
-        <p className="text-sm text-muted-foreground">
-          Typst-sitater bruker permanente kontaktnumre, for eksempel <code>#cite-contact(12)</code>.
-        </p>
         <p role="status" className="text-xs text-muted-foreground">
           {saveState === "saved"
             ? "Alle endringer er lagret"
@@ -772,10 +817,27 @@ export function ExportPage({
             {error}
           </p>
         )}
-      </Card>
+        <div className="flex flex-wrap gap-2 border-t border-border pt-4">
+          <ReportTemplateDownload key={orgId} teamId={orgId} teamName={org?.name ?? ""} />
+          <Button
+            variant="outline"
+            disabled={working}
+            onClick={() =>
+              void act(
+                () => downloadOrgFile(orgId, "/org/export/signed-lois.zip", "signerte-loier.zip"),
+                "Signerte LOI-er er lastet ned.",
+              )
+            }
+          >
+            <Download /> Last ned signerte LOI-er
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pakk ut signerte LOI-er i rapportens prosjektmappe for å legge alle sider til som vedlegg.
+        </p>
+      </ExportSection>
       <div className="space-y-5">
-        <Card className="space-y-4 p-5">
-          <h2 className="font-semibold">Innhold og kolonner</h2>
+        <ExportSection title="Innhold og kolonner">
           <label className="block text-sm font-medium">
             Tittel
             <Input
@@ -863,14 +925,11 @@ export function ExportPage({
               );
             })}
           </div>
-        </Card>
-        <Card className="space-y-4 p-5">
-          <div>
-            <h2 className="font-semibold">Kontakter og relevans</h2>
-            <p className="text-xs text-muted-foreground">
-              Hele loggen vises i kontaktkortene. Bla nedover for å se alle oppføringer.
-            </p>
-          </div>
+        </ExportSection>
+        <ExportSection title="Kontakter og relevans">
+          <p className="text-xs text-muted-foreground">
+            Hele loggen vises i kontaktkortene. Bla nedover for å se alle oppføringer.
+          </p>
           <Input
             aria-label="Søk etter kontakt i eksportoppsettet"
             placeholder="Søk etter navn, selskap, nummer eller logginnhold"
@@ -965,27 +1024,56 @@ export function ExportPage({
           {included.length === 0 && (
             <p className="text-sm text-muted-foreground">Velg minst én kontakt.</p>
           )}
-        </Card>
+        </ExportSection>
       </div>
-      <Card className="space-y-3 p-5">
-        <h2 className="font-semibold">Rapportvedlegg</h2>
-        <p className="text-sm text-muted-foreground">
-          Pakk ut signerte LOI-er i prosjektmappen for å legge alle sider til som vedlegg.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              void act(
-                () => downloadOrgFile(orgId, "/org/export/signed-lois.zip", "signerte-loier.zip"),
-                "Signerte LOI-er er lastet ned.",
-              )
-            }
-          >
-            Last ned signerte LOI-er
+      <Dialog open={copiedFormat !== null} onOpenChange={(open) => !open && setCopiedFormat(null)}>
+        <DialogContent>
+          <DialogTitle>
+            {copiedFormat === "table" ? "Tabellen er kopiert" : "Kontaktloggen er kopiert"}
+          </DialogTitle>
+          <DialogDescription>
+            {copiedFormat === "table"
+              ? "Slik limer du tabellen inn i dokumentet ditt."
+              : `Slik bruker du den kopierte ${copiedFormat === "typst" ? "Typst" : "LaTeX"}-koden.`}
+          </DialogDescription>
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
+            {copiedFormat === "table" ? (
+              <>
+                <li>Åpne dokumentet i Google Docs eller Word.</li>
+                <li>Plasser markøren der kontaktloggen skal stå.</li>
+                <li>
+                  Lim inn med ⌘V på Mac eller Ctrl+V på Windows. Behold formateringen for å få en
+                  tabell.
+                </li>
+              </>
+            ) : copiedFormat === "typst" ? (
+              <>
+                <li>
+                  Opprett eller åpne filen <code>kontaktlogg.typ</code> i Typst-prosjektet ditt.
+                </li>
+                <li>Lim inn koden med ⌘V på Mac eller Ctrl+V på Windows, og lagre filen.</li>
+                <li>
+                  Legg til <code>#include "kontaktlogg.typ"</code> der kontaktloggen skal vises i
+                  rapporten, eller kompiler filen alene.
+                </li>
+              </>
+            ) : (
+              <>
+                <li>
+                  Opprett en ny <code>kontaktlogg.tex</code>-fil i LaTeX eller Overleaf.
+                </li>
+                <li>Lim inn koden med ⌘V på Mac eller Ctrl+V på Windows, og lagre filen.</li>
+                <li>
+                  Kompiler filen som et eget dokument. PDF-en kan deretter legges ved rapporten.
+                </li>
+              </>
+            )}
+          </ol>
+          <Button className="mt-5" onClick={() => setCopiedFormat(null)}>
+            Ferdig
           </Button>
-        </div>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
