@@ -3179,10 +3179,10 @@ function ActivityFeed({
     <div className="mx-auto max-w-4xl">
       <h1 className="sr-only">Sist kontaktet</h1>
       <div className="grid gap-3 sm:grid-cols-[minmax(13rem,16rem)_minmax(0,1fr)_auto] sm:items-end">
-        <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
-          Ansvarlig for kontakten
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+          <span className="leading-4">Ansvarlig for kontakten</span>
           <Select
-            className="w-full"
+            className="h-9 w-full shrink-0"
             value={assigneeId}
             onValueChange={(value) => {
               setAssigneeId(value);
@@ -3213,9 +3213,10 @@ function ActivityFeed({
             ]}
           />
         </label>
-        <label className="min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
-          Søk
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+          <span className="leading-4">Søk</span>
           <Input
+            className="h-9 shrink-0"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
