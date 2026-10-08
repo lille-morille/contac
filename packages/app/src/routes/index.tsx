@@ -2148,6 +2148,7 @@ function Home() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="h-[38px]"
                   aria-expanded={filtersOpen}
                   aria-controls="contact-filters-and-sort"
                   onClick={() => setFiltersOpen((open) => !open)}
