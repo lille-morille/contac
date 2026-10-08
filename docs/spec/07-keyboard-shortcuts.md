@@ -38,6 +38,7 @@ Keep ⌘K/Ctrl+K as the global **open** shortcut. While the palette is open, the
 
 ## Contact targeting and menus
 
+- Status choosers show the same colored status icons as contact cards. Status, assignee, and tag choosers support Arrow Up/Down, Ctrl+J/K, and Ctrl+N/P navigation. Compact select pickers support the same Ctrl navigation pairs. Global ⌘K/Ctrl+K is suspended while another dialog, picker, or menu is open.
 - Hovering a board card or list row makes it the pointer shortcut target. Keyboard focus on a card/row makes it the keyboard shortcut target. Show a subtle target highlight so the user can see which contact will be changed before pressing a letter.
 - A shortcut that opens a chooser or confirmation moves focus into that UI. Escape closes it and returns focus to the originating card, row, or detail action. Shortcuts are suspended while that UI is open, except for its own documented navigation keys.
 - Right-click on a Kanban card or contact list row opens a contact context menu. Its actions mirror the currently available shortcut actions and show each key beside its label, including `r` for call and `e` for email. Also include useful actions without a shortcut, such as `Åpne kontakt` and favorite toggle. Support the keyboard context-menu key and Shift+F10 for the same menu; menus must fit the viewport and not interfere with board dragging.

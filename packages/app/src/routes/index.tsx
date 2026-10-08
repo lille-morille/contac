@@ -1,3 +1,4 @@
+import { nextPickerIndex, pickerDirection } from "../lib/picker-keyboard.ts";
 import { compareContactUpdated } from "../lib/contact-sort.ts";
 import { Dialog as InboxDialog } from "@base-ui-components/react/dialog";
 import { ManualEmailComposer } from "../components/manual-email-composer.tsx";
@@ -827,6 +828,14 @@ function Home() {
     if (!canOpenCommand) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) return;
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        document.querySelector(
+          '[role="dialog"], [role="alertdialog"], [role="listbox"], [role="menu"]',
+        )
+      )
+        return;
       event.preventDefault();
       if (!event.repeat && !commandOpen) setCommandOpen(true);
     };
@@ -2576,7 +2585,25 @@ function Home() {
           <DialogDescription>
             {data.contacts.find((contact) => contact.id === shortcutChooser?.contactId)?.name}
           </DialogDescription>
-          <div className="mt-4 space-y-1">
+          <div
+            className="mt-4 space-y-1"
+            onKeyDown={(event) => {
+              const direction = pickerDirection(event.nativeEvent);
+              if (direction === null) return;
+              const options = [
+                ...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+              ];
+              const next = nextPickerIndex(
+                options.indexOf(document.activeElement as HTMLButtonElement),
+                direction,
+                options.length,
+              );
+              if (next < 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              options[next]?.focus();
+            }}
+          >
             {shortcutChooser?.kind === "assignee" &&
               assigneeOptions(data.members).map((option) => (
                 <button
@@ -2600,13 +2627,13 @@ function Home() {
                   key={option.value}
                   type="button"
                   autoFocus={index === 0}
-                  className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     void mutate(`/contacts/${shortcutChooser.contactId}`, { status: option.value });
                     closeShortcutChooser();
                   }}
                 >
-                  {option.label}
+                  {option.icon} {option.label}
                 </button>
               ))}
             {shortcutChooser?.kind === "tags" &&

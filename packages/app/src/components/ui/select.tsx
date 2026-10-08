@@ -1,3 +1,4 @@
+import { pickerDirection } from "../../lib/picker-keyboard.ts";
 import { Select as S } from "@base-ui-components/react/select";
 import { Check, ChevronDown } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
@@ -81,7 +82,23 @@ export function Select({
           {/* Grows out of the trigger (--transform-origin) with a gentle spring
               overshoot on open, snappy on close — and its options cascade in
               (see select-item-in in styles.css). docs/11-design-language.md. */}
-          <S.Popup className="glass-strong max-h-[min(var(--available-height),18rem)] min-w-[var(--anchor-width)] origin-[var(--transform-origin)] overflow-y-auto overscroll-contain rounded-2xl p-1.5 outline-none transition-[transform,opacity] duration-[230ms] ease-[cubic-bezier(0.34,1.35,0.5,1)] will-change-[transform,opacity] data-[starting-style]:scale-[0.92] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[ending-style]:duration-[130ms] data-[ending-style]:ease-[cubic-bezier(0.4,0,1,1)]">
+          <S.Popup
+            onKeyDownCapture={(event) => {
+              if (!event.ctrlKey) return;
+              const direction = pickerDirection(event.nativeEvent);
+              if (direction === null || event.key.startsWith("Arrow")) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.target.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: direction === 1 ? "ArrowDown" : "ArrowUp",
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            }}
+            className="glass-strong max-h-[min(var(--available-height),18rem)] min-w-[var(--anchor-width)] origin-[var(--transform-origin)] overflow-y-auto overscroll-contain rounded-2xl p-1.5 outline-none transition-[transform,opacity] duration-[230ms] ease-[cubic-bezier(0.34,1.35,0.5,1)] will-change-[transform,opacity] data-[starting-style]:scale-[0.92] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[ending-style]:duration-[130ms] data-[ending-style]:ease-[cubic-bezier(0.4,0,1,1)]"
+          >
             {items.map((o, i) => (
               <Fragment key={o.value}>
                 {o.separatorBefore ? (
