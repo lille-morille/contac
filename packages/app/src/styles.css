@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+html {
+  overscroll-behavior-x: contain;
+}
+
 /*
  * Shared theme — "Glass & pastel" .
  * Light, airy, playful-professional: violet primary, pastel gradient canvas,
