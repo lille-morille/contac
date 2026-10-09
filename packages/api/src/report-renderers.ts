@@ -281,9 +281,9 @@ export function renderReportTypst(report: ReportData): string {
 #let muted = rgb("#586670")
 #let rule = rgb("#b8c2c8")
 #let section-heading(title, accent, tint) = {
-  block(width: 100%, sticky: true, above: 7mm, below: 2mm, inset: (x: 7pt, y: 3pt),
-    fill: tint, stroke: (left: 2pt + accent))[
-    #text(size: 9.5pt, weight: "bold", fill: accent, title)
+  block(width: 100%, sticky: true, above: 9mm, below: 3mm, inset: (x: 9pt, y: 6pt),
+    fill: tint, stroke: (left: 3pt + accent))[
+    #text(size: 12pt, weight: "bold", fill: accent, title)
   ]
 }
 #let metadata-field(row, column) = [
@@ -293,9 +293,10 @@ export function renderReportTypst(report: ReportData): string {
 #let detail-field(row, column) = {
   let value = row.values.at(column, default: "")
   if value != "" {
-    block(width: 100%, breakable: true, above: 5pt, below: 0pt)[
-      #text(size: 8.5pt, weight: "bold", fill: ink, report-data.labels.at(column))
+    block(width: 100%, breakable: true, above: 9pt, below: 0pt)[
+      #text(size: 9pt, weight: "bold", fill: ink, report-data.labels.at(column))
       #linebreak()
+      #v(3pt)
       #log-lines(value)
     ]
   }
@@ -312,14 +313,13 @@ export function renderReportTypst(report: ReportData): string {
       #line(length: 100%, stroke: 0.7pt + rule)
       #v(5pt)
       #grid(
-        columns: (1fr, auto), gutter: 8pt,
+        columns: (auto, 1fr), gutter: 9pt,
         align: top,
+        [#contact-anchor(row.number)#text(size: 9pt, weight: "bold", fill: muted, "K-" + str(row.number))],
         [
-          #contact-anchor(row.number)
-          #text(size: 11pt, weight: "bold", fill: ink, row.values.at("name"))
-          #if company != "" { [#h(6pt)#text(size: 9.5pt, fill: muted, "/ " + company)] }
+          #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
+          #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, "/ " + company)] }
         ],
-        [#text(size: 8pt, fill: muted, "K-" + str(row.number))],
       )
     ]
     #if metadata.len() > 0 {
