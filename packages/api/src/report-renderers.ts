@@ -313,8 +313,9 @@ export function renderReportTypst(report: ReportData): string {
       #line(length: 100%, stroke: 0.7pt + rule)
       #v(5pt)
       #grid(
-        columns: (1fr, 19mm), gutter: 4mm,
-        align: (left + top, center + horizon),
+        columns: (19mm, 1fr), gutter: 4mm,
+        align: (center + horizon, left + top),
+        [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
         [
           #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
           #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, "/ " + company)] }
@@ -323,7 +324,6 @@ export function renderReportTypst(report: ReportData): string {
               ..metadata.map(column => metadata-field(row, column)))]
           }
         ],
-        [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
       )
     ]
     #for column in ("stikkord", "sammendrag") {
