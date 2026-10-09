@@ -318,7 +318,7 @@ export function renderReportTypst(report: ReportData): string {
         [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
         [
           #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
-          #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, "/ " + company)] }
+          #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, company)] }
           #if metadata.len() > 0 {
             [#v(3pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 3pt,
               ..metadata.map(column => metadata-field(row, column)))]
