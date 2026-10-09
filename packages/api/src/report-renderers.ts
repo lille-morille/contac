@@ -325,9 +325,7 @@ export function renderReportTypst(report: ReportData): string {
       )
       #if description != "" {
         pad(left: 18mm)[
-          #v(3pt)
-          #text(size: 7.5pt, fill: accent, report-data.labels.at("description"))
-          #linebreak()
+          #v(1pt)
           #text(size: 9pt, fill: ink)[#log-lines(description)]
         ]
       }
