@@ -47,6 +47,10 @@ describe("team change invalidation", () => {
       team,
     ]);
     expect(keysForTeamChange(change("ai_usage"), team)).toContainEqual(["ai-usage", team]);
+    expect(keysForTeamChange(change("calendar_events"), team)).toContainEqual([
+      "calendar-events",
+      team,
+    ]);
   });
   it.each([
     ["company_domains", "core"],

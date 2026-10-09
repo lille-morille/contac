@@ -30,6 +30,7 @@ import {
   type Reminder,
 } from "./model.tsx";
 import { BrowserNotificationPrompt, ReminderTimeField } from "./shell-parts.tsx";
+import { CalendarEventForm } from "./calendar.tsx";
 export function ActivityComposer({
   contact,
   related,
@@ -486,6 +487,7 @@ export function ActivityComposer({
 }
 export function ContactReminderCard({
   contactId,
+  contacts,
   reminders,
   mutate,
   busy,
@@ -493,6 +495,7 @@ export function ContactReminderCard({
   onEnableNotifications,
 }: {
   contactId: string;
+  contacts: Contact[];
   reminders: Reminder[];
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
@@ -501,6 +504,7 @@ export function ContactReminderCard({
 }) {
   const [dueAt, setDueAt] = useState(nextReminderTime);
   const [message, setMessage] = useState("");
+  const [meetingOpen, setMeetingOpen] = useState(false);
   async function createReminder() {
     try {
       await mutate("/reminders", { contactId, dueAt, message: message.trim() });
@@ -544,6 +548,27 @@ export function ContactReminderCard({
           ))}
         </div>
       )}
+      <div className="mt-4 border-t border-border pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold">Planlegg møte</h2>
+            <p className="text-xs text-muted-foreground">Synlig for hele teamet i kalenderen.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setMeetingOpen((open) => !open)}>
+            {meetingOpen ? "Lukk" : "Planlegg møte"}
+          </Button>
+        </div>
+        {meetingOpen && (
+          <div className="mt-3">
+            <CalendarEventForm
+              contacts={contacts}
+              contactId={contactId}
+              onSaved={() => setMeetingOpen(false)}
+              onCancel={() => setMeetingOpen(false)}
+            />
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
