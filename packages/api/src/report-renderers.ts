@@ -293,10 +293,10 @@ export function renderReportTypst(report: ReportData): string {
 #let detail-field(row, column) = {
   let value = row.values.at(column, default: "")
   if value != "" {
-    block(width: 100%, breakable: true, above: 9pt, below: 0pt)[
+    block(width: 100%, breakable: true, above: 12pt, below: 0pt)[
       #text(size: 9pt, weight: "bold", fill: ink, report-data.labels.at(column))
       #linebreak()
-      #v(3pt)
+      #v(1pt)
       #log-lines(value)
     ]
   }
