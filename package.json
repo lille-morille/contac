@@ -24,7 +24,9 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",
-    "smoke:local": "bun --env-file=.env scripts/smoke-local.ts"
+    "smoke:local": "bun --env-file=.env scripts/smoke-local.ts",
+    "export:pdf": "bun scripts/preview-report-pdf.ts",
+    "export:pdf:watch": "bun --watch scripts/preview-report-pdf.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

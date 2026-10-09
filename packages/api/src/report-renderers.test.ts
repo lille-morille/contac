@@ -27,6 +27,7 @@ function sample() {
         assigneeId: null,
         personTags: [],
         domains: [],
+        sammendrag: "Samtalen avdekket viktige funn.",
         stikkord: "Viktig",
         assigneeName: null,
       },
@@ -59,11 +60,11 @@ describe("report source generation", () => {
     expect(source).toContain("#let cite-contact(..args)");
     expect(source).toContain("kontaktlogg-k-");
     expect(source).toContain('paper: "a4", flipped: false');
-    expect(source).toContain("#let contact-card(row, columns, compact: false)");
+    expect(source).toContain("#let contact-card(row, columns)");
     expect(source).toContain("block(width: 100%, breakable: true");
-    expect(source).toContain('if column == "log" { log-box(row) }');
-    expect(source).toContain("fill: navy, entry.heading");
-    expect(source).toContain("row-gutter: if compact { 7pt } else { 5pt }");
+    expect(source).toContain("for section in data.sections");
+    expect(source).toContain('column == "sammendrag"');
+    expect(source).toContain("row-gutter: 5pt");
     expect(reportEntryParts(sample().rows[0]!.entries[0]!)).toEqual({
       heading: "7. okt. 2026, 12:00 · Møte",
       body: "Sammendrag/notater: Møte #1 & detaljer",
@@ -78,7 +79,7 @@ describe("report source generation", () => {
     const csv = renderReportCsv(report);
     expect(csv).toContain('"K-12"');
     expect(csv).toContain('"Ola #12 ""Æøå"""');
-    expect(csv).toContain("Møte #1 & detaljer");
+    expect(csv).toContain("Samtalen avdekket viktige funn.");
     for (const source of [
       csv,
       renderReportHtml(report),
@@ -87,6 +88,7 @@ describe("report source generation", () => {
     ]) {
       expect(source).not.toContain("HEMMELIG TRANSKRIPSJON");
       expect(source).not.toContain("Transkripsjon:");
+      expect(source).not.toContain("Møte #1 & detaljer");
     }
     expect(renderReportHtml(report)).toContain("Firma &amp; Co");
     expect(renderReportLatex(report)).toContain("Firma \\& Co");
@@ -97,5 +99,25 @@ describe("report source generation", () => {
     const report = sample();
     report.rows[0]!.contact.stikkord = '=IMPORTXML("https://example.com","x")';
     expect(renderReportCsv(report)).toContain('"\'=IMPORTXML(""https://example.com"",""x"")"');
+  });
+
+  it("carries chosen section headings across formats without activity notes", () => {
+    const report = sample();
+    report.settings.sectionMode = "custom";
+    report.settings.customSections = [{ id: id(30), title: "Faglige samtaler" }];
+    report.settings.customAssignments = { [id(12)]: id(30) };
+    const grouped = buildReportData({
+      contacts: report.rows.map((row) => row.contact),
+      activities: report.rows.flatMap((row) =>
+        row.entries.filter((entry) => entry.kind === "full").map((entry) => entry.activity),
+      ),
+      settings: report.settings,
+    });
+    expect(renderReportCsv(grouped)).toContain('"Seksjon"');
+    expect(renderReportCsv(grouped)).toContain('"Faglige samtaler"');
+    expect(renderReportTypst(grouped)).toContain("Faglige samtaler");
+    expect(renderReportLatex(grouped)).toContain("\\section*{Faglige samtaler}");
+    expect(renderReportHtml(grouped)).toContain("<h2>Faglige samtaler</h2>");
+    expect(renderReportTypst(grouped)).not.toContain("Møte #1 & detaljer");
   });
 });

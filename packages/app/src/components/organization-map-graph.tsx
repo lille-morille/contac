@@ -37,6 +37,7 @@ const companyStatusTokens: Record<string, string> = {
   kunde: "--mint",
   konkurrent: "--coral",
   samarbeidspartner: "--blue",
+  ekspert: "--orange",
 };
 let reactNodeRegistered = false;
 

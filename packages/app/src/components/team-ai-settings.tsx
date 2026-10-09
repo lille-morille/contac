@@ -37,7 +37,12 @@ const features: { key: Feature; label: string; description: string; manualOnly?:
     description:
       "Trekk ut kontaktadresser fra videresendt e-post når teamet er identifisert, men kontakten mangler. Teamets lave modell og token brukes. Umatchede meldinger blir liggende hos den identifiserte brukeren.",
   },
-  { key: "stikkord", label: "Stikkord", description: "Kort oppsummering av samtaler." },
+  {
+    key: "stikkord",
+    label: "Sammendrag og Key takeaways",
+    description:
+      "Oppsummerer funn, lager 3–5 korte punkter og vurderer samtalens informasjonsverdi.",
+  },
   {
     key: "contact_fields",
     label: "Kontaktfelter",

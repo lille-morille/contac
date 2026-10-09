@@ -3,6 +3,8 @@ import { useOrg } from "../lib/org.tsx";
 import {
   reportColumnIds,
   reportColumnLabels,
+  reportSectionForContact,
+  compareReportContacts,
   type ReportColumnId,
   type ReportFormat,
   type ReportSettings,
@@ -16,6 +18,7 @@ import { Card } from "./ui/card.tsx";
 import { Checkbox } from "./ui/checkbox.tsx";
 import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
+import { Select } from "./ui/select.tsx";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./ui/dialog.tsx";
 import { ApiError, downloadOrgFile, readOrgText, request } from "../lib/api.ts";
 import { copyHtmlTable, copyText } from "../lib/clipboard.ts";
@@ -26,6 +29,8 @@ type PreviewContact = {
   name: string;
   companyName: string;
   status: ContactStatus;
+  relevance: "low" | "medium" | "high" | null;
+  companyStatus: string;
   assigneeName: string | null;
   email: string | null;
   phone: string | null;
@@ -33,17 +38,8 @@ type PreviewContact = {
   personTags: string[];
   domains: string[];
   stikkord: string | null;
+  sammendrag: string | null;
   activityCount: number;
-  log: string;
-  logEntries: {
-    activityId: string;
-    kind: "full" | "reference";
-    heading: string;
-    body: string;
-    before: string[];
-    summary: string | null;
-    after: string[];
-  }[];
 };
 type ExportWorkspace = {
   settings: ReportSettings;
@@ -52,29 +48,13 @@ type ExportWorkspace = {
 };
 type SaveState = "saved" | "pending" | "saving" | "error";
 
-const statusRank: Record<string, number> = {
-  kan_kontaktes_igjen: 0,
-  avsluttet: 1,
-  follow_up: 2,
-  venter_pa_svar: 3,
-  skal_ringe: 4,
-  ikke_kontaktet: 5,
-  ikke_kontakt_igjen: 6,
-};
-const compactCandidates: ReportColumnId[] = [
-  "number",
-  "name",
-  "organization",
-  "contactInfo",
-  "status",
-  "stikkord",
-];
-const detailColumns = new Set<ReportColumnId>(["description", "stikkord", "log"]);
+const detailColumns = new Set<ReportColumnId>(["description", "sammendrag", "stikkord"]);
 const columnDescriptions: Partial<Record<ReportColumnId, string>> = {
   number: "Unik ID for hver kontakt, blir brukt til å referere til kontakten i teksten",
   contactInfo: "Mobilnummer og/eller epost",
   stikkord: "Key takeaways fra hele kontakten",
-  log: "Full logg med alle aktiviteter (telefonsamtaler, møter, eposter)",
+  sammendrag: "Funn og temaer fra hele kontakten",
+  relevance: "Hvor informativ samtalen var",
   description: "Én setning om personen. F.eks. stilling/avdeling/ekspertområde",
   personTags: "Tags på personen, som beslutningstaker eller portvokter",
   domains: 'Hvilket domene selskapet tilhører, f.eks. "Fiskeoppdrett"',
@@ -117,8 +97,9 @@ function layoutColumns(columns: ReportColumnId[]): ReportColumnId[] {
 function orderContacts(contacts: PreviewContact[], settings: ReportSettings) {
   const manual = new Map(settings.contactOrder.map((id, index) => [id, index]));
   return [...contacts].sort((a, b) => {
-    const section = Number(b.activityCount > 0) - Number(a.activityCount > 0);
-    if (section) return section;
+    const aSection = reportSectionForContact(a, a.activityCount > 0, settings);
+    const bSection = reportSectionForContact(b, b.activityCount > 0, settings);
+    if (aSection.rank !== bSection.rank) return aSection.rank - bSection.rank;
     if (settings.orderMode === "manual") {
       const aIndex = manual.get(a.id);
       const bIndex = manual.get(b.id);
@@ -126,11 +107,7 @@ function orderContacts(contacts: PreviewContact[], settings: ReportSettings) {
       if (aIndex !== undefined) return -1;
       if (bIndex !== undefined) return 1;
     }
-    return (
-      (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) ||
-      a.name.localeCompare(b.name, "nb") ||
-      a.contactNumber - b.contactNumber
-    );
+    return compareReportContacts(a, b, settings.sortMode);
   });
 }
 
@@ -148,16 +125,20 @@ function previewCell(contact: PreviewContact, column: ReportColumnId): string {
       return [contact.email, contact.phone].filter(Boolean).join(" · ");
     case "status":
       return contactStatusName(contact.status);
+    case "relevance":
+      return contact.relevance
+        ? ({ high: "Høy", medium: "Middels", low: "Lav" } as const)[contact.relevance]
+        : "Ikke vurdert";
     case "description":
       return contact.description ?? "";
+    case "sammendrag":
+      return contact.sammendrag ?? "";
     case "personTags":
       return contact.personTags.join(", ");
     case "domains":
       return contact.domains.join(", ");
     case "stikkord":
       return contact.stikkord ?? "";
-    case "log":
-      return contact.log;
   }
 }
 
@@ -171,7 +152,7 @@ function InlineReportEditor({
 }: {
   value: string | null;
   label: string;
-  field: "stikkord" | "summary";
+  field: "stikkord" | "sammendrag";
   maxLength: number;
   onSave: (next: string, expected: string | null) => Promise<void>;
   onRefresh: () => void;
@@ -287,8 +268,10 @@ function PreviewCards({
   onToggle,
   onOpen,
   onSaveStikkord,
-  onSaveSummary,
+  onSaveSammendrag,
   onRefresh,
+  settings,
+  onAssign,
 }: {
   contacts: PreviewContact[];
   columns: ReportColumnId[];
@@ -297,8 +280,10 @@ function PreviewCards({
   onToggle: (id: string, include: boolean) => void;
   onOpen: (id: string) => void;
   onSaveStikkord: (id: string, next: string, expected: string | null) => Promise<void>;
-  onSaveSummary: (id: string, next: string, expected: string) => Promise<void>;
+  onSaveSammendrag: (id: string, next: string, expected: string | null) => Promise<void>;
   onRefresh: () => void;
+  settings: ReportSettings;
+  onAssign: (id: string, sectionId: string) => void;
 }) {
   if (!contacts.length) return null;
   return (
@@ -310,14 +295,14 @@ function PreviewCards({
           (column) =>
             column !== "number" &&
             column !== "description" &&
+            column !== "sammendrag" &&
             column !== "stikkord" &&
-            column !== "log" &&
             (column === "name" || previewCell(contact, column)),
         );
         const details = columns.filter(
           (column) =>
-            (column === "description" || column === "stikkord" || column === "log") &&
-            (column === "stikkord" || previewCell(contact, column)),
+            (column === "description" || column === "sammendrag" || column === "stikkord") &&
+            (column === "sammendrag" || column === "stikkord" || previewCell(contact, column)),
         );
         return (
           <article key={contact.id} className="rounded-xl border border-border bg-card p-3 text-sm">
@@ -325,7 +310,25 @@ function PreviewCards({
               <span className="text-xs font-semibold text-primary">
                 Nr. {contact.contactNumber}
               </span>
+              <span className="text-xs text-muted-foreground">
+                Relevans: {previewCell(contact, "relevance")}
+              </span>
               <div className="flex items-center gap-1">
+                {settings.sectionMode === "custom" && (
+                  <Select
+                    value={settings.customAssignments[contact.id] ?? ""}
+                    aria-label={`Seksjon for ${contact.name}`}
+                    className="min-w-36"
+                    items={[
+                      { value: "", label: "Uten seksjon" },
+                      ...settings.customSections.map((section) => ({
+                        value: section.id,
+                        label: section.title,
+                      })),
+                    ]}
+                    onValueChange={(value) => onAssign(contact.id, value)}
+                  />
+                )}
                 <label className="mr-2 flex cursor-pointer items-center gap-2 text-xs">
                   <Checkbox
                     checked={!excluded.has(contact.id)}
@@ -375,52 +378,21 @@ function PreviewCards({
                 {column === "stikkord" ? (
                   <InlineReportEditor
                     value={contact.stikkord}
-                    label={`Stikkord for ${contact.name}`}
+                    label={`Key takeaways for ${contact.name}`}
                     field="stikkord"
-                    maxLength={300}
+                    maxLength={1000}
                     onSave={(next, expected) => onSaveStikkord(contact.id, next, expected)}
                     onRefresh={onRefresh}
                   />
-                ) : column === "log" && contact.logEntries.length ? (
-                  <div className="space-y-3">
-                    {contact.logEntries.map((entry, entryIndex) => (
-                      <div
-                        key={entry.activityId}
-                        className={`border-t border-border/70 pt-2 ${entryIndex === 0 ? "border-t-0 pt-0" : ""}`}
-                      >
-                        <div className="font-semibold text-primary">{entry.heading}</div>
-                        {entry.kind === "full" ? (
-                          <>
-                            {entry.before.map((line, index) => (
-                              <div key={index} className="whitespace-pre-wrap break-words">
-                                {line}
-                              </div>
-                            ))}
-                            <div className="text-xs font-medium text-muted-foreground">
-                              Sammendrag/notater
-                            </div>
-                            <InlineReportEditor
-                              value={entry.summary}
-                              label={`Notater for ${entry.heading} hos ${contact.name}`}
-                              field="summary"
-                              maxLength={20000}
-                              onSave={(next, expected) =>
-                                onSaveSummary(entry.activityId, next, expected ?? "")
-                              }
-                              onRefresh={onRefresh}
-                            />
-                            {entry.after.map((line, index) => (
-                              <div key={index} className="whitespace-pre-wrap break-words">
-                                {line}
-                              </div>
-                            ))}
-                          </>
-                        ) : (
-                          <div className="whitespace-pre-wrap break-words">{entry.body}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                ) : column === "sammendrag" ? (
+                  <InlineReportEditor
+                    value={contact.sammendrag}
+                    label={`Sammendrag for ${contact.name}`}
+                    field="sammendrag"
+                    maxLength={20000}
+                    onSave={(next, expected) => onSaveSammendrag(contact.id, next, expected)}
+                    onRefresh={onRefresh}
+                  />
                 ) : (
                   <div className="whitespace-pre-wrap break-words">
                     {previewCell(contact, column)}
@@ -453,6 +425,7 @@ export function ExportPage({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [newSectionTitle, setNewSectionTitle] = useState("");
   const [working, setWorking] = useState(false);
   const [tableSelected, setTableSelected] = useState(false);
   const [resetOrderOpen, setResetOrderOpen] = useState(false);
@@ -628,26 +601,29 @@ export function ExportPage({
     });
     await refreshContactData();
   }
-  async function saveSummary(id: string, next: string, expected: string) {
-    await request(`/org/activities/${id}`, orgId, {
-      summary: next,
-      expected: { summary: expected },
+  async function saveSammendrag(id: string, next: string, expected: string | null) {
+    await request(`/org/contacts/${id}`, orgId, {
+      sammendrag: next.trim() || null,
+      expected: { sammendrag: expected },
     });
     await refreshContactData();
   }
-
   const ordered = draft && workspace.data ? orderContacts(workspace.data.contacts, draft) : [];
   const excluded = new Set(draft?.excludedContactIds ?? []);
   const included = ordered.filter((contact) => !excluded.has(contact.id));
   const visible = ordered.filter((contact) =>
-    `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.log}`
+    `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.sammendrag ?? ""} ${contact.stikkord ?? ""}`
       .toLocaleLowerCase("nb")
       .includes(search.toLocaleLowerCase("nb")),
   );
-  const visibleActive = visible.filter((contact) => contact.activityCount > 0);
-  const visibleInactive = visible.filter((contact) => contact.activityCount === 0);
-  const compactColumns =
-    draft?.columns.filter((column) => compactCandidates.includes(column)) ?? [];
+  const sectionGroups = new Map<string, { title: string; contacts: PreviewContact[] }>();
+  if (draft)
+    for (const contact of visible) {
+      const section = reportSectionForContact(contact, contact.activityCount > 0, draft);
+      const group = sectionGroups.get(section.id) ?? { title: section.title, contacts: [] };
+      group.contacts.push(contact);
+      sectionGroups.set(section.id, group);
+    }
   const formatLabels: Record<ReportFormat, { label: string; extension: string }> = {
     typst: { label: "Typst", extension: "typ" },
     latex: { label: "LaTeX", extension: "tex" },
@@ -878,11 +854,202 @@ export function ExportPage({
         </ExportSection>
         <ExportSection title="Kontakter og relevans">
           <p className="text-xs text-muted-foreground">
-            Hele loggen vises i kontaktkortene. Bla nedover for å se alle oppføringer.
+            Grupper og sorter kontakter i seksjoner. Manuell flytting overstyrer sorteringen i
+            seksjonen.
           </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium">
+              Del inn i seksjoner
+              <Select
+                value={draft.sectionMode}
+                className="mt-1"
+                aria-label="Del inn i seksjoner"
+                items={[
+                  { value: "activity", label: "Aktivitet" },
+                  { value: "company_status", label: "Selskapsstatus" },
+                  { value: "contact_status", label: "Kontaktstatus" },
+                  { value: "custom", label: "Egne seksjoner" },
+                ]}
+                onValueChange={(value) =>
+                  update(
+                    (current) => ({
+                      ...current,
+                      sectionMode: value as ReportSettings["sectionMode"],
+                    }),
+                    true,
+                  )
+                }
+              />
+            </label>
+            <label className="text-sm font-medium">
+              Sorter innenfor seksjoner
+              <Select
+                value={draft.orderMode === "manual" ? "manual" : draft.sortMode}
+                className="mt-1"
+                aria-label="Sorter innenfor seksjoner"
+                items={[
+                  { value: "relevance", label: "Relevans → status" },
+                  { value: "status", label: "Status → relevans" },
+                  { value: "alphabetical", label: "Alfabetisk" },
+                  ...(draft.orderMode === "manual"
+                    ? [{ value: "manual", label: "Manuell rekkefølge" }]
+                    : []),
+                ]}
+                onValueChange={(value) => {
+                  if (value !== "manual")
+                    update(
+                      (current) => ({
+                        ...current,
+                        sortMode: value as ReportSettings["sortMode"],
+                        orderMode: "default",
+                        contactOrder: [],
+                      }),
+                      true,
+                    );
+                }}
+              />
+            </label>
+          </div>
+          {draft.sectionMode === "custom" && (
+            <div className="space-y-2 rounded-xl border border-border p-3">
+              <h3 className="text-sm font-semibold">Egne seksjoner</h3>
+              {draft.customSections.map((section, index) => (
+                <div key={section.id} className="flex items-center gap-2">
+                  <Input
+                    key={`${section.id}:${section.title}`}
+                    defaultValue={section.title}
+                    maxLength={100}
+                    aria-label={`Navn på seksjon ${index + 1}`}
+                    onBlur={(event) => {
+                      const title = event.target.value.trim();
+                      if (title && title !== section.title)
+                        update(
+                          (current) => ({
+                            ...current,
+                            customSections: current.customSections.map((item) =>
+                              item.id === section.id ? { ...item, title } : item,
+                            ),
+                          }),
+                          true,
+                        );
+                    }}
+                  />
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={index === 0}
+                    aria-label={`Flytt ${section.title} opp`}
+                    onClick={() =>
+                      update((current) => {
+                        const customSections = [...current.customSections];
+                        [customSections[index - 1], customSections[index]] = [
+                          customSections[index]!,
+                          customSections[index - 1]!,
+                        ];
+                        return { ...current, customSections };
+                      }, true)
+                    }
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={index === draft.customSections.length - 1}
+                    aria-label={`Flytt ${section.title} ned`}
+                    onClick={() =>
+                      update((current) => {
+                        const customSections = [...current.customSections];
+                        [customSections[index], customSections[index + 1]] = [
+                          customSections[index + 1]!,
+                          customSections[index]!,
+                        ];
+                        return { ...current, customSections };
+                      }, true)
+                    }
+                  >
+                    <ArrowDown />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Slett seksjon ${section.title}`}
+                    onClick={() =>
+                      update(
+                        (current) => ({
+                          ...current,
+                          customSections: current.customSections.filter(
+                            (item) => item.id !== section.id,
+                          ),
+                          customAssignments: Object.fromEntries(
+                            Object.entries(current.customAssignments).filter(
+                              ([, id]) => id !== section.id,
+                            ),
+                          ),
+                        }),
+                        true,
+                      )
+                    }
+                  >
+                    Slett
+                  </Button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <Input
+                  value={newSectionTitle}
+                  maxLength={100}
+                  aria-label="Ny seksjon"
+                  placeholder="Navn på ny seksjon"
+                  onChange={(event) => setNewSectionTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      const title = newSectionTitle.trim();
+                      if (title && draft.customSections.length < 100) {
+                        update(
+                          (current) => ({
+                            ...current,
+                            customSections: [
+                              ...current.customSections,
+                              { id: crypto.randomUUID(), title },
+                            ],
+                          }),
+                          true,
+                        );
+                        setNewSectionTitle("");
+                      }
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  disabled={!newSectionTitle.trim() || draft.customSections.length >= 100}
+                  onClick={() => {
+                    const title = newSectionTitle.trim();
+                    if (title && draft.customSections.length < 100) {
+                      update(
+                        (current) => ({
+                          ...current,
+                          customSections: [
+                            ...current.customSections,
+                            { id: crypto.randomUUID(), title },
+                          ],
+                        }),
+                        true,
+                      );
+                      setNewSectionTitle("");
+                    }
+                  }}
+                >
+                  Legg til
+                </Button>
+              </div>
+            </div>
+          )}
           <Input
             aria-label="Søk etter kontakt i eksportoppsettet"
-            placeholder="Søk etter navn, selskap, nummer eller logginnhold"
+            placeholder="Søk etter navn, selskap, nummer eller sammendrag"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -926,41 +1093,36 @@ export function ExportPage({
               </Button>
             </div>
           </div>
-          {visibleActive.length > 0 && (
-            <PreviewCards
-              contacts={visibleActive}
-              columns={draft.columns}
-              excluded={excluded}
-              onMove={moveContact}
-              onToggle={toggleContact}
-              onOpen={onOpenContact}
-              onSaveStikkord={saveStikkord}
-              onSaveSummary={saveSummary}
-              onRefresh={() => void refreshContactData()}
-            />
-          )}
-          {visibleInactive.length > 0 && (
-            <>
-              <div>
-                <h3 className="font-semibold">Uten aktivitet</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Disse kommer i en egen (mer kortfattet) seksjon i eksporten, siden de er mindre
-                  relevante
-                </p>
-              </div>
+          {[...sectionGroups.entries()].map(([id, group]) => (
+            <div key={id} className="space-y-2">
+              <h3 className="font-semibold">
+                {group.title}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({group.contacts.length})
+                </span>
+              </h3>
               <PreviewCards
-                contacts={visibleInactive}
-                columns={compactColumns}
+                contacts={group.contacts}
+                columns={draft.columns}
                 excluded={excluded}
                 onMove={moveContact}
                 onToggle={toggleContact}
                 onOpen={onOpenContact}
                 onSaveStikkord={saveStikkord}
-                onSaveSummary={saveSummary}
+                onSaveSammendrag={saveSammendrag}
                 onRefresh={() => void refreshContactData()}
+                settings={draft}
+                onAssign={(id, sectionId) =>
+                  update((current) => {
+                    const customAssignments = { ...current.customAssignments };
+                    if (sectionId) customAssignments[id] = sectionId;
+                    else delete customAssignments[id];
+                    return { ...current, customAssignments };
+                  }, true)
+                }
               />
-            </>
-          )}
+            </div>
+          ))}
           {visible.length === 0 && (
             <p className="text-sm text-muted-foreground">Ingen kontakter funnet.</p>
           )}
@@ -973,7 +1135,7 @@ export function ExportPage({
         <DialogContent>
           <DialogTitle>Tilbakestill rekkefølge?</DialogTitle>
           <DialogDescription>
-            Den manuelle rekkefølgen erstattes med standardsortering etter status og navn. Endringen
+            Den manuelle rekkefølgen erstattes med valgt sortering innenfor hver seksjon. Endringen
             gjelder hele teamets eksportoppsett.
           </DialogDescription>
           <div className="mt-5 flex justify-end gap-2">

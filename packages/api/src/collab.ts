@@ -14,7 +14,7 @@ import type { ApiDeps, ApiEnv } from "./types.ts";
 const kindSchema = z.enum(["note", "summary", "transcript", "loi-section", "loi-signature"]);
 const uuid = z.uuid();
 const limits = {
-  note: 50_000,
+  note: 200_000,
   summary: 20_000,
   transcript: 200_000,
   "loi-section": 20_000,

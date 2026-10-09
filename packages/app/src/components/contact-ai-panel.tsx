@@ -37,7 +37,9 @@ type Contact = {
 };
 type Item = { id: string; name: string };
 const labels: Record<string, string> = {
-  stikkord: "Stikkord",
+  stikkord: "Key takeaways",
+  sammendrag: "Sammendrag",
+  relevance: "Relevans",
   contact_fields: "Kontaktfelter",
   hierarchy: "Hierarki",
   email: "E-post",
@@ -65,6 +67,11 @@ function display(
     return (
       value.map((item) => list.find((row) => row.id === item)?.name ?? String(item)).join(", ") ||
       "Ingen"
+    );
+  if (key === "relevance")
+    return (
+      ({ high: "Høy", medium: "Middels", low: "Lav" } as Record<string, string>)[String(value)] ??
+      "Ikke vurdert"
     );
   if (typeof value === "string") return list.find((row) => row.id === value)?.name ?? value;
   if (typeof value === "boolean") return value ? "Tillatt" : "Blokkert";
@@ -245,7 +252,14 @@ export function ContactAiPanel({
                   {Object.keys(edit.after)
                     .filter(
                       (key) =>
-                        !["stikkordSourceVersion", "stikkordGeneratedAt"].includes(key) &&
+                        ![
+                          "stikkordSourceVersion",
+                          "stikkordGeneratedAt",
+                          "sammendragSourceVersion",
+                          "sammendragGeneratedAt",
+                          "relevanceSourceVersion",
+                          "relevanceManual",
+                        ].includes(key) &&
                         JSON.stringify(edit.before[key]) !== JSON.stringify(edit.after[key]),
                     )
                     .map((key) => (
@@ -276,7 +290,9 @@ type SuggestionField =
   | "companyId"
   | "personTagIds"
   | "domainIds"
-  | "stikkord";
+  | "stikkord"
+  | "sammendrag"
+  | "relevance";
 
 export function ContactAiFieldSuggestions({
   contactId,
@@ -319,7 +335,11 @@ export function ContactAiFieldSuggestions({
     if (item.status !== "pending") return [];
     const values =
       item.feature === "stikkord"
-        ? { stikkord: item.payload.text }
+        ? {
+            stikkord: item.payload.text,
+            sammendrag: item.payload.sammendrag,
+            relevance: item.payload.relevance,
+          }
         : item.feature === "contact_fields"
           ? ((item.payload.fields as Record<string, unknown>) ?? {})
           : ((item.payload.hierarchy as Record<string, unknown>) ?? {});

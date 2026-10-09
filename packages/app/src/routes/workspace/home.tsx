@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Clock3,
   GraduationCap,
+  History,
   Inbox,
   Keyboard,
   LayoutGrid,
@@ -239,7 +240,6 @@ export function Home() {
           | "companyDomains"
           | "personTags"
           | "contactPersonTags"
-          | "additionalInfo"
           | "contacts"
           | "contactCreators"
           | "contactAssignees"
@@ -757,7 +757,7 @@ export function Home() {
   }
   const contactNav: [Page, string, typeof LayoutGrid][] = [
     ["contacts", "Kontaktlogg", LayoutGrid],
-    ["contacted", "Sist kontaktet", CalendarDays],
+    ["contacted", "Sist kontaktet", History],
     ["calendar", "Kalender", CalendarDays],
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [

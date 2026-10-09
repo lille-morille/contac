@@ -98,9 +98,9 @@ export function SemanticSearch({
                   {result.kind === "activity"
                     ? "Aktivitet"
                     : result.kind === "note"
-                      ? "Notat"
+                      ? "Intern informasjon"
                       : result.kind === "additional_info"
-                        ? "Tilleggsinformasjon"
+                        ? "Intern informasjon"
                         : "Kontaktinfo"}
                   {result.ownerOrgId !== org?.id ? " · delt fra annet team" : ""}
                 </p>

@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen, FileText, Pencil, Upload, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
 import { LiveText } from "../../components/live-text.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Card } from "../../components/ui/card.tsx";
@@ -10,133 +9,104 @@ import { Textarea } from "../../components/ui/textarea.tsx";
 import { ApiError, request, uploadFile } from "../../lib/api.ts";
 import { HighlightedText } from "../../lib/search-highlight.tsx";
 import { useOrg } from "../../lib/org.tsx";
-import {
-  dateLabel,
-  type Activity,
-  type ActivityFile,
-  type AdditionalInfo,
-  type Contact,
-  type Data,
-} from "./model.tsx";
-export function AdditionalInformation({
-  contactId,
-  entries,
-  contacts,
-  onOpen,
+import { dateLabel, type Activity, type ActivityFile, type Contact, type Data } from "./model.tsx";
+export function SammendragEditor({
+  contact,
   mutate,
   busy,
-  disabled,
-  focusedPassage,
+  suggestions,
 }: {
-  contactId: string;
-  entries: AdditionalInfo[];
-  contacts: Contact[];
-  onOpen: (id: string) => void;
+  contact: Contact;
   mutate: <T = unknown>(path: string, body: unknown) => Promise<T>;
   busy: boolean;
-  disabled: boolean;
-  focusedPassage: string | null;
+  suggestions: ReactNode;
 }) {
-  const [editing, setEditing] = useState<{ id: string; draft: string; expected: string } | null>(
-    null,
-  );
-  async function save(entryId: string) {
-    if (!editing || editing.id !== entryId || !editing.draft.trim()) return;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(contact.sammendrag ?? "");
+  const [expected, setExpected] = useState(contact.sammendrag);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!editing) {
+      setDraft(contact.sammendrag ?? "");
+      setExpected(contact.sammendrag);
+    }
+  }, [contact.sammendrag, editing]);
+  async function save() {
+    setError("");
     try {
-      await mutate(`/contacts/${contactId}/additional-info/${entryId}`, {
-        markdown: editing.draft.trim(),
-        expected: { markdown: editing.expected },
+      await mutate(`/contacts/${contact.id}`, {
+        sammendrag: draft.trim() || null,
+        expected: { sammendrag: expected },
       });
-      setEditing(null);
-    } catch {
-      // Keep the draft visible; the page-level banner explains the failure.
+      setEditing(false);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        const current = cause.details.current as { sammendrag?: string | null } | undefined;
+        setExpected(current?.sammendrag ?? null);
+        setError(
+          "Sammendraget ble endret av noen andre. Utkastet ditt er beholdt; kontroller før du lagrer igjen.",
+        );
+      } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre sammendraget.");
     }
   }
-  if (entries.length === 0) return null;
   return (
-    <Card className="p-5" data-additional-info>
-      <h2 className="font-semibold">Tilleggsinformasjon</h2>
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold">Sammendrag</h2>
+        {!editing && contact.status !== "duplicate" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Rediger sammendrag"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size={16} />
+          </Button>
+        )}
+      </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Informasjon lagt til av en agent eller fra en henvisning. Teamets notat er separat.
+        Funn og tema fra kontakten. Brukes som grunnlag for Key takeaways og som egen
+        eksportkolonne.
       </p>
-      {focusedPassage && (
-        <p className="mt-3 rounded-xl bg-primary/10 p-3 text-sm">
-          <mark className="bg-primary/20">Søketreff: {focusedPassage}</mark>
+      {editing ? (
+        <div className="mt-3 space-y-2">
+          <Textarea
+            value={draft}
+            maxLength={20000}
+            rows={10}
+            onChange={(event) => setDraft(event.target.value)}
+            aria-label="Sammendrag"
+          />
+          {error && (
+            <p role="alert" className="text-sm text-risk">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={busy || draft.trim() === (expected ?? "")}
+              onClick={() => void save()}
+            >
+              Lagre
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+              Avbryt
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-3 whitespace-pre-wrap break-words text-sm">
+          {contact.sammendrag || (
+            <span className="text-muted-foreground">Ingen sammendrag ennå.</span>
+          )}
         </p>
       )}
-      <div className="mt-3 space-y-3">
-        {entries.map((entry) => {
-          const source = contacts.find((item) => item.id === entry.sourceContactId);
-          const active = editing?.id === entry.id;
-          return (
-            <section key={entry.id} className="rounded-xl border border-border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-medium text-muted-foreground">
-                  {entry.source === "agent" ? "Lagt til av agent" : "Referert til av"}
-                  {entry.source === "referral" && source && (
-                    <button
-                      type="button"
-                      className="ml-1 text-primary underline"
-                      onClick={() => onOpen(source.id)}
-                    >
-                      {source.name}
-                    </button>
-                  )}
-                  {entry.source === "referral" && !source && " · kildekontakt utilgjengelig"}
-                </div>
-                {!active && !disabled && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      setEditing({ id: entry.id, draft: entry.markdown, expected: entry.markdown })
-                    }
-                  >
-                    <Pencil size={14} /> Rediger
-                  </Button>
-                )}
-              </div>
-              {active ? (
-                <div className="mt-2 space-y-2">
-                  {entry.markdown !== editing.expected && (
-                    <p className="rounded-lg bg-warn-soft p-2 text-xs">
-                      Oppdatert av et annet teammedlem. Avbryt eller kopier utkastet før du prøver
-                      igjen.
-                    </p>
-                  )}
-                  <Textarea
-                    autoFocus
-                    value={editing.draft}
-                    onChange={(event) => setEditing({ ...editing, draft: event.target.value })}
-                    maxLength={20000}
-                    aria-label="Rediger tilleggsinformasjon som Markdown"
-                    className="min-h-32"
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      disabled={busy || !editing.draft.trim()}
-                      onClick={() => void save(entry.id)}
-                    >
-                      Lagre
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditing(null)}>
-                      Avbryt
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-2 break-words text-sm leading-6 [&_a]:text-primary [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_h1]:font-semibold [&_h2]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:my-2 [&_ul]:list-disc">
-                  <ReactMarkdown skipHtml>{entry.markdown}</ReactMarkdown>
-                </div>
-              )}
-            </section>
-          );
-        })}
-      </div>
+      {suggestions}
     </Card>
   );
 }
+
 export function StikkordEditor({
   contact,
   mutate,
@@ -173,18 +143,18 @@ export function StikkordEditor({
         const current = cause.details.current as { stikkord?: string | null } | undefined;
         setNewer(current?.stikkord ?? "");
         setExpected(current?.stikkord ?? null);
-      } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre stikkord.");
+      } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre Key takeaways.");
     }
   }
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">Stikkord</h2>
+        <h2 className="font-semibold">Key takeaways</h2>
         {!editing && contact.status !== "duplicate" && (
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Rediger stikkord"
+            aria-label="Rediger key takeaways"
             onClick={() => setEditing(true)}
           >
             <Pencil size={16} />
@@ -195,13 +165,13 @@ export function StikkordEditor({
         <div className="mt-3 space-y-2">
           <Textarea
             value={draft}
-            maxLength={300}
-            rows={3}
+            maxLength={1000}
+            rows={5}
             onChange={(event) => setDraft(event.target.value)}
-            aria-label="Stikkord"
-            placeholder="Korte stikkord om kontakten"
+            aria-label="Key takeaways"
+            placeholder="3–5 korte punkter om de viktigste funnene"
           />
-          <p className="text-right text-xs text-muted-foreground">{draft.length}/300</p>
+          <p className="text-right text-xs text-muted-foreground">{draft.length}/1000</p>
           {newer !== null && (
             <div className="rounded-xl border border-warn bg-warn-soft p-3 text-sm">
               <p className="font-medium">Nyere lagret tekst</p>
@@ -236,7 +206,9 @@ export function StikkordEditor({
         </div>
       ) : (
         <p className="mt-3 whitespace-pre-wrap break-words text-sm">
-          {contact.stikkord || <span className="text-muted-foreground">Ingen stikkord ennå.</span>}
+          {contact.stikkord || (
+            <span className="text-muted-foreground">Ingen hovedpunkter ennå.</span>
+          )}
         </p>
       )}
       {suggestions}
@@ -325,9 +297,10 @@ export function SharedNote({
   if (saved)
     return (
       <Card data-note-source className={`p-5 ${focused ? "activity-focus-flash" : ""}`}>
-        <h2 className="font-semibold">Notat</h2>
+        <h2 className="font-semibold">Intern informasjon</h2>
         <p className="text-xs text-muted-foreground">
-          Blir ikke inkludert i kontaktloggen eller til AI.
+          Kun til intern bruk. Ren tekst som brukes som kontekst for AI, men ikke inkluderes i
+          kontaktloggen eller eksporten.
         </p>
         <p className="text-xs text-muted-foreground">Endringer lagres fortløpende for teamet.</p>
         {focusedPassage && (
@@ -373,9 +346,10 @@ export function SharedNote({
     );
   return (
     <Card data-note-source className={`p-5 ${focused ? "activity-focus-flash" : ""}`}>
-      <h2 className="font-semibold">Notat</h2>
+      <h2 className="font-semibold">Intern informasjon</h2>
       <p className="text-xs text-muted-foreground">
-        Blir ikke inkludert i kontaktloggen eller til AI.
+        Kun til intern bruk. Ren tekst som brukes som kontekst for AI, men ikke inkluderes i
+        kontaktloggen eller eksporten.
       </p>
       <p className="text-xs text-muted-foreground">
         {saved

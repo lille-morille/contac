@@ -22,6 +22,9 @@ export {
   reportColumnIds,
   reportFormats,
   reportSettingsSchema,
+  reportSectionForContact,
+  compareReportContacts,
+  contactRelevanceValues,
 } from "./report-export.ts";
 export type {
   ReportColumnId,
@@ -31,5 +34,7 @@ export type {
   ReportFormat,
   ReportRow,
   ReportSettings,
+  ReportSection,
+  ContactRelevance,
 } from "./report-export.ts";
 export type { InferSelectModel } from "drizzle-orm";

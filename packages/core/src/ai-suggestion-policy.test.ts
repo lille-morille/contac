@@ -15,6 +15,7 @@ describe("contact suggestion eligibility", () => {
   });
   it("allows description and stikkord regeneration while preserving filled contact fields", () => {
     expect(canSuggestContactField("stikkord", "Existing takeaways")).toBe(true);
+    expect(canSuggestContactField("sammendrag", "Existing summary")).toBe(true);
     expect(
       eligibleContactFields(
         { email: "new@example.no", phone: "123", description: "Updated role", companyId: "other" },

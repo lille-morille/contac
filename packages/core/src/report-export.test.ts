@@ -11,12 +11,15 @@ const contact = (number: number, status = "kan_kontaktes_igjen") => ({
   status,
   companyId: uuid(99),
   companyName: "Selskap",
+  companyStatus: "ingen",
+  relevance: null as "low" | "medium" | "high" | null,
   email: null,
   phone: null,
   description: null,
   assigneeId: null,
   personTags: [],
   domains: [],
+  sammendrag: null,
   stikkord: null,
   assigneeName: null,
 });
@@ -37,6 +40,21 @@ const meeting = (owner: number, linked: number[]): ExportActivity => ({
 });
 
 describe("saved report composition", () => {
+  it("upgrades saved log columns to summaries and supplies new section defaults", () => {
+    const legacy = {
+      format: "typst",
+      title: "Kontaktlogg",
+      subtitle: "",
+      columns: ["number", "name", "stikkord", "log"],
+      excludedContactIds: [],
+      orderMode: "default",
+      contactOrder: [],
+    };
+    const parsed = reportSettingsSchema.parse(legacy);
+    expect(parsed.columns).toEqual(["number", "name", "stikkord", "sammendrag"]);
+    expect(parsed.sectionMode).toBe("activity");
+    expect(parsed.sortMode).toBe("relevance");
+  });
   it("uses status order and moves all contacts without activity to the compact section", () => {
     const report = buildReportData({
       contacts: [contact(1, "ikke_kontaktet"), contact(2, "avsluttet"), contact(3)],
@@ -72,5 +90,51 @@ describe("saved report composition", () => {
     expect(report.rows[0]?.entries[0]?.kind).toBe("full");
     expect(report.rows[0]?.entries[0]?.owner.number).toBe(3);
     expect(report.rows[1]?.entries[0]?.kind).toBe("reference");
+  });
+
+  it("sorts within company sections by relevance, status or name", () => {
+    const configured = settings();
+    configured.sectionMode = "company_status";
+    const contacts = [contact(1, "skal_ringe"), contact(2, "avsluttet"), contact(3, "avsluttet")];
+    contacts[0]!.companyStatus = "ekspert";
+    contacts[1]!.companyStatus = "ekspert";
+    contacts[2]!.companyStatus = "kunde";
+    contacts[0]!.relevance = "high";
+    contacts[1]!.relevance = "low";
+    contacts[2]!.relevance = "medium";
+    let report = buildReportData({
+      contacts,
+      activities: [meeting(1, [1, 2, 3])],
+      settings: configured,
+    });
+    expect(report.sections.map((section) => section.title)).toEqual(["Kunde", "Ekspert"]);
+    expect(report.sections[1]?.rows.map((row) => row.contact.contactNumber)).toEqual([1, 2]);
+    configured.sortMode = "status";
+    report = buildReportData({
+      contacts,
+      activities: [meeting(1, [1, 2, 3])],
+      settings: configured,
+    });
+    expect(report.sections[1]?.rows.map((row) => row.contact.contactNumber)).toEqual([2, 1]);
+    configured.sortMode = "alphabetical";
+    report = buildReportData({
+      contacts,
+      activities: [meeting(1, [1, 2, 3])],
+      settings: configured,
+    });
+    expect(report.sections[1]?.rows.map((row) => row.contact.contactNumber)).toEqual([1, 2]);
+  });
+
+  it("places new contacts without a custom assignment in a final section", () => {
+    const configured = settings();
+    configured.sectionMode = "custom";
+    configured.customSections = [{ id: uuid(90), title: "Kunder" }];
+    configured.customAssignments = { [uuid(1)]: uuid(90) };
+    const report = buildReportData({
+      contacts: [contact(1), contact(2)],
+      activities: [],
+      settings: configured,
+    });
+    expect(report.sections.map((section) => section.title)).toEqual(["Kunder", "Uten seksjon"]);
   });
 });

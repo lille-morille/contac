@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   ChevronDown,
+  Copy,
   ListFilter,
   Mail,
   BookOpen,
@@ -45,6 +46,7 @@ import {
 } from "../../components/ui/dialog.tsx";
 import { Select } from "../../components/ui/select.tsx";
 import { profileAvatarUrl, request } from "../../lib/api.ts";
+import { copyText } from "../../lib/clipboard.ts";
 import { HighlightedText } from "../../lib/search-highlight.tsx";
 import { useOrg } from "../../lib/org.tsx";
 import { useTeamRealtime } from "../../lib/team-realtime.tsx";
@@ -66,8 +68,8 @@ import {
 } from "./model.tsx";
 import { PersonTagEditor } from "./tag-editor.tsx";
 import {
-  AdditionalInformation,
   StikkordEditor,
+  SammendragEditor,
   SharedNote,
   ActivityAttachments,
   DuplicateCompare,
@@ -114,6 +116,10 @@ export function ContactDetail({
   const [deletingActivity, setDeletingActivity] = useState<Activity | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [expandedActivityIds, setExpandedActivityIds] = useState<string[]>([]);
+  const [citationCopy, setCitationCopy] = useState<{
+    contactId: string;
+    message: string;
+  } | null>(null);
   const [selectedQuote, setSelectedQuote] = useState<{
     activityId: string;
     quote: string;
@@ -162,11 +168,9 @@ export function ContactDetail({
     if (!focusedActivityId || !contactId) return;
     const timer = window.setTimeout(() => {
       const target = document.querySelector<HTMLElement>(
-        focusedActivityId === "note"
+        focusedActivityId === "note" || focusedActivityId === "additional_info"
           ? "[data-note-source]"
-          : focusedActivityId === "additional_info"
-            ? "[data-additional-info]"
-            : `[data-activity-id="${focusedActivityId}"]`,
+          : `[data-activity-id="${focusedActivityId}"]`,
       );
       (target?.querySelector<HTMLElement>("[data-search-match]") ?? target)?.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
@@ -186,6 +190,7 @@ export function ContactDetail({
         </Button>
       </div>
     );
+  const citationCopyMessage = citationCopy?.contactId === c.id ? citationCopy.message : "";
   const company = data.companies.find((x) => x.id === c.companyId);
   const creator = data.contactCreators.find((member) => member.userId === c.createdBy);
   const creatorName = creator?.name || "Ukjent bruker";
@@ -205,6 +210,8 @@ export function ContactDetail({
       | "companyId"
       | "personTagIds"
       | "domainIds"
+      | "sammendrag"
+      | "relevance"
       | "stikkord",
     currentValue: string | string[] | null,
   ) =>
@@ -314,6 +321,25 @@ export function ContactDetail({
                     type="button"
                     variant="outline"
                     size="sm"
+                    title={`Kopier #cite-contact(${c.contactNumber})`}
+                    onClick={() =>
+                      void copyText(`#cite-contact(${c.contactNumber})`).then(
+                        () =>
+                          setCitationCopy({ contactId: c.id, message: "Siteringen er kopiert" }),
+                        () =>
+                          setCitationCopy({
+                            contactId: c.id,
+                            message: "Kunne ikke kopiere siteringen",
+                          }),
+                      )
+                    }
+                  >
+                    <Copy size={16} /> Kopier sitering
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     disabled={busy}
                     aria-label={favorite ? "Fjern fra favoritter" : "Legg til i favoritter"}
                     aria-pressed={favorite}
@@ -336,6 +362,11 @@ export function ContactDetail({
                 </div>
               )}
             </div>
+            {citationCopyMessage && (
+              <p role="status" className="mt-2 text-xs text-muted-foreground">
+                {citationCopyMessage}
+              </p>
+            )}
             {viewingPeers.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Users size={14} aria-hidden />
@@ -532,15 +563,11 @@ export function ContactDetail({
             focusedPassage={focusedActivityId === "note" ? focusedPassage : null}
             focusedQuery={focusedQuery}
           />
-          <AdditionalInformation
-            contactId={c.id}
-            entries={data.additionalInfo.filter((entry) => entry.contactId === c.id)}
-            contacts={data.contacts}
-            onOpen={onOpen}
+          <SammendragEditor
+            contact={c}
             mutate={mutate}
             busy={busy}
-            disabled={c.status === "duplicate"}
-            focusedPassage={focusedActivityId === "additional_info" ? focusedPassage : null}
+            suggestions={aiField("sammendrag", c.sammendrag)}
           />
           <StikkordEditor
             contact={c}
@@ -820,6 +847,32 @@ export function ContactDetail({
                   items={statusOptions}
                   disabled={c.status === "duplicate"}
                 />
+              </ContactDetailField>
+              <ContactDetailField icon={Star} label="Relevans" compact>
+                <div>
+                  <Select
+                    value={c.relevance ?? ""}
+                    className={detailFieldClass}
+                    aria-label="Relevans"
+                    onValueChange={(value) =>
+                      void mutate(`/contacts/${c.id}`, {
+                        relevance: value || null,
+                        expected: { relevance: c.relevance },
+                      })
+                    }
+                    items={[
+                      { value: "", label: "Ikke vurdert" },
+                      { value: "high", label: "Høy" },
+                      { value: "medium", label: "Middels" },
+                      { value: "low", label: "Lav" },
+                    ]}
+                    disabled={c.status === "duplicate"}
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Hvor informativ samtalen var{c.relevanceManual ? " · valgt manuelt" : ""}.
+                  </p>
+                  {!c.relevanceManual && aiField("relevance", c.relevance)}
+                </div>
               </ContactDetailField>
               <ContactDetailField icon={UserRound} label="Ansvarlig" compact>
                 <Select

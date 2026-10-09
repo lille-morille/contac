@@ -1,6 +1,6 @@
 export function canSuggestContactField(field: string, current: unknown): boolean {
   if (field === "companyId") return false;
-  if (field === "description" || field === "stikkord") return true;
+  if (["description", "sammendrag", "stikkord", "relevance"].includes(field)) return true;
   return Array.isArray(current) ? current.length === 0 : !String(current ?? "").trim();
 }
 

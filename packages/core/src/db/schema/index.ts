@@ -28,11 +28,13 @@ export const contactStatus = pgEnum("contact_status", [
   "ikke_kontakt_igjen",
   "duplicate",
 ]);
+export const contactRelevance = pgEnum("contact_relevance", ["low", "medium", "high"]);
 export const companyStatus = pgEnum("company_status", [
   "ingen",
   "kunde",
   "konkurrent",
   "samarbeidspartner",
+  "ekspert",
 ]);
 export const contactActivityKind = pgEnum("contact_activity_kind", [
   "phone",
@@ -416,9 +418,15 @@ export const contacts = pgTable(
     description: text("description"),
     sharedNote: text("shared_note").notNull().default(""),
     sharedNoteSavedAt: timestamp("shared_note_saved_at", { withTimezone: true }),
+    sammendrag: text("sammendrag"),
+    sammendragSourceVersion: text("sammendrag_source_version"),
+    sammendragGeneratedAt: timestamp("sammendrag_generated_at", { withTimezone: true }),
     stikkord: text("stikkord"),
     stikkordSourceVersion: text("stikkord_source_version"),
     stikkordGeneratedAt: timestamp("stikkord_generated_at", { withTimezone: true }),
+    relevance: contactRelevance("relevance"),
+    relevanceManual: boolean("relevance_manual").notNull().default(false),
+    relevanceSourceVersion: text("relevance_source_version"),
     status: contactStatus("status").notNull().default("ikke_kontaktet"),
     assigneeId: uuid("assignee_id"),
     allowExternalAi: boolean("allow_external_ai").notNull().default(true),

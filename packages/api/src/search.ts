@@ -4,7 +4,6 @@ import {
   companies,
   companyDomains,
   contactActivities,
-  contactAdditionalInfo,
   contactPersonTags,
   contacts,
   domainTags,
@@ -51,7 +50,7 @@ function groupBy<T>(rows: T[], key: (row: T) => string) {
   return groups;
 }
 async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]> {
-  const [people, links, tagRows, domainRows, emailRows, additionalInfoRows] = await Promise.all([
+  const [people, links, tagRows, domainRows, emailRows] = await Promise.all([
     deps.db
       .select({ contact: contacts, company: companies.name })
       .from(contacts)
@@ -88,12 +87,10 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
       })
       .from(emailActivities)
       .where(eq(emailActivities.orgId, orgId)),
-    deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
   ]);
   const active = new Set(people.map((row) => row.contact.id));
   const tagsByContact = groupBy(tagRows, (row) => row.contactId);
   const domainsByCompany = groupBy(domainRows, (row) => row.companyId);
-  const infoByContact = groupBy(additionalInfoRows, (row) => row.contactId);
   const emailByActivity = new Map(emailRows.map((row) => [row.activityId, row]));
   const result: SearchDocument[] = [];
   function add(
@@ -134,8 +131,6 @@ async function documents(deps: ApiDeps, orgId: string): Promise<SearchDocument[]
         .join(" · "),
     );
     if (contact.sharedNote.trim()) add(contact.id, null, "note", contact.sharedNote);
-    for (const entry of infoByContact.get(contact.id) ?? [])
-      add(contact.id, null, "additional_info", entry.markdown);
   }
   for (const { contactId, activity } of links) {
     if (!active.has(contactId)) continue;

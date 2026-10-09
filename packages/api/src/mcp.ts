@@ -6,7 +6,6 @@ import {
   companies,
   companyDomains,
   contactActivities,
-  contactAdditionalInfo,
   contactPersonTags,
   collabDocuments,
   contacts,
@@ -78,8 +77,8 @@ const domainReplacement = z.object({
   domainIds: z.array(uuid).max(100),
   expectedRevision: z.number().int().nonnegative(),
 });
-const additionalInfoGuidance =
-  "Tilleggsinformasjon (Markdown): add useful context beyond Kort beskrivelse, such as evidence-backed relevance, a natural conversation opener, and 2–4 specific questions the team could ask this person. Separate known facts from suggested questions or hypotheses. Do not repeat the short description or invent facts; omit sections without useful evidence.";
+const internalInformationGuidance =
+  "Internal information (plain text, not Markdown): context for the team and AI, excluded from the contact log and exports. Use readable paragraphs without Markdown headings, links, or list syntax. Include evidence-backed relevance and useful follow-up questions; separate facts from hypotheses.";
 const contactCreateFields = z.object({
   name: z.string().trim().min(1).max(200),
   companyId: uuid.optional(),
@@ -93,7 +92,19 @@ const contactCreateFields = z.object({
       `Kort beskrivelse: a concise, evidence-based Norwegian phrase; max ${CONTACT_DESCRIPTION_MAX_LENGTH} characters`,
     )
     .optional(),
-  additionalInfo: z.string().trim().min(1).max(20000).describe(additionalInfoGuidance).optional(),
+  additionalInfo: z
+    .string()
+    .trim()
+    .min(1)
+    .max(20000)
+    .describe(internalInformationGuidance)
+    .optional(),
+  internalInformation: z
+    .string()
+    .trim()
+    .max(200000)
+    .describe(internalInformationGuidance)
+    .optional(),
   status: contactStatus
     .describe(
       "Initial workflow status; defaults to ikke_kontaktet. Duplicate is not a creation status.",
@@ -125,19 +136,14 @@ const contactUpdateInput = z
     email: z.union([z.email(), z.literal(""), z.null()]).optional(),
     phone: z.string().trim().max(200).nullable().optional(),
     description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
-    stikkord: z.string().trim().max(300).nullable().optional(),
+    stikkord: z.string().trim().max(1000).nullable().optional(),
+    sammendrag: z.string().max(20000).nullable().optional(),
     status: contactStatus.optional(),
     assigneeId: uuid.nullable().optional(),
     allowExternalAi: z.boolean().optional(),
     tagIds: z.array(uuid).max(30).optional(),
-    sharedNote: z.string().max(50000).optional(),
-    additionalInfo: z
-      .object({
-        entryId: uuid,
-        expectedMarkdown: z.string(),
-        markdown: z.string().trim().min(1).max(20000),
-      })
-      .optional(),
+    sharedNote: z.string().max(200000).optional(),
+    internalInformation: z.string().max(200000).optional(),
   })
   .refine(
     (input) =>
@@ -292,6 +298,10 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           phone: input.phone ?? null,
           phoneNormalized: phone,
           description: input.description ?? null,
+          sharedNote:
+            input.internalInformation ??
+            (input.additionalInfo ? `Lagt til av agent:\n${input.additionalInfo}` : ""),
+          sharedNoteSavedAt: input.internalInformation || input.additionalInfo ? new Date() : null,
           status: input.status ?? "ikke_kontaktet",
           assigneeId:
             input.assigneeId ??
@@ -304,13 +314,6 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         await tx
           .insert(contactPersonTags)
           .values(tagIds.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
-      if (input.additionalInfo)
-        await tx.insert(contactAdditionalInfo).values({
-          orgId,
-          contactId: contact.id,
-          source: "agent",
-          markdown: input.additionalInfo,
-        });
       return { status: "created" as const, contact };
     });
   }
@@ -381,7 +384,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "get_contact",
     {
       description:
-        "Get a contact with its organization, tags, shared note, separate agent/referral Markdown information, linked activities, transcripts, email details, and attachment metadata.",
+        "Get a contact with its organization, tags, internal information, linked activities, transcripts, email details, and attachment metadata.",
       inputSchema: z.object({ expectedTeamId: uuid, contactId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
@@ -401,7 +404,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           ),
         );
       if (!contact) return failed("Contact not found in this team");
-      const [[company], tags, activityRows, additionalInfo] = await Promise.all([
+      const [[company], tags, activityRows] = await Promise.all([
         deps.db
           .select()
           .from(companies)
@@ -428,16 +431,6 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           )
           .where(and(eq(activityContacts.orgId, orgId), eq(activityContacts.contactId, contactId)))
           .orderBy(desc(contactActivities.occurredAt)),
-        deps.db
-          .select()
-          .from(contactAdditionalInfo)
-          .where(
-            and(
-              eq(contactAdditionalInfo.orgId, orgId),
-              eq(contactAdditionalInfo.contactId, contactId),
-            ),
-          )
-          .orderBy(asc(contactAdditionalInfo.createdAt)),
       ]);
       const ids = activityRows.map((row) => row.activity.id);
       const [emails, files, participants] = ids.length
@@ -475,9 +468,9 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         : [[], [], []];
       return result({
         contact,
+        internalInformation: contact.sharedNote,
         company,
         tags,
-        additionalInfo,
         activities: activityRows.map(({ activity }) => ({
           ...activity,
           email: emails.find((row) => row.activityId === activity.id) ?? null,
@@ -830,7 +823,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "create_contact",
     {
-      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context. ${additionalInfoGuidance} Optional status and assigneeId set the initial workflow state and team member. Does not modify existing contacts.`,
+      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context. ${internalInformationGuidance} Optional status and assigneeId set the initial workflow state and team member. Does not modify existing contacts.`,
       inputSchema: contactCreateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -852,8 +845,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "update_contact",
     {
-      description:
-        "Update editable fields of an active contact in this team. Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. tagIds replaces the full tag set. additionalInfo edits an existing entry using entryId, expectedMarkdown, and replacement markdown. Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.",
+      description: `Update editable fields of an active contact in this team. Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance} Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.`,
       inputSchema: contactUpdateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -900,25 +892,6 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           if (valid.length !== tagIds.length)
             return { error: "A tag does not belong to this team" };
         }
-        if (input.additionalInfo) {
-          const [entry] = await tx
-            .select({ markdown: contactAdditionalInfo.markdown })
-            .from(contactAdditionalInfo)
-            .where(
-              and(
-                eq(contactAdditionalInfo.orgId, orgId),
-                eq(contactAdditionalInfo.contactId, input.contactId),
-                eq(contactAdditionalInfo.id, input.additionalInfo.entryId),
-              ),
-            )
-            .for("update");
-          if (!entry) return { error: "Additional information entry not found on this contact" };
-          if (entry.markdown !== input.additionalInfo.expectedMarkdown)
-            return {
-              error:
-                "Additional information changed since it was read. Call get_contact and retry.",
-            };
-        }
         const nextStatus = input.status ?? current.status;
         const firstAssignment =
           current.status === "ikke_kontaktet" &&
@@ -930,7 +903,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           expectedUpdatedAt: _expectedUpdatedAt,
           tagIds: _tags,
           sharedNote,
-          additionalInfo,
+          internalInformation,
           ...changes
         } = input;
         const now = new Date();
@@ -944,8 +917,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
             ...(changes.stikkord !== undefined
               ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
               : {}),
+            ...(changes.sammendrag !== undefined
+              ? { sammendragSourceVersion: null, sammendragGeneratedAt: null }
+              : {}),
             ...(firstAssignment ? { assigneeId: createdBy } : {}),
-            ...(sharedNote !== undefined ? { sharedNote, sharedNoteSavedAt: now } : {}),
+            ...(sharedNote !== undefined || internalInformation !== undefined
+              ? { sharedNote: internalInformation ?? sharedNote, sharedNoteSavedAt: now }
+              : {}),
             updatedAt: now,
           })
           .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
@@ -961,20 +939,10 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
               .insert(contactPersonTags)
               .values(tagIds.map((tagId) => ({ orgId, contactId, tagId })));
         }
-        if (additionalInfo)
-          await tx
-            .update(contactAdditionalInfo)
-            .set({ markdown: additionalInfo.markdown, updatedAt: now })
-            .where(
-              and(
-                eq(contactAdditionalInfo.orgId, orgId),
-                eq(contactAdditionalInfo.contactId, contactId),
-                eq(contactAdditionalInfo.id, additionalInfo.entryId),
-              ),
-            );
-        if (sharedNote !== undefined) {
+        if (sharedNote !== undefined || internalInformation !== undefined) {
+          const nextNote = internalInformation ?? sharedNote ?? "";
           const doc = new Y.Doc();
-          if (sharedNote) doc.getText("content").insert(0, sharedNote);
+          if (nextNote) doc.getText("content").insert(0, nextNote);
           const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
           doc.destroy();
           const [document] = await tx
@@ -984,13 +952,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
               kind: "note",
               entityId: contactId,
               stateBase64,
-              materializedText: sharedNote,
+              materializedText: nextNote,
             })
             .onConflictDoUpdate({
               target: [collabDocuments.orgId, collabDocuments.kind, collabDocuments.entityId],
               set: {
                 stateBase64,
-                materializedText: sharedNote,
+                materializedText: nextNote,
                 version: sql`${collabDocuments.version} + 1`,
                 updatedAt: now,
               },
@@ -1020,6 +988,15 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         queueMicrotask(() => void runContactAutomations(deps, orgId, [input.contactId]));
       else if (
         outcome.contact.allowExternalAi &&
+        (input.sammendrag !== undefined ||
+          input.sharedNote !== undefined ||
+          input.internalInformation !== undefined)
+      )
+        queueMicrotask(
+          () => void runContactAutomations(deps, orgId, [input.contactId], ["stikkord"]),
+        );
+      else if (
+        outcome.contact.allowExternalAi &&
         ["name", "companyId", "description"].some((key) => key in input)
       )
         queueMicrotask(
@@ -1032,7 +1009,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "batch_create_contacts",
     {
-      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters. ${additionalInfoGuidance} Optional status and assigneeId set each contact's initial workflow state and team member. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
+      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters. ${internalInformationGuidance} Optional status and assigneeId set each contact's initial workflow state and team member. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
       inputSchema: z.object({
         expectedTeamId: uuid,
         contacts: z.array(z.unknown()).min(1).max(100),

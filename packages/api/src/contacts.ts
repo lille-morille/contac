@@ -5,7 +5,6 @@ import {
   companies,
   companyDomains,
   contactActivities,
-  contactAdditionalInfo,
   contactPersonTags,
   contactReminders,
   contacts,
@@ -50,7 +49,7 @@ const status = z.enum([
   "follow_up",
   "ikke_kontakt_igjen",
 ]);
-const companyStatus = z.enum(["ingen", "kunde", "konkurrent", "samarbeidspartner"]);
+const companyStatus = z.enum(["ingen", "kunde", "konkurrent", "samarbeidspartner", "ekspert"]);
 const color = z.enum([
   "blue",
   "orange",
@@ -87,7 +86,9 @@ const contactPatch = z.object({
   email: z.union([z.email(), z.literal(""), z.null()]).optional(),
   phone: blank,
   description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
-  stikkord: z.string().trim().max(300).nullable().optional(),
+  stikkord: z.string().trim().max(1000).nullable().optional(),
+  relevance: z.enum(["low", "medium", "high"]).nullable().optional(),
+  sammendrag: z.string().max(20000).nullable().optional(),
   status: status.optional(),
   assigneeId: id.nullable().optional(),
   allowExternalAi: z.boolean().optional(),
@@ -96,6 +97,8 @@ const guardedContactPatch = contactPatch.extend({
   expected: contactPatch.extend({
     description: z.string().nullable().optional(),
     stikkord: z.string().max(20000).nullable().optional(),
+    relevance: z.enum(["low", "medium", "high"]).nullable().optional(),
+    sammendrag: z.string().max(20000).nullable().optional(),
   }),
 });
 const contactScalarColumns = {
@@ -105,6 +108,8 @@ const contactScalarColumns = {
   phone: contacts.phone,
   description: contacts.description,
   stikkord: contacts.stikkord,
+  relevance: contacts.relevance,
+  sammendrag: contacts.sammendrag,
   status: contacts.status,
   assigneeId: contacts.assigneeId,
   allowExternalAi: contacts.allowExternalAi,
@@ -170,7 +175,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         creatorRows,
         assigneeRows,
         contactTagRows,
-        additionalInfoRows,
         memberRows,
       ] = await Promise.all([
         deps.db
@@ -213,7 +217,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .innerJoin(profiles, eq(profiles.id, contacts.assigneeId))
           .where(and(eq(contacts.orgId, orgId), isNull(contacts.deletedAt))),
         deps.db.select().from(contactPersonTags).where(eq(contactPersonTags.orgId, orgId)),
-        deps.db.select().from(contactAdditionalInfo).where(eq(contactAdditionalInfo.orgId, orgId)),
         deps.db
           .select({
             userId: memberships.userId,
@@ -234,7 +237,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         contactCreators: creatorRows,
         contactAssignees: assigneeRows,
         contactPersonTags: contactTagRows,
-        additionalInfo: additionalInfoRows,
         members: memberRows,
       });
     }
@@ -693,46 +695,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({ error: "Tag changed while you were editing", current }, 409);
   });
 
-  app.post("/v1/org/contacts/:id/additional-info/:entryId", async (c) => {
-    const contactId = id.safeParse(c.req.param("id"));
-    const entryId = id.safeParse(c.req.param("entryId"));
-    const data = await parse(
-      c,
-      z.object({
-        markdown: z.string().trim().min(1).max(20000),
-        expected: z.object({ markdown: z.string() }),
-      }),
-    );
-    if (!contactId.success || !entryId.success || !data)
-      return c.json({ error: "Invalid information change" }, 400);
-    const [row] = await deps.db
-      .update(contactAdditionalInfo)
-      .set({ markdown: data.markdown, updatedAt: new Date() })
-      .where(
-        and(
-          eq(contactAdditionalInfo.orgId, c.get("org").id),
-          eq(contactAdditionalInfo.contactId, contactId.data),
-          eq(contactAdditionalInfo.id, entryId.data),
-          sql`${contactAdditionalInfo.markdown} IS NOT DISTINCT FROM ${data.expected.markdown}`,
-        ),
-      )
-      .returning();
-    if (row) return c.json(row);
-    const [current] = await deps.db
-      .select({ markdown: contactAdditionalInfo.markdown })
-      .from(contactAdditionalInfo)
-      .where(
-        and(
-          eq(contactAdditionalInfo.orgId, c.get("org").id),
-          eq(contactAdditionalInfo.contactId, contactId.data),
-          eq(contactAdditionalInfo.id, entryId.data),
-        ),
-      );
-    return current
-      ? c.json({ error: "Information changed while editing", current }, 409)
-      : c.json({ error: "Information not found" }, 404);
-  });
-
   app.get("/v1/org/contacts/deleted", async (c) => {
     const rows = await deps.db
       .select()
@@ -789,7 +751,11 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         return c.json({ error: "Tag not found" }, 404);
     }
     const result = await deps.db.transaction(async (tx) => {
-      let referral: { sourceContactId: string; markdown: string } | null = null;
+      let referral: {
+        sourceContactId: string;
+        sourceContactName: string;
+        markdown: string;
+      } | null = null;
       if (data.referralSuggestionId) {
         const [suggestion] = await tx
           .select()
@@ -804,7 +770,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           );
         if (!suggestion?.contactId) return null;
         const [source] = await tx
-          .select({ id: contacts.id })
+          .select({ id: contacts.id, name: contacts.name })
           .from(contacts)
           .where(
             and(
@@ -820,6 +786,7 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           typeof suggestion.payload.passage === "string" ? suggestion.payload.passage : "";
         referral = {
           sourceContactId: source.id,
+          sourceContactName: source.name,
           markdown:
             [reason, passage ? `> ${passage.replace(/\n/g, "\n> ")}` : ""]
               .filter(Boolean)
@@ -867,6 +834,10 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           phone: data.phone || null,
           phoneNormalized: phoneKey(data.phone),
           description: data.description || null,
+          sharedNote: referral
+            ? `Henvisning fra ${referral.sourceContactName}:\n${referral.markdown}`
+            : "",
+          sharedNoteSavedAt: referral ? new Date() : null,
           createdBy: c.get("user").id,
           allowExternalAi: true,
         })
@@ -875,15 +846,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         await tx
           .insert(contactPersonTags)
           .values([...new Set(data.tagIds)].map((tagId) => ({ orgId, contactId: row.id, tagId })));
-      }
-      if (referral) {
-        await tx.insert(contactAdditionalInfo).values({
-          orgId,
-          contactId: row.id,
-          source: "referral",
-          sourceContactId: referral.sourceContactId,
-          markdown: referral.markdown,
-        });
       }
       return row;
     });
@@ -951,6 +913,12 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         ...(changes.stikkord !== undefined
           ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
           : {}),
+        ...(changes.sammendrag !== undefined
+          ? { sammendragSourceVersion: null, sammendragGeneratedAt: null }
+          : {}),
+        ...(changes.relevance !== undefined
+          ? { relevanceManual: changes.relevance !== null, relevanceSourceVersion: null }
+          : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -983,6 +951,14 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (row && changes.allowExternalAi === true && !current.allowExternalAi)
       queueMicrotask(() => {
         void runContactAutomations(deps, orgId, [row.id]);
+      });
+    else if (
+      row &&
+      row.allowExternalAi &&
+      (changes.sammendrag !== undefined || changes.relevance === null)
+    )
+      queueMicrotask(() => {
+        void runContactAutomations(deps, orgId, [row.id], ["stikkord"]);
       });
     else if (
       row &&

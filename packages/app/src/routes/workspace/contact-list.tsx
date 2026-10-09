@@ -236,7 +236,7 @@ export function ContactList({
             <th className="w-[28%] px-4 py-3 font-medium">Kontakt</th>
             <th className="w-48 px-3 py-3 font-medium">Ansvarlig</th>
             <th className="w-52 px-3 py-3 font-medium">Status</th>
-            <th className="w-[27%] px-3 py-3 font-medium">Stikkord / siste samtale</th>
+            <th className="w-[27%] px-3 py-3 font-medium">Key takeaways / siste samtale</th>
             <th className="w-44 px-3 py-3 font-medium">Tagger</th>
           </tr>
         </thead>

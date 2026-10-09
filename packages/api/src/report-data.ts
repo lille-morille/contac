@@ -140,7 +140,10 @@ export async function loadReportSnapshot(db: Database, orgId: string) {
   const sourceById = new Map(contactRows.map((row) => [row.id, row]));
   const reportContacts: ReportContact[] = result.contacts.map((person) => ({
     ...person,
+    sammendrag: sourceById.get(person.id)?.sammendrag ?? null,
     stikkord: sourceById.get(person.id)?.stikkord ?? null,
+    relevance: sourceById.get(person.id)?.relevance ?? null,
+    companyStatus: companiesById.get(person.companyId)?.status ?? "ingen",
     assigneeName: person.assigneeId ? (namesById.get(person.assigneeId) ?? null) : null,
   }));
   const originalOwnerByActivity = new Map(

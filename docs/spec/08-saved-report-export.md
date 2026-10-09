@@ -2,6 +2,10 @@
 
 **Status:** Reviewed and assigned for implementation on 2026-10-07. Migration 0049 was applied to Contac Production on 2026-10-07 and verified in `app_migrations`.
 
+**Reviewed follow-up, 2026-10-09:** The user assigned configurable report sections and sorting, contact relevance, and the summary-based export. The decisions below supersede the earlier activity-only grouping and activity-log export requirements in this file.
+
+Group contacts by activity, company status, contact status, or custom named sections. Custom sections have saved order and per-contact assignment; unassigned contacts appear last. Within every section, choose relevance then contact status (default), contact status then relevance, or alphabetical sorting. Manual moves take precedence within their section until reset. Relevance is a nullable high/medium/low contact field measuring how informative the conversation was; the summary AI can suggest it from findings, while a manual value is preserved. Unrated contacts sort after low relevance. Export Sammendrag and Key takeaways as separate selectable columns. Activity logs, activity notes, transcripts, and internal notes remain in Contac and are omitted from Typst, LaTeX, CSV, and copied tables. CSV includes a Seksjon column for non-activity grouping. Use the existing palette to visually distinguish Typst sections and content fields.
+
 ## Team export workspace
 
 Add `Eksport` to the team sidebar. Every control on this page is shared by teammates and autosaved: included contacts, relevance order, selected and ordered columns, title, subtitle, and format. Export reads current contact data rather than a stored snapshot. New active contacts are included by default. Selection and reordering live in the card preview, which shows complete field content and scrolls when needed. Stikkord and each activity's notes can be edited in place by clicking the text and save on blur; activity metadata is displayed separately and remains read-only.

@@ -10,8 +10,6 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { loadReportSnapshot } from "./report-data.ts";
 import {
-  reportCell,
-  reportEntryParts,
   renderReportCsv,
   renderReportHtml,
   renderReportLatex,
@@ -45,21 +43,6 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         activityLinks.set(id, (activityLinks.get(id) ?? 0) + 1);
       }
     }
-    const selected = buildReportData({
-      contacts: snapshot.reportContacts,
-      activities: snapshot.reportActivities,
-      settings: saved.settings,
-    });
-    const all = buildReportData({
-      contacts: snapshot.reportContacts,
-      activities: snapshot.reportActivities,
-      settings: { ...saved.settings, excludedContactIds: [] },
-    });
-    const previewRows = new Map(
-      [...all.rows, ...all.noActivityRows, ...selected.rows, ...selected.noActivityRows].map(
-        (row) => [row.contact.id, row],
-      ),
-    );
     return c.json({
       ...saved,
       contacts: orderedReportContacts(
@@ -72,21 +55,17 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         name: contact.name,
         companyName: contact.companyName,
         status: contact.status,
+        relevance: contact.relevance,
+        companyStatus: contact.companyStatus,
         assigneeName: contact.assigneeName,
         email: contact.email,
         phone: contact.phone,
         description: contact.description,
         personTags: contact.personTags,
         domains: contact.domains,
+        sammendrag: contact.sammendrag,
         stikkord: contact.stikkord,
         activityCount: activityLinks.get(contact.id) ?? 0,
-        log: previewRows.has(contact.id) ? reportCell(previewRows.get(contact.id)!, "log") : "",
-        logEntries:
-          previewRows.get(contact.id)?.entries.map((entry) => ({
-            activityId: entry.activity.id,
-            kind: entry.kind,
-            ...reportEntryParts(entry),
-          })) ?? [],
       })),
     });
   });

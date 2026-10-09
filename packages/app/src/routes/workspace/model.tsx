@@ -16,12 +16,14 @@ export const companyStatuses = [
   ["kunde", "Kunde"],
   ["konkurrent", "Konkurrent"],
   ["samarbeidspartner", "Samarbeidspartner"],
+  ["ekspert", "Ekspert"],
 ] as const;
 export const companyStatusColors: Record<(typeof companyStatuses)[number][0], string> = {
   ingen: "var(--border)",
   kunde: "var(--mint)",
   konkurrent: "var(--coral)",
   samarbeidspartner: "var(--blue)",
+  ekspert: "var(--orange)",
 };
 export const colors = {
   blue: "var(--blue)",
@@ -74,7 +76,11 @@ export type Contact = {
   description: string | null;
   sharedNote: string;
   sharedNoteSavedAt: string | null;
+  sammendrag: string | null;
+  sammendragGeneratedAt: string | null;
   stikkord: string | null;
+  relevance: "low" | "medium" | "high" | null;
+  relevanceManual: boolean;
   stikkordGeneratedAt: string | null;
   status: Status;
   assigneeId: string | null;
@@ -255,7 +261,7 @@ export function readWorkspaceLocation(search: string): WorkspaceLocation {
     page,
     contact: uuid(params.get("contact")),
     activity: ["note", "additional_info"].includes(params.get("activity") ?? "")
-      ? params.get("activity")
+      ? "note"
       : uuid(params.get("activity")),
     passage: params.get("passage"),
     query: params.get("q") ?? "",
@@ -341,7 +347,6 @@ export type Data = {
   companyDomains: { companyId: string; domainId: string }[];
   personTags: Tag[];
   contactPersonTags: { contactId: string; tagId: string }[];
-  additionalInfo: AdditionalInfo[];
   contacts: Contact[];
   contactCreators: { userId: string; name: string | null; avatarPath: string | null }[];
   contactAssignees: { userId: string; name: string | null; avatarPath: string | null }[];
@@ -352,15 +357,6 @@ export type Data = {
   members: { userId: string; role: string; name: string | null; avatarPath: string | null }[];
   favoriteContactIds: string[];
   reminders: Reminder[];
-};
-export type AdditionalInfo = {
-  id: string;
-  contactId: string;
-  source: "agent" | "referral";
-  sourceContactId: string | null;
-  markdown: string;
-  createdAt: string;
-  updatedAt: string;
 };
 export function assigneeOptions(
   members: Data["members"],
@@ -415,7 +411,6 @@ export const emptyData: Data = {
   companyDomains: [],
   personTags: [],
   contactPersonTags: [],
-  additionalInfo: [],
   contacts: [],
   contactCreators: [],
   contactAssignees: [],

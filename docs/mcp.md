@@ -84,9 +84,9 @@ before it queries or writes data.
 | Tool | Access |
 | --- | --- |
 | `get_team_identity` | Verify the connected team ID and workspace name |
-| `search_contacts` | Find team contacts and matching contact, activity, note, or additional-information passages by meaning and keywords |
+| `search_contacts` | Find team contacts and matching contact, activity, or internal-information passages by meaning and keywords |
 | `list_contacts` | Paginated active contacts and their fields |
-| `get_contact` | Contact, organization, tags, shared note, separate additional information, activities, email records, transcripts, participants, and attachment metadata |
+| `get_contact` | Contact, organization, tags, internal information, contact summary, key takeaways, activities, email records, transcripts, participants, and attachment metadata |
 | `list_team_reference` | Organizations (with `domainsRevision`), domains (with `revision`), links, and person tags |
 | `create_domain` | Create or reuse a normalized-name domain in the connected team |
 | `update_domain` | Edit a domain with its expected revision |
@@ -95,8 +95,8 @@ before it queries or writes data.
 | `list_library_items` | Paginated library quotes |
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | Short-lived download URL for a team activity attachment |
-| `create_contact` | Create one evidence-based contact with an organization and optional separate Markdown information |
-| `update_contact` | Change an active contact's editable fields, tags, shared note, or an existing additional-information entry |
+| `create_contact` | Create one evidence-based contact with an organization and optional internal plain-text information |
+| `update_contact` | Change an active contact's editable fields, tags, or internal information |
 | `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result per input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
 
@@ -107,7 +107,7 @@ excluded from ordinary reads. Use `search_contacts` before paginating through
 characters), optional `limit` (1–30, default 10), and `expectedTeamId`. Results
 include a matching passage, score, contact ID, and optional activity ID; follow
 up with `get_contact` for full context. MCP search is limited to the connected
-team, including its shared notes and additional information; it does not return
+team, including its internal information; it does not return
 cross-team grants. `create_contact` and `batch_create_contacts`
 check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
@@ -135,7 +135,7 @@ returns `wouldChange` and leaves every revision and link unchanged. Read
 tools only mutate domains or organization-domain links; contact records and
 person tags are untouched.
 
-To release these tools, apply migration `0050_domain_revisions.sql` with
+To release the unified internal field and contact summary, apply migration `0050_contact_summary_and_internal_note.sql` with
 `DATABASE_URL=... bun run db:migrate` before deploying the updated API and web
 app. The connected MCP uses the API's `/mcp` endpoint, so there is no separate
 MCP server to deploy; refresh the client's tool catalog after the API rollout.
@@ -143,9 +143,8 @@ MCP server to deploy; refresh the client's tool catalog after the API rollout.
 For `update_contact`, read the contact with `get_contact` and pass its
 `contact.updatedAt` as `expectedUpdatedAt`. If another edit happened meanwhile,
 the tool rejects the update; read the latest contact and retry. Omit fields that
-should stay unchanged. `tagIds` replaces the complete tag set. To edit an
-existing `additionalInfo` entry, pass its `entryId`, current `expectedMarkdown`,
-and replacement `markdown`.
+should stay unchanged. `tagIds` replaces the complete tag set. Edit the
+single internal field with `internalInformation`.
 The normal seven statuses are accepted; `duplicate` requires the separate
 confirmed duplicate flow. The first change from `ikke_kontaktet` assigns an
 unassigned contact to the acting user, as in the workspace. Organization,
@@ -156,13 +155,14 @@ For both creation tools, `description` (`Kort beskrivelse`) is a concise,
 evidence-based Norwegian phrase about the person's role or relevant context,
 limited to 120 characters. The API rejects a longer description; batch
 creation reports an error for that item and continues with other items. Put
-longer research in `additionalInfo` instead.
+longer research in `internalInformation` instead.
 
-`additionalInfo` accepts up to 20,000 characters of Markdown, appears under
-**Tilleggsinformasjon** with an agent source label, and is editable by team
-members. It is included in the owning team's local search and `get_contact`,
-but excluded from built-in AI and deterministic YAML export. Keep it factual
-and separate from the team's shared note.
+`internalInformation` is the one editable internal field. It includes former
+team notes and agent/referral information, preserving source labels in migrated
+text. It is available to MCP and built-in AI context, but excluded from the
+contact log and exports. Write it as plain text without Markdown syntax; the
+editor displays formatting characters literally. The former create-only `additionalInfo` parameter is
+accepted for compatibility and is placed in this field.
 Use it for relevant background beyond `Kort beskrivelse`, a natural way to
 start a conversation, and two to four specific questions the team could ask
 the person. Mark questions or hypotheses as suggestions and distinguish them

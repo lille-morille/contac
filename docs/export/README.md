@@ -1,6 +1,6 @@
 # Contact-log report export
 
-The team's **Eksport** page saves contact inclusion, manual relevance order, title, subtitle, columns, and selected format. Its live contact cards show full field content beside the selection and reorder controls. Click Stikkord or an activity's notes to edit the underlying content; changes save when the editor loses focus. Activity dates, participants, email headers, and attachment details remain read-only in the export view. Every download or copy reads current contact data. Select Typst, LaTeX, or CSV, then use `Last ned` or `Kopier til utklippstavle`. CSV can be imported into Google Sheets. `Kopier som tabell` copies an HTML table for Google Docs. All report formats omit transcripts. The Typst report template can be downloaded alongside these actions.
+The team's **Eksport** page saves contact inclusion, section grouping, sort mode, manual order, title, subtitle, columns, and selected format. Group by activity, company status, contact status, or custom sections. Within each section, sort by relevance then contact status, by contact status then relevance, or alphabetically. Contacts can be moved manually; unassigned custom contacts appear in a final section. The contact's relevance rating describes how informative the conversation was, and can be set manually or suggested by the summary agent. The live cards let teammates edit Sammendrag and Key takeaways. Every download or copy reads current contact data. Select Typst, LaTeX, or CSV, then use `Last ned` or `Kopier til utklippstavle`. CSV can be imported into Google Sheets. `Kopier som tabell` copies an HTML table for Google Docs. Activity logs, transcripts, and internal notes stay in Contac and are omitted from report files. The Typst report template can be downloaded alongside these actions.
 
 Download or copy the generated `kontaktlogg.typ` and replace the report's contact-log include with it. The file is self-contained. Include it where the contact log should appear, and import its citation helper in report sections:
 
@@ -10,7 +10,24 @@ Et sitat #cite-contact(12).
 #include "dependencies/kontaktlogg.typ"
 ```
 
-The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards: a narrow number marker, compact contact details, and wide Stikkord and Logg sections. Each activity has a highlighted date and type heading, and a long log can continue across pages. A shared activity is printed in full once, under its creation contact when available; other linked contacts point to that person's `K-nummer`. The compact `Uten aktivitet` section comes last.
+The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with distinct color bands for sections, status-colored number markers, and tinted Sammendrag and Key takeaways fields. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
+
+## Fast PDF preview
+
+Run `bun run export:pdf` from the repository root to compile representative sample
+contacts without a database. The command writes `kontaktlogg.typ`,
+`kontaktlogg.pdf`, and one PNG per page to ignored `output/export-preview/`.
+Open the PDF to review the full export or the PNGs to inspect individual pages.
+Use `bun run export:pdf:watch` while editing the Typst renderer or sample fixture;
+it regenerates the preview after source changes. Typst must be installed.
+The sample groups by company status. Use `bun run export:pdf --group custom`,
+`--group contact_status`, or `--group activity` to inspect other groupings.
+
+To preview the current local team's actual saved export settings and contacts,
+run `bun run export:pdf --local`. If the local database contains several teams,
+use `bun run export:pdf --team <team-uuid>`. This mode accepts only a loopback
+`DATABASE_URL` and uses the team's saved title, subtitle, columns, selection,
+and order. It writes to the same preview directory.
 
 ## Typst report template
 

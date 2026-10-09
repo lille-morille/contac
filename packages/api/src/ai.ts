@@ -63,7 +63,13 @@ export function remainingSuggestion(
   payload: Record<string, unknown>,
   handled: Set<string>,
 ) {
-  if (feature === "stikkord") return null;
+  if (feature === "stikkord") {
+    const remaining = { ...payload };
+    if (handled.has("stikkord")) delete remaining.text;
+    if (handled.has("sammendrag")) delete remaining.sammendrag;
+    if (handled.has("relevance")) delete remaining.relevance;
+    return remaining.text || remaining.sammendrag || remaining.relevance ? remaining : null;
+  }
   const key = feature === "contact_fields" ? "fields" : "hierarchy";
   const proposed = { ...((payload[key] as Record<string, unknown>) ?? {}) };
   for (const field of handled) {
@@ -83,7 +89,7 @@ export function remainingSuggestion(
 export function suggestedFields(feature: string, payload: Record<string, unknown>) {
   const proposed =
     feature === "stikkord"
-      ? { stikkord: payload.text }
+      ? { stikkord: payload.text, sammendrag: payload.sammendrag, relevance: payload.relevance }
       : feature === "contact_fields"
         ? ((payload.fields as Record<string, unknown>) ?? {})
         : feature === "hierarchy"
@@ -238,6 +244,7 @@ async function callModel(
   system: string,
   payload: unknown,
   json = false,
+  maxTokens = 1600,
 ) {
   if (!settings.encryptedToken) throw new Error("Teamet mangler OpenRouter-token");
   const model = (
@@ -255,7 +262,7 @@ async function callModel(
     },
     body: JSON.stringify({
       model,
-      max_completion_tokens: json ? 1100 : 1600,
+      max_completion_tokens: json ? 1100 : maxTokens,
       provider: { zdr: true, data_collection: "deny" },
       usage: { include: true },
       messages: [
@@ -379,31 +386,56 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
             ),
         )
     : [];
+  const participantRows = eligible.length
+    ? await deps.db
+        .select({ activityId: activityContacts.activityId, name: contacts.name })
+        .from(activityContacts)
+        .innerJoin(contacts, eq(contacts.id, activityContacts.contactId))
+        .where(
+          and(
+            eq(activityContacts.orgId, orgId),
+            inArray(
+              activityContacts.activityId,
+              eligible.map((activity) => activity.id),
+            ),
+          ),
+        )
+    : [];
   const conversations = eligible.map((activity) => ({
     id: activity.id,
     kind: activity.kind,
     date: activity.occurredAt.toISOString(),
+    participants: participantRows
+      .filter((row) => row.activityId === activity.id)
+      .map((row) => row.name),
     summary: activity.summary,
     transcript: activity.transcript,
     sourceVersion: hash([activity.id, activity.updatedAt]),
   }));
-  const version = hash({
-    conversations: eligible.map((activity) => [
-      activity.id,
-      activity.updatedAt,
-    ]),
+  const sourceVersion = hash({
+    conversations: eligible.map((activity) => [activity.id, activity.updatedAt]),
     contact: [
       person.contact.name,
       person.companyName,
       person.contact.allowExternalAi,
       person.contact.companyId,
       person.contact.description,
+      person.contact.sharedNote,
     ],
   });
-  return { person, conversations, version };
+  const version = hash({ sourceVersion, sammendrag: person.contact.sammendrag });
+  return { person, conversations, sourceVersion, version };
 }
 
-const editable = ["email", "phone", "description", "companyId", "stikkord"] as const;
+const editable = [
+  "email",
+  "phone",
+  "description",
+  "companyId",
+  "sammendrag",
+  "stikkord",
+  "relevance",
+] as const;
 type Editable = (typeof editable)[number];
 const domainPalette = [
   "blue",
@@ -459,6 +491,10 @@ function snapshot(contact: typeof contacts.$inferSelect) {
     ...Object.fromEntries(editable.map((key) => [key, contact[key]])),
     stikkordSourceVersion: contact.stikkordSourceVersion,
     stikkordGeneratedAt: contact.stikkordGeneratedAt?.toISOString() ?? null,
+    sammendragSourceVersion: contact.sammendragSourceVersion,
+    sammendragGeneratedAt: contact.sammendragGeneratedAt?.toISOString() ?? null,
+    relevanceManual: contact.relevanceManual,
+    relevanceSourceVersion: contact.relevanceSourceVersion,
   };
 }
 async function applyChange(
@@ -487,6 +523,7 @@ async function applyChange(
     Object.entries(patch).filter(
       ([key, value]) =>
         editable.includes(key as Editable) &&
+        (key !== "relevance" || !before.relevanceManual) &&
         value !== before[key as Editable] &&
         (feature !== "contact_fields" ||
           key === "description" ||
@@ -498,18 +535,46 @@ async function applyChange(
     ? Object.keys(filtered).map((key) =>
         key === "companyId"
           ? isNull(contacts[key])
-          : or(
-              isNull(contacts[key as "email" | "phone" | "description" | "stikkord"]),
-              eq(contacts[key as "email" | "phone" | "description" | "stikkord"], ""),
-            ),
+          : key === "relevance"
+            ? isNull(contacts.relevance)
+            : or(
+                isNull(
+                  contacts[
+                    key as
+                      | "email"
+                      | "phone"
+                      | "description"
+                      | "sammendrag"
+                      | "stikkord"
+                      | "relevance"
+                  ],
+                ),
+                eq(
+                  contacts[
+                    key as
+                      | "email"
+                      | "phone"
+                      | "description"
+                      | "sammendrag"
+                      | "stikkord"
+                      | "relevance"
+                  ],
+                  "",
+                ),
+              ),
       )
     : [];
   const [after] = await deps.db
     .update(contacts)
     .set({
       ...filtered,
-      ...(feature === "stikkord"
+      ...(feature === "stikkord" && filtered.stikkord
         ? { stikkordSourceVersion: sourceVersion, stikkordGeneratedAt: new Date() }
+        : feature === "sammendrag"
+          ? { sammendragSourceVersion: sourceVersion, sammendragGeneratedAt: new Date() }
+          : {}),
+      ...(filtered.relevance
+        ? { relevanceManual: false, relevanceSourceVersion: sourceVersion }
         : {}),
       updatedAt: new Date(),
     })
@@ -518,6 +583,7 @@ async function applyChange(
         eq(contacts.orgId, orgId),
         eq(contacts.id, contactId),
         isNull(contacts.deletedAt),
+        ...(filtered.relevance ? [eq(contacts.relevanceManual, false)] : []),
         ...guards,
       ),
     )
@@ -710,7 +776,8 @@ async function generateContact(
   const mode = featureMode(settings, feature);
   if (!settings || mode === "off" || !["suggest", "safe_auto", "dangerous"].includes(mode))
     throw new Error("Denne AI-funksjonen er ikke aktiv i valgt modus");
-  const { person, conversations, version } = await contactContext(deps, orgId, contactId);
+  const { person, conversations, sourceVersion } = await contactContext(deps, orgId, contactId);
+  let version = hash({ sourceVersion, sammendrag: person.contact.sammendrag });
   if (!person.contact.allowExternalAi) throw new Error("Ekstern AI er blokkert for kontakten");
   if (!conversations.length && feature !== "hierarchy")
     throw new Error("Ingen tillatte samtaler å bruke");
@@ -721,6 +788,7 @@ async function generateContact(
       email: person.contact.email,
       phone: person.contact.phone,
       description: person.contact.description,
+      internalInformation: person.contact.sharedNote.slice(0, 20000),
     },
     conversations:
       feature === "contact_fields"
@@ -731,9 +799,44 @@ async function generateContact(
   };
   let system = "";
   let payload: unknown = base;
-  if (feature === "stikkord")
+  let pendingSummary: string | null = null;
+  if (feature === "stikkord") {
+    const currentSummary = person.contact.sammendrag?.trim() ?? "";
+    const summaryIsFresh = person.contact.sammendragSourceVersion === sourceVersion;
+    const preserveManualSummary =
+      currentSummary && !person.contact.sammendragSourceVersion && mode !== "dangerous";
+    let summary = currentSummary;
+    if (!summaryIsFresh && !preserveManualSummary) {
+      const generatedSummary = await callModel(
+        deps,
+        orgId,
+        settings,
+        feature,
+        "Skriv et dekkende norsk sammendrag av funnene og temaene som ble diskutert med kontakten. Organiser etter tema og innsikt, ikke som en tidslinje. Vev inn aktivitetstype, deltakere og dato som naturlig prosa der det gir nyttig kontekst, for eksempel 'I en telefonsamtale ble ... diskutert' eller 'I et møte med X og Y kom det frem ...'. Bevar konkrete fakta, nyanser og usikkerhet; ikke finn på opplysninger. Intern informasjon er bakgrunnskontekst, ikke en samtalehendelse. Returner bare lesbar prosa uten Markdown.",
+        base,
+        false,
+        4000,
+      );
+      summary = clean(generatedSummary.output, 20000);
+      if (summary && summary !== currentSummary) {
+        if (mode === "dangerous" || (mode === "safe_auto" && !currentSummary))
+          await applyChange(
+            deps,
+            orgId,
+            contactId,
+            "sammendrag",
+            { sammendrag: summary },
+            null,
+            sourceVersion,
+          );
+        else pendingSummary = summary;
+      }
+    }
+    if (!pendingSummary) version = hash({ sourceVersion, sammendrag: summary });
+    payload = { sammendrag: summary };
     system =
-      "Lag svært korte norske stikkord om viktigste funn for kontakten, maks 300 tegn. Bare dokumenterte fakta. Returner ren tekst.";
+      "Bruk bare sammendraget. Returner KUN JSON med text og relevance. text er 3–5 korte norske punktlinjer med de viktigste funnene, hver linje begynner med '- '. relevance er high, medium eller low og vurderer hvor informativ samtalen var: high ved konkrete nye behov eller funn, medium ved nyttig men begrenset innsikt, low ved lite ny informasjon. Vurder ikke etter kontaktstatus, lengde eller salgspotensial. Ikke finn på fakta.";
+  }
   if (feature === "contact_fields") {
     system = `Trekk ut kontaktfelter som samtalene tydelig støtter. Returner KUN JSON med keys email, phone, description, evidence. Ukjente felter utelates. Foreslå email og phone bare når feltet er tomt. Allerede utfylt description kan oppdateres når samtalene gir konkret belegg. description skal være en kort norsk frase om personens dokumenterte rolle, funksjon eller nyttige faglige kontekst, for eksempel «Instituttleder for biokjemisk avdeling», «Erfaren fisker ved Rana oppdrettsanlegg» eller «Senior fullstackutvikler, spesialiserer seg på apputvikling». Ikke skriv generisk ros, personlige vurderinger eller titler uten belegg. Hvis samtalen ikke gir nok grunnlag, utelat description.`;
   }
@@ -785,19 +888,22 @@ async function generateContact(
     };
     system = `Klassifiser kontaktens organisasjon ut fra organisasjonsnavn, kontaktfelter og eventuelle samtaler. Foreslå høyst ett domene og relevante persontagger. Returner KUN JSON med domainIds, newDomainName, newDomainDescription, personTagIds, evidence. Organisasjonen er valgt av brukeren og skal aldri foreslås endret. Persontagger beskriver bare denne personens dokumenterte rolle og ekspertise, aldri selskapets virksomhet, produkter eller fagområde. Begrunn persontagger med konkrete opplysninger om personen; utelat dem hvis slike opplysninger mangler. Foreslå bare persontagger og domene når det aktuelle feltet er tomt. Bruk bare eksisterende ID-er i options. domainIds skal ha høyst én ID. Beskrivelsene er kriteriene for når hver tagg skal brukes. Velg domenet som best støttes av opplysningene, eller bruk tom liste når bevisene er svake. Bruk newDomainName og newDomainDescription (én kort setning med kriterier for domenet) bare hvis ingen eksisterende domener passer og det finnes tydelig grunnlag i oppgitt informasjon. Ikke finn på fakta. Ukjente verdier utelates.`;
   }
-  const generated = await callModel(
-    deps,
-    orgId,
-    settings,
-    feature,
-    system,
-    payload,
-    feature !== "stikkord",
-  );
-  const raw =
-    feature === "stikkord" ? { text: clean(generated.output, 300) } : parseJson(generated.output);
+  const generated = await callModel(deps, orgId, settings, feature, system, payload, true);
+  const raw = parseJson(generated.output);
+  if (feature === "stikkord") {
+    raw.text = clean(raw.text, 1000);
+    const relevance = z.enum(["low", "medium", "high"]).safeParse(raw.relevance);
+    if (
+      relevance.success &&
+      !person.contact.relevanceManual &&
+      relevance.data !== person.contact.relevance
+    )
+      raw.relevance = relevance.data;
+    else delete raw.relevance;
+  }
   const suggestion: Record<string, unknown> = {
     ...raw,
+    ...(pendingSummary ? { sammendrag: pendingSummary, summarySourceVersion: sourceVersion } : {}),
     model: generated.model,
     usage: generated.usage,
     evidence: clean(raw.evidence, 1000),
@@ -876,8 +982,10 @@ async function generateContact(
       String(person.contact.stikkord ?? "")
         .trim()
         .toLocaleLowerCase("nb-NO")
-  )
-    return null;
+  ) {
+    if (!pendingSummary && !raw.relevance) return null;
+    delete suggestion.text;
+  }
   let hasExistingTags = false;
   let hasExistingDomains = false;
   if (feature === "hierarchy") {
@@ -995,7 +1103,8 @@ async function generateContact(
         ? !!Object.keys(autoContactFields ?? {}).length
         : feature === "hierarchy"
           ? hasHierarchyValues(autoHierarchy)
-          : !person.contact.stikkord?.trim()));
+          : !pendingSummary &&
+            (!person.contact.stikkord?.trim() || (!person.contact.relevance && !!raw.relevance))));
   if (autoContactFields)
     suggestion.fields = shouldAutoApply ? autoContactFields : pendingContactFields;
   if (autoHierarchy) suggestion.hierarchy = shouldAutoApply ? autoHierarchy : pendingHierarchy;
@@ -1024,7 +1133,9 @@ async function generateContact(
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;
     if (feature === "stikkord") {
-      if (mode === "dangerous" || !fresh.stikkord) patch.stikkord = clean(generated.output, 300);
+      if (mode === "dangerous" || !fresh.stikkord) patch.stikkord = clean(raw.text, 1000);
+      if (!fresh.relevanceManual && raw.relevance && (mode === "dangerous" || !fresh.relevance))
+        patch.relevance = String(raw.relevance);
     }
     if (feature === "contact_fields")
       for (const [key, value] of Object.entries(suggestion.fields as Record<string, string>)) {
@@ -1476,6 +1587,8 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           .array(
             z.enum([
               "stikkord",
+              "sammendrag",
+              "relevance",
               "email",
               "phone",
               "description",
@@ -1490,6 +1603,13 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .safeParse(await c.req.json().catch(() => null));
     if (!choice.success) return c.json({ error: "Velg felter å bruke" }, 400);
     const selected = new Set(choice.data.fields);
+    if (
+      suggestion.feature === "stikkord" &&
+      (selected.has("stikkord") || selected.has("relevance")) &&
+      suggestion.payload.sammendrag &&
+      !selected.has("sammendrag")
+    )
+      return c.json({ error: "Godta sammendraget før Key takeaways eller relevans." }, 400);
     const [current] = await deps.db
       .select()
       .from(contacts)
@@ -1504,7 +1624,19 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const patch: Partial<Record<Editable, string | null>> = {};
     let changedTags = false;
     if (suggestion.feature === "stikkord" && selected.has("stikkord"))
-      patch.stikkord = clean(suggestion.payload.text, 300);
+      patch.stikkord = clean(suggestion.payload.text, 1000);
+    if (suggestion.feature === "stikkord" && selected.has("sammendrag"))
+      patch.sammendrag = clean(suggestion.payload.sammendrag, 20000);
+    if (
+      suggestion.feature === "stikkord" &&
+      selected.has("relevance") &&
+      !current.relevanceManual
+    ) {
+      const parsedRelevance = z
+        .enum(["low", "medium", "high"])
+        .safeParse(suggestion.payload.relevance);
+      if (parsedRelevance.success) patch.relevance = parsedRelevance.data;
+    }
     if (suggestion.feature === "contact_fields")
       for (const [key, value] of Object.entries(
         eligibleContactFields((suggestion.payload.fields as Record<string, string>) ?? {}, current),
@@ -1574,6 +1706,19 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         changedTags = true;
       }
     }
+    let summaryApplied = false;
+    if (patch.sammendrag !== undefined) {
+      summaryApplied = !!(await applyChange(
+        deps,
+        orgId,
+        current.id,
+        "sammendrag",
+        { sammendrag: patch.sammendrag },
+        c.get("user").id,
+        String(suggestion.payload.summarySourceVersion ?? ""),
+      ));
+      delete patch.sammendrag;
+    }
     if (Object.keys(patch).length)
       await applyChange(
         deps,
@@ -1582,14 +1727,25 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         suggestion.feature,
         patch,
         c.get("user").id,
-        suggestion.sourceVersion,
+        summaryApplied
+          ? (await contactContext(deps, orgId, current.id)).version
+          : suggestion.sourceVersion,
       );
-    if (!Object.keys(patch).length && !changedTags)
+    if (!Object.keys(patch).length && !changedTags && !summaryApplied)
       return c.json({ error: "Ingen endringer valgt" }, 400);
     const remaining = remainingSuggestion(suggestion.feature, suggestion.payload, selected);
     await deps.db
       .update(aiSuggestions)
-      .set(remaining ? { payload: remaining } : { status: "applied" })
+      .set(
+        remaining
+          ? {
+              payload: remaining,
+              sourceVersion: summaryApplied
+                ? (await contactContext(deps, orgId, current.id)).version
+                : suggestion.sourceVersion,
+            }
+          : { status: "applied" },
+      )
       .where(eq(aiSuggestions.id, suggestion.id));
     return c.json({ applied: true, remaining: !!remaining });
   });
@@ -1601,6 +1757,8 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         field: z
           .enum([
             "stikkord",
+            "sammendrag",
+            "relevance",
             "email",
             "phone",
             "description",
@@ -1676,6 +1834,10 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           stikkordGeneratedAt:
             typeof edit.before.stikkordGeneratedAt === "string"
               ? new Date(edit.before.stikkordGeneratedAt)
+              : null,
+          sammendragGeneratedAt:
+            typeof edit.before.sammendragGeneratedAt === "string"
+              ? new Date(edit.before.sammendragGeneratedAt)
               : null,
           updatedAt: new Date(),
         })

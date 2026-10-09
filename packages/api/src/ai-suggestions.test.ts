@@ -79,6 +79,30 @@ describe("field-level AI suggestions", () => {
     expect(remainingSuggestion("contact_fields", payload, new Set(["phone", "email"]))).toBeNull();
   });
 
+  it("keeps takeaways pending after a summary is accepted", () => {
+    const payload = {
+      sammendrag: "Full oversikt over funnene.",
+      text: "- Funn A\n- Funn B\n- Funn C",
+      summarySourceVersion: "source-1",
+    };
+    expect(suggestedFields("stikkord", payload)).toEqual(new Set(["stikkord", "sammendrag"]));
+    expect(remainingSuggestion("stikkord", payload, new Set(["sammendrag"]))).toEqual({
+      text: payload.text,
+      summarySourceVersion: "source-1",
+    });
+    expect(
+      remainingSuggestion("stikkord", payload, new Set(["sammendrag", "stikkord"])),
+    ).toBeNull();
+  });
+
+  it("keeps an AI relevance proposal available after the takeaways are handled", () => {
+    const payload = { text: "- Funn", relevance: "high" };
+    expect(suggestedFields("stikkord", payload)).toEqual(new Set(["stikkord", "relevance"]));
+    expect(remainingSuggestion("stikkord", payload, new Set(["stikkord"]))).toEqual({
+      relevance: "high",
+    });
+  });
+
   it("keeps a proposed domain separate from a proposed person tag", () => {
     const payload = {
       hierarchy: {

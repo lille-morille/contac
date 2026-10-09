@@ -8,11 +8,12 @@ export const reportColumnIds = [
   "name",
   "contactInfo",
   "status",
+  "relevance",
   "description",
+  "sammendrag",
   "personTags",
   "domains",
   "stikkord",
-  "log",
 ] as const;
 export type ReportColumnId = (typeof reportColumnIds)[number];
 export const reportColumnLabels: Record<ReportColumnId, string> = {
@@ -22,12 +23,22 @@ export const reportColumnLabels: Record<ReportColumnId, string> = {
   name: "Kontaktperson",
   contactInfo: "Kontaktinfo",
   status: "Status",
+  relevance: "Relevans",
   description: "Kort beskrivelse",
+  sammendrag: "Sammendrag",
   personTags: "Personmerker",
   domains: "Domener",
-  stikkord: "Stikkord",
-  log: "Logg",
+  stikkord: "Key takeaways",
 };
+export const contactRelevanceValues = ["low", "medium", "high"] as const;
+export type ContactRelevance = (typeof contactRelevanceValues)[number];
+export const reportSectionModes = [
+  "activity",
+  "company_status",
+  "contact_status",
+  "custom",
+] as const;
+export const reportSortModes = ["relevance", "status", "alphabetical"] as const;
 export const reportFormats = ["typst", "latex", "csv"] as const;
 export type ReportFormat = (typeof reportFormats)[number];
 
@@ -42,12 +53,16 @@ export const defaultReportSettings = {
     "name",
     "contactInfo",
     "status",
+    "sammendrag",
     "stikkord",
-    "log",
   ],
   excludedContactIds: [],
   orderMode: "default",
   contactOrder: [],
+  sectionMode: "activity",
+  sortMode: "relevance",
+  customSections: [],
+  customAssignments: {},
 } as const satisfies {
   format: ReportFormat;
   title: string;
@@ -56,6 +71,10 @@ export const defaultReportSettings = {
   excludedContactIds: readonly string[];
   orderMode: "default" | "manual";
   contactOrder: readonly string[];
+  sectionMode: (typeof reportSectionModes)[number];
+  sortMode: (typeof reportSortModes)[number];
+  customSections: readonly { id: string; title: string }[];
+  customAssignments: Record<string, string>;
 };
 
 export const reportSettingsSchema = z
@@ -63,10 +82,26 @@ export const reportSettingsSchema = z
     format: z.enum(reportFormats),
     title: z.string().trim().min(1).max(160),
     subtitle: z.string().max(300),
-    columns: z.array(z.enum(reportColumnIds)).min(2).max(reportColumnIds.length),
+    columns: z
+      .array(z.enum([...reportColumnIds, "log"]))
+      .min(2)
+      .max(reportColumnIds.length + 1)
+      .transform(
+        (columns) =>
+          [
+            ...new Set(columns.map((column) => (column === "log" ? "sammendrag" : column))),
+          ] as ReportColumnId[],
+      ),
     excludedContactIds: z.array(z.uuid()).max(10000),
     orderMode: z.enum(["default", "manual"]),
     contactOrder: z.array(z.uuid()).max(10000),
+    sectionMode: z.enum(reportSectionModes).default("activity"),
+    sortMode: z.enum(reportSortModes).default("relevance"),
+    customSections: z
+      .array(z.object({ id: z.uuid(), title: z.string().trim().min(1).max(100) }))
+      .max(100)
+      .default([]),
+    customAssignments: z.record(z.uuid(), z.uuid()).default({}),
   })
   .superRefine((value, context) => {
     if (value.columns[0] !== "number" || !value.columns.includes("name")) {
@@ -83,11 +118,19 @@ export const reportSettingsSchema = z
       if (new Set(values).size !== values.length)
         context.addIssue({ code: "custom", message: `Duplikat i ${label}.` });
     }
+    if (
+      new Set(value.customSections.map((section) => section.id)).size !==
+      value.customSections.length
+    )
+      context.addIssue({ code: "custom", message: "Duplikat i seksjoner." });
   });
 export type ReportSettings = z.infer<typeof reportSettingsSchema>;
 
 export type ReportContact = ExportContact & {
+  sammendrag: string | null;
   stikkord: string | null;
+  relevance?: ContactRelevance | null;
+  companyStatus?: string;
   assigneeName: string | null;
 };
 export type ReportPersonRef = { id: string; number: number; name: string };
@@ -104,9 +147,11 @@ export type ReportRow = {
 };
 export type ReportData = {
   settings: ReportSettings;
+  sections: ReportSection[];
   rows: ReportRow[];
   noActivityRows: ReportRow[];
 };
+export type ReportSection = { id: string; title: string; rows: ReportRow[] };
 
 const statusRank: Record<string, number> = {
   kan_kontaktes_igjen: 0,
@@ -117,6 +162,74 @@ const statusRank: Record<string, number> = {
   ikke_kontaktet: 5,
   ikke_kontakt_igjen: 6,
 };
+const statusLabels: Record<string, string> = {
+  kan_kontaktes_igjen: "Kan kontaktes igjen",
+  avsluttet: "Avsluttet",
+  follow_up: "Follow up / Ring igjen",
+  venter_pa_svar: "Venter på svar",
+  skal_ringe: "Skal ringe",
+  ikke_kontaktet: "Ikke kontaktet",
+  ikke_kontakt_igjen: "Ikke kontakt igjen",
+};
+const companyStatusLabels: Record<string, string> = {
+  ingen: "Ingen selskapsstatus",
+  kunde: "Kunde",
+  konkurrent: "Konkurrent",
+  samarbeidspartner: "Samarbeidspartner",
+  ekspert: "Ekspert",
+};
+const companyStatusOrder = ["kunde", "ekspert", "samarbeidspartner", "konkurrent", "ingen"];
+const relevanceRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+export function reportSectionForContact(
+  contact: Pick<ReportContact, "id" | "status" | "companyStatus">,
+  hasActivity: boolean,
+  settings: ReportSettings,
+): { id: string; title: string; rank: number } {
+  if (settings.sectionMode === "activity")
+    return hasActivity
+      ? { id: "activity", title: "Kontakter med aktivitet", rank: 0 }
+      : { id: "no-activity", title: "Uten aktivitet", rank: 1 };
+  if (settings.sectionMode === "contact_status")
+    return {
+      id: `status:${contact.status}`,
+      title: statusLabels[contact.status] ?? contact.status,
+      rank: statusRank[contact.status] ?? 99,
+    };
+  if (settings.sectionMode === "company_status") {
+    const status = contact.companyStatus ?? "ingen";
+    return {
+      id: `company:${status}`,
+      title: companyStatusLabels[status] ?? status,
+      rank: companyStatusOrder.indexOf(status) < 0 ? 99 : companyStatusOrder.indexOf(status),
+    };
+  }
+  const id = settings.customAssignments[contact.id];
+  const index = settings.customSections.findIndex((section) => section.id === id);
+  return index < 0
+    ? {
+        id: "unassigned",
+        title: "Uten seksjon",
+        rank: settings.customSections.length,
+      }
+    : { id: id!, title: settings.customSections[index]!.title, rank: index };
+}
+
+export function compareReportContacts(
+  a: Pick<ReportContact, "name" | "status" | "relevance" | "contactNumber">,
+  b: Pick<ReportContact, "name" | "status" | "relevance" | "contactNumber">,
+  sortMode: ReportSettings["sortMode"],
+) {
+  const relevance =
+    (relevanceRank[a.relevance ?? ""] ?? 3) - (relevanceRank[b.relevance ?? ""] ?? 3);
+  const status = (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99);
+  const name = a.name.localeCompare(b.name, "nb") || a.contactNumber - b.contactNumber;
+  return sortMode === "alphabetical"
+    ? name
+    : sortMode === "status"
+      ? status || relevance || name
+      : relevance || status || name;
+}
 
 export function orderedReportContacts(
   contacts: ReportContact[],
@@ -125,13 +238,10 @@ export function orderedReportContacts(
 ): ReportContact[] {
   const linked = new Set(activities.flatMap((activity) => activity.linkedContactIds));
   const manual = new Map(settings.contactOrder.map((id, index) => [id, index]));
-  const defaultCompare = (a: ReportContact, b: ReportContact) =>
-    (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) ||
-    a.name.localeCompare(b.name, "nb") ||
-    a.contactNumber - b.contactNumber;
   return [...contacts].sort((a, b) => {
-    const section = Number(linked.has(b.id)) - Number(linked.has(a.id));
-    if (section) return section;
+    const aSection = reportSectionForContact(a, linked.has(a.id), settings);
+    const bSection = reportSectionForContact(b, linked.has(b.id), settings);
+    if (aSection.rank !== bSection.rank) return aSection.rank - bSection.rank;
     if (settings.orderMode === "manual") {
       const aIndex = manual.get(a.id);
       const bIndex = manual.get(b.id);
@@ -139,7 +249,7 @@ export function orderedReportContacts(
       if (aIndex !== undefined) return -1;
       if (bIndex !== undefined) return 1;
     }
-    return defaultCompare(a, b);
+    return compareReportContacts(a, b, settings.sortMode);
   });
 }
 
@@ -195,8 +305,20 @@ export function buildReportData(input: {
         a.activity.id.localeCompare(b.activity.id),
     ),
   }));
+  const sectionMap = new Map<string, ReportSection>();
+  for (const row of rows) {
+    const section = reportSectionForContact(row.contact, row.hasActivity, input.settings);
+    const group = sectionMap.get(section.id) ?? {
+      id: section.id,
+      title: section.title,
+      rows: [],
+    };
+    group.rows.push(row);
+    sectionMap.set(section.id, group);
+  }
   return {
     settings: input.settings,
+    sections: [...sectionMap.values()],
     rows: rows.filter((row) => row.hasActivity),
     noActivityRows: rows.filter((row) => !row.hasActivity),
   };
