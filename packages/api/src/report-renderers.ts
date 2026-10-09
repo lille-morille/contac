@@ -287,9 +287,10 @@ export function renderReportTypst(report: ReportData): string {
     #text(size: 12pt, weight: "bold", fill: accent, title)
   ]
 }
-#let metadata-field(row, column) = [
-  #text(size: 7.5pt, fill: label, report-data.labels.at(column) + ": ")
-  #log-lines(row.values.at(column, default: ""))
+#let metadata-field(row, column, accent) = [
+  #text(size: 7.5pt, fill: accent, report-data.labels.at(column))
+  #linebreak()
+  #text(size: 9pt, fill: ink)[#log-lines(row.values.at(column, default: ""))]
 ]
 #let detail-field(row, column) = {
   let value = row.values.at(column, default: "")
@@ -301,7 +302,7 @@ export function renderReportTypst(report: ReportData): string {
     ]
   }
 }
-#let contact-card(row, columns) = {
+#let contact-card(row, columns, accent) = {
   let company = if "organization" in columns { row.values.at("organization", default: "") } else { "" }
   let metadata = columns.filter(column =>
     column != "number" and column != "name" and column != "organization" and
@@ -323,7 +324,7 @@ export function renderReportTypst(report: ReportData): string {
       )
       #if metadata.len() > 0 {
         [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 3pt,
-          ..metadata.map(column => metadata-field(row, column)))]
+          ..metadata.map(column => metadata-field(row, column, accent)))]
       }
     ]
     #for column in ("stikkord", "sammendrag") {
@@ -340,7 +341,7 @@ export function renderReportTypst(report: ReportData): string {
   #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
   #for section in data.sections {
     section-heading(section.title, rgb(section.accent), rgb(section.tint))
-    for row in section.rows { contact-card(row, settings.columns) }
+    for row in section.rows { contact-card(row, settings.columns, rgb(section.accent)) }
   }
   #pagebreak(weak: true)
 ]
