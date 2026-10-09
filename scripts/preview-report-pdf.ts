@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   buildReportData,
   defaultReportSettings,
+  reportColumnIds,
   reportSettingsSchema,
   type ExportActivity,
   type ReportContact,
@@ -11,7 +12,16 @@ import { contactReportSettings, createDb, organizations } from "../packages/core
 import { loadReportSnapshot } from "../packages/api/src/report-data.ts";
 import { renderReportTypst } from "../packages/api/src/report-renderers.ts";
 
-const outputDir = join(import.meta.dirname, "../output/export-preview");
+const allColumns = process.argv.includes("--all-columns");
+const localData = process.argv.includes("--local") || process.argv.includes("--team");
+const outputDir = join(
+  import.meta.dirname,
+  allColumns
+    ? localData
+      ? "../output/export-preview-all-fields"
+      : "../output/export-preview-fixture-all-fields"
+    : "../output/export-preview",
+);
 const sourcePath = join(outputDir, "kontaktlogg.typ");
 const pdfPath = join(outputDir, "kontaktlogg.pdf");
 const id = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`;
@@ -215,7 +225,7 @@ async function compile(output: string, pages?: string) {
     throw new Error(new TextDecoder().decode(result.stderr) || "Typst-kjøringen feilet.");
 }
 
-const args = process.argv.slice(2);
+const args = process.argv.slice(2).filter((arg) => arg !== "--all-columns");
 const groupModes = ["activity", "company_status", "contact_status", "custom"] as const;
 const group =
   args[0] === "--group" && groupModes.includes(args[1] as (typeof groupModes)[number])
@@ -228,12 +238,18 @@ if (
   !(args.length === 2 && group)
 )
   throw new Error(
-    "Bruk: bun run export:pdf [--group activity|company_status|contact_status|custom | --local | --team <lokal-team-id>]",
+    "Bruk: bun run export:pdf [--group activity|company_status|contact_status|custom | --local | --team <lokal-team-id>] [--all-columns]",
   );
 const report =
   args[0] === "--local" || args[0] === "--team"
     ? await localReport(args[0] === "--team" ? args[1] : undefined)
     : fixture(group ?? undefined);
+if (allColumns)
+  report.settings = reportSettingsSchema.parse({
+    ...report.settings,
+    title: `${report.settings.title} · alle felt`,
+    columns: [...reportColumnIds],
+  });
 if (!report.rows.length && !report.noActivityRows.length)
   throw new Error("Eksportoppsettet har ingen inkluderte kontakter.");
 await mkdir(outputDir, { recursive: true });

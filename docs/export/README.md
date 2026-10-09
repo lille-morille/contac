@@ -22,12 +22,17 @@ Use `bun run export:pdf:watch` while editing the Typst renderer or sample fixtur
 it regenerates the preview after source changes. Typst must be installed.
 The sample groups by company status. Use `bun run export:pdf --group custom`,
 `--group contact_status`, or `--group activity` to inspect other groupings.
+Add `--all-columns` to render every available export field in
+`output/export-preview-fixture-all-fields/` without changing saved settings.
 
 To preview the current local team's actual saved export settings and contacts,
 run `bun run export:pdf --local`. If the local database contains several teams,
 use `bun run export:pdf --team <team-uuid>`. This mode accepts only a loopback
 `DATABASE_URL` and uses the team's saved title, subtitle, columns, selection,
-and order. It writes to the same preview directory.
+and order. It writes to the same preview directory. Use
+`bun run export:pdf --local --all-columns` to compare the local team's contacts
+with every export field enabled. That version is written to
+`output/export-preview-all-fields/`, leaving the saved-settings PDF intact.
 
 ## Typst report template
 
