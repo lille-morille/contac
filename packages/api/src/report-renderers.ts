@@ -194,19 +194,51 @@ function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
   return rows.map((row) => ({
     number: row.contact.contactNumber,
     status: row.contact.status,
-    values: Object.fromEntries(columns.map((column) => [column, reportCell(row, column)])),
+    values: Object.fromEntries(
+      columns.map((column) => [
+        column,
+        column === "contactInfo"
+          ? reportCell(row, column).replaceAll("\n", " · ")
+          : reportCell(row, column),
+      ]),
+    ),
   }));
 }
+
+const sectionColors: Record<string, readonly [string, string]> = {
+  "company:kunde": ["#3d6580", "#edf3f6"],
+  "company:ekspert": ["#477367", "#eef4f1"],
+  "company:samarbeidspartner": ["#6e6281", "#f2f0f5"],
+  "company:konkurrent": ["#956451", "#f7f1ee"],
+  "company:ingen": ["#65717a", "#f1f3f4"],
+  "status:kan_kontaktes_igjen": ["#3d6580", "#edf3f6"],
+  "status:avsluttet": ["#65717a", "#f1f3f4"],
+  "status:follow_up": ["#8a6a3f", "#f6f2eb"],
+  "status:venter_pa_svar": ["#6e6281", "#f2f0f5"],
+  "status:skal_ringe": ["#477367", "#eef4f1"],
+  "status:ikke_kontaktet": ["#65717a", "#f1f3f4"],
+  "status:ikke_kontakt_igjen": ["#956451", "#f7f1ee"],
+};
+const fallbackSectionColors = [
+  ["#3d6580", "#edf3f6"],
+  ["#8a6a3f", "#f6f2eb"],
+  ["#477367", "#eef4f1"],
+  ["#6e6281", "#f2f0f5"],
+] as const;
 
 export function renderReportTypst(report: ReportData): string {
   const payload = {
     labels: reportColumnLabels,
-    sections: report.sections.map((section, index) => ({
-      title: section.title,
-      accent: ["#2764c7", "#ad6500", "#0b8277", "#6d4cf0"][index % 4],
-      tint: ["#e3edfd", "#fdf0dc", "#dcf6f2", "#eeeafd"][index % 4],
-      rows: typstRows(section.rows, report.settings.columns),
-    })),
+    sections: report.sections.map((section, index) => {
+      const [accent, tint] =
+        sectionColors[section.id] ?? fallbackSectionColors[index % fallbackSectionColors.length]!;
+      return {
+        title: section.title,
+        accent,
+        tint,
+        rows: typstRows(section.rows, report.settings.columns),
+      };
+    }),
   };
   return (
     `// Generert av Contac. Disse innstillingene kan redigeres etter eksport.\n` +
@@ -245,89 +277,67 @@ export function renderReportTypst(report: ReportData): string {
     if index < lines.len() - 1 { linebreak() }
   }
 }
-#let navy = rgb("#16384c")
-#let violet = rgb("#6d4cf0")
-#let violet-soft = rgb("#eeeafd")
-#let green = rgb("#168457")
-#let mint = rgb("#0b8277")
-#let mint-soft = rgb("#dcf6f2")
-#let blue = rgb("#2764c7")
-#let blue-soft = rgb("#e3edfd")
-#let orange = rgb("#ad6500")
-#let orange-soft = rgb("#fdf0dc")
-#let slate = rgb("#64748b")
-#let coral = rgb("#c74444")
-#let status-color(status) = {
-  if status == "kan_kontaktes_igjen" { blue }
-  else if status == "follow_up" { green }
-  else if status == "venter_pa_svar" { mint }
-  else if status == "skal_ringe" { orange }
-  else if status == "avsluttet" { violet }
-  else if status == "ikke_kontakt_igjen" { coral }
-  else { slate }
-}
+#let ink = rgb("#172129")
+#let muted = rgb("#586670")
+#let rule = rgb("#b8c2c8")
 #let section-heading(title, accent, tint) = {
-  block(width: 100%, sticky: true, above: 7mm, below: 3mm, inset: (x: 8pt, y: 5pt),
-    radius: 2pt, fill: tint)[
-    #text(size: 10pt, weight: "bold", fill: accent, title)
+  block(width: 100%, sticky: true, above: 7mm, below: 2mm, inset: (x: 7pt, y: 3pt),
+    fill: tint, stroke: (left: 2pt + accent))[
+    #text(size: 9.5pt, weight: "bold", fill: accent, title)
   ]
 }
 #let metadata-field(row, column) = [
-  #text(size: 7.5pt, weight: "bold", fill: if column == "status" { status-color(row.status) } else { navy }, report-data.labels.at(column))
-  #linebreak()
-  #v(1.5pt)
+  #text(size: 7.8pt, weight: "bold", fill: muted, report-data.labels.at(column) + ": ")
   #log-lines(row.values.at(column, default: ""))
 ]
-#let detail-box(row, column) = {
+#let detail-field(row, column) = {
   let value = row.values.at(column, default: "")
   if value != "" {
-    let tint = if column == "stikkord" { mint-soft } else { violet-soft }
-    let accent = if column == "stikkord" { mint } else { violet }
-    block(width: 100%, breakable: true, above: 3pt, below: 3pt,
-      inset: 7pt, radius: 2pt, fill: tint)[
-      #text(size: 9pt, weight: "bold", fill: accent, report-data.labels.at(column))
+    block(width: 100%, breakable: true, above: 5pt, below: 0pt)[
+      #text(size: 8.5pt, weight: "bold", fill: ink, report-data.labels.at(column))
       #linebreak()
       #log-lines(value)
     ]
   }
 }
 #let contact-card(row, columns) = {
-  let accent = status-color(row.status)
+  let company = if "organization" in columns { row.values.at("organization", default: "") } else { "" }
   let metadata = columns.filter(column =>
-    column != "number" and column != "description" and
+    column != "number" and column != "name" and column != "organization" and
     column != "sammendrag" and column != "stikkord" and
-    (column == "name" or row.values.at(column, default: "") != "")
+    row.values.at(column, default: "") != ""
   )
-  [
-    #block(width: 100%, breakable: false, above: 9pt, below: 3pt)[
-      #line(length: 100%, stroke: 0.9pt + accent)
-      #v(3pt)
+  block(width: 100%, breakable: true, above: 12pt, below: 8pt)[
+    #block(width: 100%, breakable: false, below: 4pt)[
+      #line(length: 100%, stroke: 0.7pt + rule)
+      #v(5pt)
       #grid(
-        columns: (9mm, 1fr), gutter: 3mm,
+        columns: (1fr, auto), gutter: 8pt,
         align: top,
-        [#contact-anchor(row.number)#block(fill: accent, radius: 2pt, inset: (x: 3pt, y: 2pt))[
-          #text(size: 8pt, weight: "bold", fill: white, str(row.number))
-        ]],
-        grid(columns: (1fr, 1fr), column-gutter: 6mm, row-gutter: 5pt,
-          ..metadata.map(column => metadata-field(row, column))),
+        [
+          #contact-anchor(row.number)
+          #text(size: 11pt, weight: "bold", fill: ink, row.values.at("name"))
+          #if company != "" { [#h(6pt)#text(size: 9.5pt, fill: muted, "/ " + company)] }
+        ],
+        [#text(size: 8pt, fill: muted, "K-" + str(row.number))],
       )
     ]
-    #for column in columns {
-      if column == "description" or column == "sammendrag" or column == "stikkord" {
-        detail-box(row, column)
-      }
+    #if metadata.len() > 0 {
+      grid(columns: (1fr, 1fr, 1fr), column-gutter: 6mm, row-gutter: 3pt,
+        ..metadata.map(column => metadata-field(row, column)))
+    }
+    #for column in ("stikkord", "sammendrag") {
+      if column in columns { detail-field(row, column) }
     }
   ]
 }
 #let render-contact-log(data, settings) = [
   #pagebreak(weak: true)
   #set page(paper: "a4", flipped: false, margin: (x: 16mm, y: 15mm))
-  #set text(size: 9pt, lang: "nb", fill: rgb("#172129"))
-  #set par(leading: 0.45em)
-  #block(width: 100%, inset: (x: 10pt, y: 8pt), radius: 3pt, fill: violet-soft)[
-    #text(size: 16pt, weight: "bold", fill: violet, settings.title)
-    #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
-  ]
+  #set text(size: 9pt, lang: "nb", fill: ink)
+  #set par(leading: 0.32em)
+  #text(size: 16pt, weight: "bold", fill: ink, settings.title)
+  #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
   #for section in data.sections {
     section-heading(section.title, rgb(section.accent), rgb(section.tint))
     for row in section.rows { contact-card(row, settings.columns) }

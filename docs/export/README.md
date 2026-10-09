@@ -10,7 +10,7 @@ Et sitat #cite-contact(12).
 #include "dependencies/kontaktlogg.typ"
 ```
 
-The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with distinct color bands for sections, status-colored number markers, and tinted Sammendrag and Key takeaways fields. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
+The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with restrained color on section headings. Each contact begins with the person's name and company, followed by compact metadata, Key takeaways, and Sammendrag. Neutral rules and spacing separate contacts. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
 
 ## Fast PDF preview
 
