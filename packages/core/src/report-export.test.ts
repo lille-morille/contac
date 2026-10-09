@@ -32,7 +32,6 @@ const meeting = (owner: number, linked: number[]): ExportActivity => ({
   summary: "Fullt møte",
   transcript: "Hele transkripsjonen",
   missedOutcome: null,
-  allowExternalAiOverride: null,
   email: null,
   attachments: [],
 });

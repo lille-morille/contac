@@ -1200,7 +1200,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       summary: z.string().max(20000).optional(),
       transcript: z.string().max(200000).optional(),
       occurredAt: z.iso.datetime().optional(),
-      allowExternalAiOverride: z.boolean().nullable().optional(),
     });
     const data = await parse(c, patch.extend({ expected: patch }));
     if (!activityId.success || !data || Object.keys(data).length === 1)
@@ -1214,7 +1213,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       summary: contactActivities.summary,
       transcript: contactActivities.transcript,
       occurredAt: contactActivities.occurredAt,
-      allowExternalAiOverride: contactActivities.allowExternalAiOverride,
     };
     const [row] = await deps.db
       .update(contactActivities)
@@ -1222,9 +1220,6 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         ...(changes.summary !== undefined ? { summary: changes.summary } : {}),
         ...(changes.transcript !== undefined ? { transcript: changes.transcript } : {}),
         ...(changes.occurredAt ? { occurredAt: new Date(changes.occurredAt) } : {}),
-        ...(changes.allowExternalAiOverride !== undefined
-          ? { allowExternalAiOverride: changes.allowExternalAiOverride }
-          : {}),
         updatedAt: new Date(),
       })
       .where(

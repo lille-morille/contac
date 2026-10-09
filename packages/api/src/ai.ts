@@ -375,7 +375,6 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
           (activity) =>
             (activity.summary.trim() || activity.transcript.trim()) &&
             isActivityAiEligible(
-              activity.allowExternalAiOverride,
               links.filter((link) => link.activityId === activity.id).map((link) => link.allow),
             ),
         )
@@ -386,13 +385,12 @@ async function contactContext(deps: ApiDeps, orgId: string, contactId: string) {
     date: activity.occurredAt.toISOString(),
     summary: activity.summary,
     transcript: activity.transcript,
-    sourceVersion: hash([activity.id, activity.updatedAt, activity.allowExternalAiOverride]),
+    sourceVersion: hash([activity.id, activity.updatedAt]),
   }));
   const version = hash({
     conversations: eligible.map((activity) => [
       activity.id,
       activity.updatedAt,
-      activity.allowExternalAiOverride,
     ]),
     contact: [
       person.contact.name,

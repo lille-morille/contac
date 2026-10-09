@@ -50,7 +50,7 @@ type ExportWorkspace = {
   revision: number;
   contacts: PreviewContact[];
 };
-type SaveState = "saved" | "pending" | "saving" | "conflict" | "error";
+type SaveState = "saved" | "pending" | "saving" | "error";
 
 const statusRank: Record<string, number> = {
   kan_kontaktes_igjen: 0,
@@ -183,16 +183,20 @@ function InlineReportEditor({
   const [error, setError] = useState("");
   const [remote, setRemote] = useState<string | null | undefined>(undefined);
   const cancelBlurRef = useRef(false);
+  const previousValueRef = useRef(value);
 
   useEffect(() => {
-    if (editing) return;
+    const changed = previousValueRef.current !== value;
+    previousValueRef.current = value;
+    if (!changed || editing) return;
     setDraft(value ?? "");
     setExpected(value);
+    setRemote(undefined);
   }, [value, editing]);
 
-  async function save(currentExpected = expected, resolveConflict = false) {
-    if (saving || (remote !== undefined && !resolveConflict)) return;
-    if (draft === (currentExpected ?? "")) {
+  async function save() {
+    if (saving) return;
+    if (draft === (expected ?? "")) {
       setEditing(false);
       setError("");
       return;
@@ -200,16 +204,18 @@ function InlineReportEditor({
     setSaving(true);
     setError("");
     try {
-      await onSave(draft, currentExpected);
+      await onSave(draft, expected);
       setEditing(false);
-      setRemote(undefined);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409) {
         const current = cause.details.current as Record<string, unknown> | undefined;
         const latest = current?.[field];
         if (typeof latest === "string" || latest === null) {
           setRemote(latest);
-          setError("Teksten ble endret av noen andre. Velg hvilken versjon du vil bruke.");
+          setDraft(latest ?? "");
+          setExpected(latest);
+          setEditing(false);
+          onRefresh();
         } else setError(cause.message);
       } else setError(cause instanceof Error ? cause.message : "Kunne ikke lagre teksten.");
     } finally {
@@ -238,8 +244,9 @@ function InlineReportEditor({
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               cancelBlurRef.current = true;
+              setDraft(remote ?? value ?? "");
+              setExpected(remote === undefined ? value : remote);
               setEditing(false);
-              setRemote(undefined);
               setError("");
             }
           }}
@@ -252,10 +259,14 @@ function InlineReportEditor({
           className="w-full cursor-text rounded text-left whitespace-pre-wrap break-words hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary"
           onClick={() => {
             cancelBlurRef.current = false;
+            setDraft(remote ?? value ?? "");
+            setExpected(remote === undefined ? value : remote);
             setEditing(true);
           }}
         >
-          {value || <span className="text-muted-foreground">Klikk for å legge til tekst.</span>}
+          {(remote === undefined ? value : remote) || (
+            <span className="text-muted-foreground">Klikk for å legge til tekst.</span>
+          )}
         </button>
       )}
       {saving && <p className="mt-1 text-xs text-muted-foreground">Lagrer …</p>}
@@ -263,38 +274,6 @@ function InlineReportEditor({
         <p role="alert" className="mt-1 text-xs text-risk">
           {error}
         </p>
-      )}
-      {remote !== undefined && (
-        <div className="mt-2 rounded-lg border border-warn bg-warn-soft p-2 text-xs">
-          <p className="font-semibold">Nyere lagret tekst</p>
-          <p className="mt-1 whitespace-pre-wrap">{remote || "(tomt)"}</p>
-          <div className="mt-2 flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setDraft(remote ?? "");
-                setExpected(remote);
-                setRemote(undefined);
-                setEditing(false);
-                setError("");
-                onRefresh();
-              }}
-            >
-              Bruk nyeste
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                setRemote(undefined);
-                setExpected(remote);
-                void save(remote, true);
-              }}
-            >
-              Lagre min tekst
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -481,7 +460,6 @@ export function ExportPage({
   const draftRef = useRef<ReportSettings | null>(null);
   const revisionRef = useRef(0);
   const dirtyRef = useRef(false);
-  const conflictRef = useRef<ExportWorkspace | null>(null);
   const inFlightRef = useRef<Promise<boolean> | null>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -489,13 +467,8 @@ export function ExportPage({
     const incoming = workspace.data;
     if (!incoming || incoming.revision < revisionRef.current) return;
     if (inFlightRef.current) return;
-    if (dirtyRef.current) {
-      if (incoming.revision > revisionRef.current) {
-        conflictRef.current = incoming;
-        setSaveState("conflict");
-      }
-      return;
-    }
+    if (dirtyRef.current && incoming.revision <= revisionRef.current) return;
+    dirtyRef.current = false;
     draftRef.current = incoming.settings;
     revisionRef.current = incoming.revision;
     setDraft(incoming.settings);
@@ -504,7 +477,6 @@ export function ExportPage({
 
   const persist = useCallback(
     async function persistChanges(): Promise<boolean> {
-      if (conflictRef.current) return false;
       if (inFlightRef.current) {
         const result = await inFlightRef.current;
         return result && (dirtyRef.current ? persistChanges() : true);
@@ -524,15 +496,24 @@ export function ExportPage({
           return true;
         })
         .catch((cause) => {
-          dirtyRef.current = true;
-          if (cause instanceof ApiError && cause.status === 409) {
+          if (
+            cause instanceof ApiError &&
+            cause.status === 409 &&
+            typeof cause.details.revision === "number" &&
+            cause.details.settings
+          ) {
             const remote = cause.details as unknown as ExportWorkspace;
-            conflictRef.current = remote;
-            setSaveState("conflict");
-          } else {
-            setSaveState("error");
-            setError(cause instanceof Error ? cause.message : "Kunne ikke lagre eksportoppsettet.");
+            draftRef.current = remote.settings;
+            revisionRef.current = remote.revision;
+            dirtyRef.current = false;
+            setDraft(remote.settings);
+            setSaveState("saved");
+            setMessage("Teamet endret oppsettet samtidig. Nyeste lagrede versjon vises.");
+            return true;
           }
+          dirtyRef.current = true;
+          setSaveState("error");
+          setError(cause instanceof Error ? cause.message : "Kunne ikke lagre eksportoppsettet.");
           return false;
         });
       const tracked = task.finally(() => {
@@ -552,7 +533,7 @@ export function ExportPage({
       draftRef.current = next;
       dirtyRef.current = true;
       setDraft(next);
-      setSaveState(conflictRef.current ? "conflict" : "pending");
+      setSaveState("pending");
       setError("");
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(
@@ -569,7 +550,7 @@ export function ExportPage({
   useEffect(
     () => () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      if (dirtyRef.current && !conflictRef.current) void persist();
+      if (dirtyRef.current) void persist();
     },
     [persist],
   );
@@ -777,46 +758,8 @@ export function ExportPage({
               ? "Lagrer …"
               : saveState === "pending"
                 ? "Endringer venter på lagring …"
-                : saveState === "conflict"
-                  ? "Teamet endret oppsettet samtidig."
-                  : "Lagring mislyktes."}
+                : "Lagring mislyktes."}
         </p>
-        {saveState === "conflict" && (
-          <div className="flex flex-wrap gap-2 rounded-xl bg-warn-soft p-3 text-sm">
-            <span className="w-full">
-              Velg hvilken versjon som skal brukes. Dine endringer er bevart her.
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                const remote = conflictRef.current;
-                if (!remote) return;
-                draftRef.current = remote.settings;
-                revisionRef.current = remote.revision;
-                dirtyRef.current = false;
-                conflictRef.current = null;
-                setDraft(remote.settings);
-                setSaveState("saved");
-              }}
-            >
-              Last inn teamets versjon
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                const remote = conflictRef.current;
-                if (!remote) return;
-                revisionRef.current = remote.revision;
-                conflictRef.current = null;
-                dirtyRef.current = true;
-                void persist();
-              }}
-            >
-              Lagre mine endringer
-            </Button>
-          </div>
-        )}
         {saveState === "error" && (
           <Button size="sm" variant="outline" onClick={() => void persist()}>
             Prøv lagring igjen

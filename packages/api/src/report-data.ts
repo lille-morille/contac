@@ -122,7 +122,6 @@ export async function loadReportSnapshot(db: Database, orgId: string) {
         summary: activity.summary,
         transcript: activity.transcript,
         missedOutcome: activity.missedOutcome,
-        allowExternalAiOverride: activity.allowExternalAiOverride,
         email: email
           ? {
               from: email.fromEmail,

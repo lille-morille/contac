@@ -252,8 +252,8 @@ try {
   assert.equal(
     (
       await call(a.token, teams[0], `/contacts/${contactId}`, {
-        position: "Analytiker",
-        expected: { position: null },
+        description: "Analytiker",
+        expected: { description: null },
       })
     ).status,
     200,
@@ -406,16 +406,16 @@ try {
   const updateCount = bEvents.filter(
     (event) => event.entity === "contacts" && event.operation === "update",
   ).length;
-  await client`UPDATE public.contacts SET position = 'Bakgrunnsjobb' WHERE id = ${contactId}`;
+  await client`UPDATE public.contacts SET description = 'Bakgrunnsjobb' WHERE id = ${contactId}`;
   await waitForNext(bEvents, "contacts", "update", updateCount);
   await b.sb.removeChannel(bChannel.channel);
-  await client`UPDATE public.contacts SET position = 'Etter frakobling' WHERE id = ${contactId}`;
+  await client`UPDATE public.contacts SET description = 'Etter frakobling' WHERE id = ${contactId}`;
   const reconnected = await subscribe(b.sb, `team:${teams[0]}`, () => {});
   assert.equal(reconnected.status, "SUBSCRIBED");
   const recovered = await call(b.token, teams[0], "/contact-data?part=core");
   assert.equal(
     (recovered.body.contacts as Record<string, unknown>[]).find((row) => row.id === contactId)
-      ?.position,
+      ?.description,
     "Etter frakobling",
   );
   assert.equal((await call(b.token, teams[0], "/contact-data?part=core")).status, 200);

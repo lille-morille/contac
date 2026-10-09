@@ -25,7 +25,6 @@ export type ExportActivity = {
   summary: string;
   transcript: string;
   missedOutcome: string | null;
-  allowExternalAiOverride: boolean | null;
   email: {
     from: string;
     to: string[];

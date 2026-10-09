@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readWorkspaceLocation, workspaceSearch } from "./index.tsx";
+import { readWorkspaceLocation, workspaceSearch } from "./workspace/model.tsx";
 
 describe("workspace links", () => {
   it("round trips team, board filters, organization focus, and a highlighted contact passage", () => {
@@ -36,7 +36,9 @@ describe("workspace links", () => {
   });
 
   it("drops legacy domain focus links while preserving the overview", () => {
-    const location = readWorkspaceLocation("?page=organizations&mapDomain=dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+    const location = readWorkspaceLocation(
+      "?page=organizations&mapDomain=dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    );
     expect(location.mapFocus).toEqual({ kind: "all", id: null });
     expect(workspaceSearch(location)).not.toContain("mapDomain");
   });

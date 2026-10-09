@@ -1,6 +1,8 @@
 export type { Database } from "./db/client.ts";
 export { CONTACT_DESCRIPTION_MAX_LENGTH } from "./contact-description.ts";
 export { isActivityAiEligible } from "./checkin.ts";
+export { parseInlineForward } from "./forwarded-email.ts";
+export type { ForwardedEmail } from "./forwarded-email.ts";
 export {
   normalizeEmail,
   emailList,

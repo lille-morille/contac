@@ -15,6 +15,7 @@ async function sendMessage(
   recipient = "contac@plingapp.no",
   body = "Hello there",
   declaredSize?: number,
+  extraHeaders = "",
 ) {
   const socket = connect(port, "127.0.0.1");
   const lines = createInterface({ input: socket, crlfDelay: Infinity })[Symbol.asyncIterator]();
@@ -53,6 +54,7 @@ async function sendMessage(
         "To: Person <person@example.test>\r\n" +
         "Message-ID: <mail-123@example.test>\r\n" +
         "Subject: A note\r\n" +
+        extraHeaders +
         "\r\n" +
         `${body}\r\n.\r\n`,
     );
@@ -78,7 +80,9 @@ async function listen(fetchWebhook: (url: string, init: RequestInit) => Promise<
 
 describe("separate SMTP intake", () => {
   it("accepts mail larger than the old 1 MB limit", async () => {
-    const fetchWebhook = vi.fn(async () => Response.json({ accepted: true }, { status: 202 }));
+    const fetchWebhook = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
     const port = await listen(fetchWebhook);
     expect(await sendMessage(port, undefined, "a".repeat(1_100_000), 1_101_000)).toMatch(/^250 /);
     expect(fetchWebhook).toHaveBeenCalledOnce();
@@ -116,6 +120,54 @@ describe("separate SMTP intake", () => {
       subject: "A note",
       body: "Hello there",
     });
+  });
+
+  it("passes an attached original email as structured content", async () => {
+    const fetchWebhook = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
+    const port = await listen(fetchWebhook);
+    const multipart = [
+      "--forward-boundary",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Please log this email.",
+      "--forward-boundary",
+      'Content-Type: message/rfc822; name="original.eml"',
+      'Content-Disposition: attachment; filename="original.eml"',
+      "",
+      "From: External <external@example.org>",
+      "To: Teammate <teammate@example.no>",
+      "Date: Thu, 8 Oct 2026 23:16:25 +0200",
+      "Subject: Original subject",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Original message body",
+      "--forward-boundary--",
+    ].join("\r\n");
+    expect(
+      await sendMessage(
+        port,
+        undefined,
+        multipart,
+        undefined,
+        'MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="forward-boundary"\r\n',
+      ),
+    ).toMatch(/^250 /);
+    const payload = JSON.parse(String(fetchWebhook.mock.calls[0]![1].body));
+    expect(payload.forwardedAttachmentPresent).toBe(true);
+    expect(payload.forwardedAttachment).toMatchObject({
+      source: "attachment",
+      confidence: "certain",
+      fromEmail: "external@example.org",
+      toEmails: ["teammate@example.no"],
+      subject: "Original subject",
+      body: "Original message body",
+      occurredAt: "2026-10-08T21:16:25.000Z",
+    });
+    expect(Buffer.from(payload.rawMimeBase64, "base64").toString()).toContain(
+      "Original message body",
+    );
   });
 
   it("temporarily rejects mail when the API cannot persist it", async () => {

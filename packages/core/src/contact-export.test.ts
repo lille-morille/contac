@@ -27,7 +27,6 @@ const activity = (id: string, linkedContactIds: string[]): ExportActivity => ({
   summary: "Hele oppsummeringen",
   transcript: "Hele transkripsjonen",
   missedOutcome: null,
-  allowExternalAiOverride: null,
   email: null,
   attachments: [{ id: "file", name: "notat.pdf", mimeType: "application/pdf", sizeBytes: 50 }],
 });

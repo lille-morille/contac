@@ -75,7 +75,7 @@ Add a `Slettede kontakter` view under the contact destinations, showing deleted 
 
 ## Current implementation map
 
-- Global ⌘K/Ctrl+K open action, page state, and contact shortcuts: [`packages/app/src/routes/index.tsx`](../../packages/app/src/routes/index.tsx).
+- Global ⌘K/Ctrl+K open action, page state, and contact shortcuts: [`packages/app/src/routes/workspace/home.tsx`](../../packages/app/src/routes/workspace/home.tsx).
 - Command palette: [`packages/app/src/components/command-palette.tsx`](../../packages/app/src/components/command-palette.tsx).
-- Board cards, list rows, contact detail, and activity composer: [`packages/app/src/routes/index.tsx`](../../packages/app/src/routes/index.tsx).
+- Board cards, list rows, contact detail, and activity composer: [`board.tsx`](../../packages/app/src/routes/workspace/board.tsx), [`contact-list.tsx`](../../packages/app/src/routes/workspace/contact-list.tsx), [`contact-detail.tsx`](../../packages/app/src/routes/workspace/contact-detail.tsx), and [`activity-editor.tsx`](../../packages/app/src/routes/workspace/activity-editor.tsx).
 - Contact API has create/update/favorite/tag, soft-delete, and restore routes: [`packages/api/src/contacts.ts`](../../packages/api/src/contacts.ts).

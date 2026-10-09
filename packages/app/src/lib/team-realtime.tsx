@@ -14,6 +14,7 @@ import { useAuth } from "./auth.tsx";
 import { useOrg } from "./org.tsx";
 import { clearRealtimeAuth, ensureRealtimeAuth, getSupabase } from "./supabase.ts";
 import { request } from "./api.ts";
+import { needsRowRead } from "./local-write-sync.ts";
 
 export type TeamChange = {
   teamId: string;
@@ -124,60 +125,74 @@ export function TeamRealtimeProvider({ children }: { children: ReactNode }) {
     const sb = getSupabase();
     let closed = false;
     const pending = new Map<string, QueryKey>();
-    const changedContacts = new Set<string>();
-    const changedActivities = new Set<string>();
+    const changedContacts = new Map<string, TeamChange>();
+    const changedActivities = new Map<string, TeamChange>();
     const generations = new Map<string, number>();
     let timer: number | undefined;
     const flush = () => {
       timer = undefined;
-      for (const id of changedContacts) {
+      for (const [id, change] of changedContacts) {
         const requestKey = `contact:${id}`;
         const generation = (generations.get(requestKey) ?? 0) + 1;
         generations.set(requestKey, generation);
-        void request<Record<string, unknown>>(`/org/contact-records/${id}`, teamId)
-          .then((row) => {
-            if (generations.get(requestKey) !== generation || closed) return;
-            qc.setQueryData<{ contacts: Record<string, unknown>[] }>(
-              ["contact-data", teamId, "core"],
-              (old) =>
-                old
-                  ? {
-                      ...old,
-                      contacts: (old.contacts.some((item) => item.id === id)
-                        ? old.contacts.map((item) => (item.id === id ? row : item))
-                        : [...old.contacts, row]
-                      ).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))),
-                    }
-                  : old,
-            );
-            void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
-          })
-          .catch(() => {
-            void qc.invalidateQueries({ queryKey: ["contact-data", teamId, "core"] });
-            void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
-          });
+        void needsRowRead(change).then((needed) =>
+          needed && !closed
+            ? request<Record<string, unknown>>(`/org/contact-records/${id}`, teamId)
+                .then((row) => {
+                  if (generations.get(requestKey) !== generation || closed) return;
+                  qc.setQueryData<{ contacts: Record<string, unknown>[] }>(
+                    ["contact-data", teamId, "core"],
+                    (old) =>
+                      old
+                        ? {
+                            ...old,
+                            contacts: (old.contacts.some((item) => item.id === id)
+                              ? old.contacts.map((item) => (item.id === id ? row : item))
+                              : [...old.contacts, row]
+                            ).sort((a, b) =>
+                              String(b.updatedAt).localeCompare(String(a.updatedAt)),
+                            ),
+                          }
+                        : old,
+                  );
+                  void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
+                })
+                .catch(() => {
+                  void qc.invalidateQueries({ queryKey: ["contact-data", teamId, "core"] });
+                  void qc.invalidateQueries({ queryKey: ["deleted-contacts", teamId] });
+                })
+            : undefined,
+        );
       }
-      for (const id of changedActivities) {
+      for (const [id, change] of changedActivities) {
         const requestKey = `activity:${id}`;
         const generation = (generations.get(requestKey) ?? 0) + 1;
         generations.set(requestKey, generation);
-        void request<Record<string, unknown>>(`/org/activity-records/${id}`, teamId)
-          .then((row) => {
-            if (generations.get(requestKey) !== generation || closed) return;
-            qc.setQueryData<{ activities: Record<string, unknown>[] }>(
-              ["contact-data", teamId, "activities"],
-              (old) =>
-                old
-                  ? {
-                      ...old,
-                      activities: old.activities
-                        .map((item) => (item.id === id ? row : item))
-                        .sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt))),
-                    }
-                  : old,
-            );
-          })
-          .catch(() => qc.invalidateQueries({ queryKey: ["contact-data", teamId, "activities"] }));
+        void needsRowRead(change).then((needed) =>
+          needed && !closed
+            ? request<Record<string, unknown>>(`/org/activity-records/${id}`, teamId)
+                .then((row) => {
+                  if (generations.get(requestKey) !== generation || closed) return;
+                  qc.setQueryData<{ activities: Record<string, unknown>[] }>(
+                    ["contact-data", teamId, "activities"],
+                    (old) =>
+                      old
+                        ? {
+                            ...old,
+                            activities: old.activities
+                              .map((item) => (item.id === id ? row : item))
+                              .sort((a, b) =>
+                                String(b.occurredAt).localeCompare(String(a.occurredAt)),
+                              ),
+                          }
+                        : old,
+                  );
+                })
+                .catch(() =>
+                  qc.invalidateQueries({ queryKey: ["contact-data", teamId, "activities"] }),
+                )
+            : undefined,
+        );
       }
       changedContacts.clear();
       changedActivities.clear();
@@ -221,9 +236,9 @@ export function TeamRealtimeProvider({ children }: { children: ReactNode }) {
         const change = payload as TeamChange;
         if (!change || change.teamId !== teamId || typeof change.entity !== "string") return;
         if (change.operation === "update" && change.entity === "contacts")
-          changedContacts.add(change.id);
+          changedContacts.set(change.id, change);
         if (change.operation === "update" && change.entity === "contact_activities")
-          changedActivities.add(change.id);
+          changedActivities.set(change.id, change);
         for (const key of keysForTeamChange(change, teamId)) enqueue(key);
         if (timer === undefined && (changedContacts.size || changedActivities.size))
           timer = window.setTimeout(flush, 100);

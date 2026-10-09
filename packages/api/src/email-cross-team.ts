@@ -6,8 +6,10 @@ import {
   matchingInboundContacts,
   isActivityAiEligible,
   normalizeEmail,
+  parseInlineForward,
   sameEmailSet,
 } from "@contac/core";
+import type { ForwardedEmail } from "@contac/core";
 import {
   activityContacts,
   activityFiles,
@@ -99,6 +101,47 @@ const messageFields = z.object({
 });
 const draftInput = messageFields.extend({ contactId: uuid, id: uuid.optional() });
 type Message = z.infer<typeof messageFields>;
+const forwardedMessageFields = z.object({
+  source: z.enum(["inline", "attachment"]),
+  confidence: z.enum(["certain", "review"]),
+  fromEmail: z.union([z.email(), z.literal("")]),
+  toEmails: z.array(z.email()).max(100),
+  ccEmails: z.array(z.email()).max(100),
+  subject: z.string().max(500),
+  body: z.string().max(250_000),
+  occurredAt: z.iso.datetime().nullable(),
+});
+const reviewedMessageFields = forwardedMessageFields
+  .omit({ source: true, confidence: true })
+  .extend({
+    fromEmail: z.email(),
+    toEmails: z.array(z.email()).min(1).max(100),
+    body: z.string().trim().min(1).max(250_000),
+    occurredAt: z.iso.datetime(),
+  });
+
+function originalEmail(inbound: typeof inboundEmails.$inferSelect) {
+  const forward = inbound.forwardedMessage;
+  return forward?.confidence === "certain"
+    ? {
+        fromEmail: forward.fromEmail,
+        toEmails: forward.toEmails,
+        ccEmails: forward.ccEmails,
+        bccEmails: [] as string[],
+        subject: forward.subject,
+        body: forward.body,
+        occurredAt: new Date(forward.occurredAt!),
+      }
+    : {
+        fromEmail: inbound.fromEmail,
+        toEmails: inbound.toEmails,
+        ccEmails: inbound.ccEmails,
+        bccEmails: inbound.bccEmails,
+        subject: inbound.subject,
+        body: inbound.body,
+        occurredAt: inbound.receivedAt,
+      };
+}
 
 async function isClassInboxAdmin(deps: ApiDeps, orgId: string, userId: string) {
   const [admin] = await deps.db
@@ -140,10 +183,26 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
       .extend({
         providerMessageId: z.string().trim().min(1).max(500),
         receivedAt: z.iso.datetime().optional(),
+        rawMimeBase64: z.string().max(13_333_336).optional(),
+        forwardedAttachment: forwardedMessageFields.nullable().optional(),
+        forwardedAttachmentPresent: z.boolean().optional(),
       })
       .safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "Invalid email payload" }, 400);
-    const { providerMessageId, receivedAt, ...message } = parsed.data;
+    const {
+      providerMessageId,
+      receivedAt,
+      rawMimeBase64,
+      forwardedAttachment,
+      forwardedAttachmentPresent,
+      ...message
+    } = parsed.data;
+    if (rawMimeBase64 && Buffer.from(rawMimeBase64, "base64").length > 10_000_000)
+      return c.json({ error: "Email exceeds the intake size limit" }, 400);
+    const inline = parseInlineForward(message.body, message.subject);
+    const attached = forwardedAttachment?.source === "attachment" ? forwardedAttachment : null;
+    const forwardedMessage: ForwardedEmail | null = attached ?? inline.message;
+    const forwardedIntent = !!forwardedAttachmentPresent || inline.forwarded || !!attached;
     const [classRow] = await deps.db
       .select({ id: organizations.classId })
       .from(organizations)
@@ -155,6 +214,9 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
         classId: classRow.id,
         providerMessageId,
         ...message,
+        rawMimeBase64: rawMimeBase64 ?? null,
+        forwardedMessage,
+        forwardedIntent,
         receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
       })
       .onConflictDoNothing()
@@ -179,8 +241,10 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
       : undefined;
     const classContacts = await deps.db
       .select({
+        id: contacts.id,
         orgId: contacts.orgId,
         email: contacts.email,
+        assigneeId: contacts.assigneeId,
         allowExternalAi: contacts.allowExternalAi,
       })
       .from(contacts)
@@ -275,7 +339,10 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
         senderOrgId = admin.currentTeamId;
     }
 
-    let extractedEmails: string[] = [];
+    const forward = inbound.forwardedMessage;
+    let extractedEmails = forward
+      ? emailList([forward.fromEmail, ...forward.toEmails, ...forward.ccEmails])
+      : [];
     if (senderOrgId && sender && !matchingDraft?.activityId) {
       // Persist ownership before external extraction. The unique suggestion also
       // prevents concurrent intake retries from charging the team twice.
@@ -297,22 +364,102 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
           row.email &&
           bodyAddresses.has(normalizeEmail(row.email)),
       );
-      if (claimed && !directMatches.some((row) => row.orgId === senderOrgId) && !blocked) {
+      if (
+        claimed &&
+        forward?.confidence !== "certain" &&
+        !directMatches.some((row) => row.orgId === senderOrgId) &&
+        !blocked
+      ) {
         try {
-          extractedEmails = await extractInboundContactEmails(deps, senderOrgId, message.body);
-          await deps.db
-            .update(inboundSuggestions)
-            .set({ extractedEmails })
-            .where(eq(inboundSuggestions.id, claimed.id));
+          extractedEmails = emailList([
+            ...extractedEmails,
+            ...(await extractInboundContactEmails(deps, senderOrgId, message.body)),
+          ]);
         } catch {
           // Extraction failure leaves the personal inbox item ready for manual linking.
         }
       }
+      if (claimed && extractedEmails.length)
+        await deps.db
+          .update(inboundSuggestions)
+          .set({ extractedEmails })
+          .where(eq(inboundSuggestions.id, claimed.id));
       if (extractedEmails.length)
         for (const row of classContacts) {
           if (row.email && extractedEmails.includes(normalizeEmail(row.email)))
             matchedTeams.add(row.orgId);
         }
+
+      const assignedMatches = [
+        ...new Set(
+          teamContacts
+            .filter(
+              (row) =>
+                row.assigneeId === sender.userId &&
+                row.email &&
+                extractedEmails.includes(normalizeEmail(row.email)),
+            )
+            .map((row) => row.id),
+        ),
+      ];
+      if (
+        claimed &&
+        directSender &&
+        forward?.confidence === "certain" &&
+        assignedMatches.length === 1
+      ) {
+        const contactId = assignedMatches[0]!;
+        const original = originalEmail(inbound);
+        const activityId = await deps.db.transaction(async (tx) => {
+          const [accepted] = await tx
+            .update(inboundSuggestions)
+            .set({ status: "accepted" })
+            .where(
+              and(eq(inboundSuggestions.id, claimed.id), eq(inboundSuggestions.status, "pending")),
+            )
+            .returning();
+          if (!accepted) return null;
+          const [activity] = await tx
+            .insert(contactActivities)
+            .values({
+              orgId: senderOrgId,
+              kind: "email",
+              summary: original.body,
+              exportOwnerContactId: contactId,
+              createdBy: sender.userId,
+              occurredAt: original.occurredAt,
+            })
+            .returning();
+          await tx.insert(activityContacts).values({
+            orgId: senderOrgId,
+            activityId: activity!.id,
+            contactId,
+          });
+          await tx.insert(emailActivities).values({
+            activityId: activity!.id,
+            orgId: senderOrgId,
+            inboundId: inbound.id,
+            fromEmail: original.fromEmail,
+            toEmails: original.toEmails,
+            ccEmails: original.ccEmails,
+            bccEmails: original.bccEmails,
+            subject: original.subject,
+          });
+          await tx
+            .update(inboundSuggestions)
+            .set({ activityId: activity!.id })
+            .where(eq(inboundSuggestions.id, claimed.id));
+          await tx
+            .update(contacts)
+            .set({ updatedAt: new Date() })
+            .where(and(eq(contacts.orgId, senderOrgId), eq(contacts.id, contactId)));
+          return activity!.id;
+        });
+        if (activityId)
+          queueMicrotask(() => {
+            void runContactAutomations(deps, senderOrgId!, [contactId]);
+          });
+      }
     }
 
     if (senderOrgId && matchingDraft?.activityId) {
@@ -639,7 +786,6 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       : [];
     const latest = entries.find(({ activity }) =>
       isActivityAiEligible(
-        activity.allowExternalAiOverride,
         links.filter((link) => link.activityId === activity.id).map((link) => link.allowExternalAi),
       ),
     )?.activity;
@@ -730,6 +876,8 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           body: inboundEmails.body,
           receivedAt: inboundEmails.receivedAt,
           extractedEmails: inboundSuggestions.extractedEmails,
+          forwardedMessage: inboundEmails.forwardedMessage,
+          forwardedIntent: inboundEmails.forwardedIntent,
         })
         .from(inboundSuggestions)
         .innerJoin(inboundEmails, eq(inboundEmails.id, inboundSuggestions.inboundId))
@@ -797,9 +945,18 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
             }
           : {
               ...row,
-              matchedContactIds: matchingInboundContacts(teamContacts, row).map(
-                (contact) => contact.id,
-              ),
+              matchedContactIds: (() => {
+                const originalMatches = row.forwardedMessage
+                  ? teamContacts.filter((contact) =>
+                      contactMatchesEmail(contact.email, row.forwardedMessage!),
+                    )
+                  : [];
+                return (
+                  originalMatches.length
+                    ? originalMatches
+                    : matchingInboundContacts(teamContacts, row)
+                ).map((contact) => contact.id);
+              })(),
             },
       ),
       requests,
@@ -831,7 +988,10 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   app.post("/v1/org/email-suggestions/:id/accept", async (c) => {
     const suggestionId = uuid.safeParse(c.req.param("id"));
     const parsed = z
-      .object({ contactIds: z.array(uuid).min(1).max(100) })
+      .object({
+        contactIds: z.array(uuid).min(1).max(100),
+        message: reviewedMessageFields.optional(),
+      })
       .safeParse(await c.req.json().catch(() => null));
     if (!suggestionId.success || !parsed.success) return c.json({ error: "Select contacts" }, 400);
     const orgId = c.get("org").id;
@@ -864,14 +1024,19 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       );
     if (found.length !== ids.length) return c.json({ error: "Choose team contacts" }, 400);
     const inbound = item.inbound;
-    const message = {
-      fromEmail: inbound.fromEmail,
-      toEmails: inbound.toEmails,
-      ccEmails: inbound.ccEmails,
-      bccEmails: inbound.bccEmails,
-      subject: inbound.subject,
-      body: inbound.body,
-    };
+    if (
+      inbound.forwardedIntent &&
+      inbound.forwardedMessage?.confidence !== "certain" &&
+      !parsed.data.message
+    )
+      return c.json({ error: "Review the forwarded email before adding it" }, 428);
+    const message = parsed.data.message
+      ? {
+          ...parsed.data.message,
+          bccEmails: [] as string[],
+          occurredAt: new Date(parsed.data.message.occurredAt),
+        }
+      : originalEmail(inbound);
     const activity = await deps.db.transaction(async (tx) => {
       const [claimed] = await tx
         .update(inboundSuggestions)
@@ -892,7 +1057,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
           summary: message.body,
           exportOwnerContactId: ids[0]!,
           createdBy: c.get("user").id,
-          occurredAt: inbound.receivedAt,
+          occurredAt: message.occurredAt,
         })
         .returning();
       await tx
@@ -1237,7 +1402,15 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       );
     if (!admin) return c.json({ error: "Class admin access required" }, 403);
     const all = await deps.db
-      .select()
+      .select({
+        id: inboundEmails.id,
+        fromEmail: inboundEmails.fromEmail,
+        toEmails: inboundEmails.toEmails,
+        ccEmails: inboundEmails.ccEmails,
+        subject: inboundEmails.subject,
+        body: inboundEmails.body,
+        receivedAt: inboundEmails.receivedAt,
+      })
       .from(inboundEmails)
       .where(and(eq(inboundEmails.classId, admin.classId), isNull(inboundEmails.adminResolvedAt)))
       .orderBy(desc(inboundEmails.receivedAt));

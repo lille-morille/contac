@@ -44,7 +44,6 @@ function sample() {
         summary: "Møte #1 & detaljer",
         transcript: "HEMMELIG TRANSKRIPSJON: Lang tekst med norske tegn. ".repeat(900),
         missedOutcome: null,
-        allowExternalAiOverride: null,
         email: null,
         attachments: [],
       },

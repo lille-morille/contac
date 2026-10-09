@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { simpleParser, type AddressObject } from "mailparser";
+import { simpleParser, type AddressObject, type Attachment } from "mailparser";
 import { SMTPServer } from "smtp-server";
 
 export const MAX_MESSAGE_BYTES = 10_000_000;
@@ -26,11 +26,50 @@ function bodyText(text: string | undefined, html: string | false | undefined) {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(?:p|div|li|tr|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/\n[\s\n]+/g, "\n")
     .trim()
     .slice(0, 250_000);
+}
+
+async function attachedForward(attachments: Attachment[]) {
+  const messages = attachments.filter(
+    (attachment) =>
+      attachment.contentType.toLowerCase() === "message/rfc822" ||
+      attachment.filename?.toLowerCase().endsWith(".eml"),
+  );
+  if (messages.length !== 1) return { forwarded: messages.length > 0, message: null };
+  try {
+    const original = await simpleParser(messages[0]!.content);
+    const fromEmail = addresses(original.from)[0] ?? "";
+    const toEmails = addresses(original.to);
+    const body = bodyText(original.text, original.html);
+    return {
+      forwarded: true,
+      message: {
+        source: "attachment" as const,
+        confidence:
+          fromEmail && toEmails.length && original.subject && original.date && body
+            ? ("certain" as const)
+            : ("review" as const),
+        fromEmail,
+        toEmails,
+        ccEmails: addresses(original.cc),
+        subject: original.subject ?? "",
+        body,
+        occurredAt: original.date?.toISOString() ?? null,
+      },
+    };
+  } catch {
+    return { forwarded: true, message: null };
+  }
 }
 
 export function createSmtpServer({
@@ -88,6 +127,7 @@ export function createSmtpServer({
             if (!fromEmail) throw new Error("Missing sender address");
             const providerMessageId =
               mail.messageId?.trim() || `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+            const attached = await attachedForward(mail.attachments);
             const response = await fetchWebhook(webhookUrl, {
               method: "POST",
               headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
@@ -106,6 +146,9 @@ export function createSmtpServer({
                 subject: mail.subject ?? "",
                 body: bodyText(mail.text, mail.html),
                 receivedAt: mail.date?.toISOString() ?? new Date().toISOString(),
+                rawMimeBase64: raw.toString("base64"),
+                forwardedAttachment: attached.message,
+                forwardedAttachmentPresent: attached.forwarded,
               }),
             });
             const result: unknown = response.ok ? await response.json().catch(() => null) : null;

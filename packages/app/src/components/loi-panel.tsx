@@ -69,9 +69,6 @@ export function LoiPanel({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<Loi> | null>(null);
   const [base, setBase] = useState<Loi | null>(null);
-  const [conflict, setConflict] = useState<{ local: Loi; remote: Loi; fields: string[] } | null>(
-    null,
-  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -121,8 +118,8 @@ export function LoiPanel({
       setBusy(false);
     }
   }
-  async function save(expectedOverride?: Loi) {
-    if (!org || !editing || !(expectedOverride ?? base)) return false;
+  async function save() {
+    if (!org || !editing || !base) return false;
     try {
       const row = await request<Loi>(`/org/lois/${editing.id}`, org.id, {
         ourSignerName: editing.ourSignerName,
@@ -131,16 +128,15 @@ export function LoiPanel({
         variables: editing.variables,
         sections: editing.sections,
         expected: {
-          ourSignerName: (expectedOverride ?? base)!.ourSignerName,
-          counterpartySignerName: (expectedOverride ?? base)!.counterpartySignerName,
-          documentDate: (expectedOverride ?? base)!.documentDate,
-          variables: (expectedOverride ?? base)!.variables,
-          sections: (expectedOverride ?? base)!.sections,
+          ourSignerName: base.ourSignerName,
+          counterpartySignerName: base.counterpartySignerName,
+          documentDate: base.documentDate,
+          variables: base.variables,
+          sections: base.sections,
         },
       });
       setBase(row);
       setDraft(null);
-      setConflict(null);
       await refresh();
       setMessage("Utkastet er lagret.");
       return true;
@@ -150,13 +146,14 @@ export function LoiPanel({
         error.status === 409 &&
         error.details.current &&
         typeof error.details.current === "object"
-      )
-        setConflict({
-          local: editing,
-          remote: error.details.current as Loi,
-          fields: Array.isArray(error.details.fields) ? (error.details.fields as string[]) : [],
-        });
-      setMessage(error instanceof Error ? error.message : "Kunne ikke lagre utkastet.");
+      ) {
+        setBase(error.details.current as Loi);
+        setDraft(null);
+        await refresh();
+        setMessage("Utkastet ble endret samtidig. Nyeste lagrede versjon vises.");
+      } else {
+        setMessage(error instanceof Error ? error.message : "Kunne ikke lagre utkastet.");
+      }
       return false;
     }
   }
@@ -527,65 +524,6 @@ export function LoiPanel({
               <Button size="sm" disabled={busy} onClick={() => void compile()}>
                 Kompiler og forhåndsvis PDF
               </Button>
-            </div>
-          )}
-          {conflict && (
-            <div role="alert" className="rounded-xl border border-warn bg-warn-soft p-4 text-sm">
-              <p className="font-semibold">Utkastet ble endret av en annen person</p>
-              <p className="mt-1">
-                Din lokale redigering er beholdt. Sammenlign før du lagrer på nytt.
-              </p>
-              {conflict.fields.map((field) => {
-                const describe = (loi: Loi) =>
-                  field === "sections.structure"
-                    ? loi.sections.map((section) => section.title).join(" → ")
-                    : field.startsWith("variables.")
-                      ? loi.variables[field.slice(10) as keyof LoiVariables]
-                      : field.startsWith("sections.")
-                        ? loi.sections.find((section) => section.id === field.split(".")[1])?.title
-                        : loi[
-                            field as keyof Pick<
-                              Loi,
-                              "ourSignerName" | "counterpartySignerName" | "documentDate"
-                            >
-                          ];
-                return (
-                  <div
-                    key={field}
-                    className="mt-3 grid gap-2 rounded-lg bg-card p-3 sm:grid-cols-2"
-                  >
-                    <div>
-                      <strong>Din verdi · {field}</strong>
-                      <p className="mt-1 whitespace-pre-wrap">
-                        {describe(conflict.local) || "(tomt)"}
-                      </p>
-                    </div>
-                    <div>
-                      <strong>Nyeste lagret</strong>
-                      <p className="mt-1 whitespace-pre-wrap">
-                        {describe(conflict.remote) || "(tomt)"}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setDraft(null);
-                    setBase(conflict.remote);
-                    setConflict(null);
-                    void refresh();
-                  }}
-                >
-                  Bruk nyeste
-                </Button>
-                <Button size="sm" disabled={busy} onClick={() => void save(conflict.remote)}>
-                  Bruk min versjon
-                </Button>
-              </div>
             </div>
           )}
           <div>

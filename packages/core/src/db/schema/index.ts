@@ -12,6 +12,7 @@ import {
   uuid,
   vector,
 } from "drizzle-orm/pg-core";
+import type { ForwardedEmail } from "../../forwarded-email.ts";
 
 export const membershipRole = pgEnum("membership_role", ["owner", "admin", "member"]);
 export const runStatus = pgEnum("agent_run_status", ["queued", "running", "completed", "failed"]);
@@ -494,7 +495,6 @@ export const contactActivities = pgTable("contact_activities", {
   missedOutcome: text("missed_outcome").$type<
     "voicemail" | "busy" | "call_later" | "no_answer" | "no_signal" | null
   >(),
-  allowExternalAiOverride: boolean("allow_external_ai_override"),
   exportOwnerContactId: uuid("export_owner_contact_id").references(() => contacts.id, {
     onDelete: "set null",
   }),
@@ -557,6 +557,9 @@ export const inboundEmails = pgTable("inbound_emails", {
   bccEmails: jsonb("bcc_emails").$type<string[]>().notNull().default([]),
   subject: text("subject").notNull().default(""),
   body: text("body").notNull().default(""),
+  rawMimeBase64: text("raw_mime_base64"),
+  forwardedMessage: jsonb("forwarded_message").$type<ForwardedEmail | null>(),
+  forwardedIntent: boolean("forwarded_intent").notNull().default(false),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
   senderUserId: uuid("sender_user_id"),
   routedAt: timestamp("routed_at", { withTimezone: true }),

@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import * as Y from "yjs";
-import { ApiError, request } from "../lib/api.ts";
+import { request } from "../lib/api.ts";
 import { useOrg } from "../lib/org.tsx";
 import { ensureRealtimeAuth, getSupabase } from "../lib/supabase.ts";
 import { HighlightedText } from "../lib/search-highlight.tsx";
 import { useTeamRealtime } from "../lib/team-realtime.tsx";
-import { Button } from "./ui/button.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 
 type Kind = "note" | "summary" | "transcript" | "loi-section" | "loi-signature";
@@ -36,7 +35,6 @@ function replaceText(text: Y.Text, next: string) {
     text.insert(start, next.slice(start, next.length - end));
   });
 }
-
 export function LiveText({
   kind,
   id,
@@ -63,18 +61,11 @@ export function LiveText({
   const [value, setValue] = useState(initialText);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [remoteText, setRemoteText] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const docRef = useRef<Y.Doc | null>(null);
   const pendingRef = useRef<Uint8Array[]>([]);
   const sendingRef = useRef(false);
-  const replacementRef = useRef<string | null>(null);
-  const latestSnapshotRef = useRef<string | null>(null);
-  const remoteTextRef = useRef<string | null>(null);
-  const updateRemote = useCallback((next: string | null) => {
-    remoteTextRef.current = next;
-    setRemoteText(next);
-  }, []);
+  const baseVersionRef = useRef(0);
   const orgId = org?.id;
   const documentKey = `${kind}:${id}`;
 
@@ -85,7 +76,7 @@ export function LiveText({
     let channelReady = false;
     const buffered: Uint8Array[] = [];
     const endpoint = `/org/collab/${kind}/${id}`;
-    const install = (encoded: string) => {
+    const install = (encoded: string, version: number) => {
       docRef.current?.destroy();
       const doc = new Y.Doc();
       Y.applyUpdate(doc, fromBase64(encoded), "remote");
@@ -100,58 +91,50 @@ export function LiveText({
         }
       });
       docRef.current = doc;
+      baseVersionRef.current = version;
       setValue(text.toString());
       for (const update of buffered.splice(0)) Y.applyUpdate(doc, update, "remote");
       setReady(channelReady);
-      updateRemote(null);
       setError("");
-      if (replacementRef.current !== null) {
-        const replacement = replacementRef.current;
-        replacementRef.current = null;
-        replaceText(text, replacement);
-      }
     };
     const fetchSnapshot = async () => {
       try {
         const snapshot = await request<{ state: string; version: number }>(endpoint, orgId);
         if (!alive) return;
-        latestSnapshotRef.current = snapshot.state;
-        const remote = new Y.Doc();
-        Y.applyUpdate(remote, fromBase64(snapshot.state));
-        const remoteValue = remote.getText("content").toString();
-        remote.destroy();
-        if (pendingRef.current.length) {
-          updateRemote(remoteValue);
-          setError(
-            "Tilkoblingen ble avbrutt eller teksten ble endret utenfor editoren. Velg hvilken tekst som skal brukes.",
-          );
+        if (sendingRef.current) {
+          window.setTimeout(() => {
+            if (alive) void fetchSnapshot();
+          }, 100);
           return;
         }
-        install(snapshot.state);
+        if (pendingRef.current.length && snapshot.version === baseVersionRef.current) {
+          setReady(channelReady);
+          setError("");
+          void flush();
+          return;
+        }
+        pendingRef.current = [];
+        install(snapshot.state, snapshot.version);
       } catch (cause) {
         if (alive) setError(cause instanceof Error ? cause.message : "Kunne ikke åpne editoren.");
       }
     };
     const flush = async () => {
-      if (
-        sendingRef.current ||
-        !channelReady ||
-        !pendingRef.current.length ||
-        remoteTextRef.current !== null
-      )
-        return;
+      if (sendingRef.current || !channelReady || !pendingRef.current.length) return;
       sendingRef.current = true;
-      while (alive && pendingRef.current.length && remoteTextRef.current === null) {
+      while (alive && pendingRef.current.length) {
         const batch = pendingRef.current.slice();
         const update = batch.length === 1 ? batch[0]! : Y.mergeUpdates(batch);
         try {
-          await request(endpoint, orgId, { update: toBase64(update) });
+          const saved = await request<{ version: number }>(endpoint, orgId, {
+            update: toBase64(update),
+          });
           if (!alive) break;
+          baseVersionRef.current = Math.max(baseVersionRef.current, saved.version);
           pendingRef.current.splice(0, batch.length);
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : "Endringen ble ikke lagret.");
-          if (cause instanceof ApiError && cause.status === 409) void fetchSnapshot();
-          else void fetchSnapshot();
+          void fetchSnapshot();
           break;
         }
       }
@@ -160,7 +143,13 @@ export function LiveText({
     const channel = sb.channel(`doc:${orgId}:${kind}:${id}`, { config: { private: true } });
     const configured = channel
       .on("broadcast", { event: "update" }, ({ payload }) => {
-        const event = payload as { teamId?: string; kind?: string; id?: string; update?: string };
+        const event = payload as {
+          teamId?: string;
+          kind?: string;
+          id?: string;
+          update?: string;
+          version?: number;
+        };
         if (
           event.teamId !== orgId ||
           event.kind !== kind ||
@@ -172,6 +161,8 @@ export function LiveText({
           const update = fromBase64(event.update);
           if (docRef.current) Y.applyUpdate(docRef.current, update, "remote");
           else buffered.push(update);
+          if (typeof event.version === "number")
+            baseVersionRef.current = Math.max(baseVersionRef.current, event.version);
         } catch {
           /* Recovery read on focus or reconnect repairs a malformed update. */
         }
@@ -214,7 +205,7 @@ export function LiveText({
       sendingRef.current = false;
       setEditing(null);
     };
-  }, [orgId, kind, id, generation, setEditing, updateRemote]);
+  }, [orgId, kind, id, generation, setEditing]);
 
   const previousInitialRef = useRef(initialText);
   useEffect(() => {
@@ -225,8 +216,7 @@ export function LiveText({
       if (
         !docRef.current ||
         docRef.current.getText("content").toString() === initialText ||
-        pendingRef.current.length ||
-        remoteTextRef.current !== null
+        pendingRef.current.length
       )
         return;
       void request<{ state: string }>(`/org/collab/${kind}/${id}`, orgId)
@@ -237,12 +227,10 @@ export function LiveText({
             const text = latest.getText("content").toString();
             if (
               docRef.current?.getText("content").toString() !== text &&
-              !pendingRef.current.length &&
-              remoteTextRef.current === null
+              !pendingRef.current.length
             ) {
-              latestSnapshotRef.current = snapshot.state;
-              updateRemote(text);
-              setError("Teksten ble endret utenfor live editoren. Sammenlign før du fortsetter.");
+              setReady(false);
+              setGeneration((current) => current + 1);
             }
           } finally {
             latest.destroy();
@@ -251,17 +239,7 @@ export function LiveText({
         .catch(() => {});
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [initialText, ready, orgId, kind, id, updateRemote]);
-
-  const choose = (useLocal: boolean) => {
-    if (!latestSnapshotRef.current) return;
-    replacementRef.current = useLocal ? value : null;
-    pendingRef.current = [];
-    updateRemote(null);
-    setError("");
-    setReady(false);
-    setGeneration((current) => current + 1);
-  };
+  }, [initialText, ready, orgId, kind, id]);
 
   return (
     <div>
@@ -275,7 +253,7 @@ export function LiveText({
         <Textarea
           className={className}
           value={value}
-          disabled={disabled || !ready || remoteText !== null || !!error}
+          disabled={disabled || !ready || !!error}
           onFocus={() => setEditing(documentKey)}
           onBlur={() => setEditing(null)}
           onSelect={onSelect}
@@ -289,24 +267,6 @@ export function LiveText({
         <p role="alert" className="mt-2 text-xs text-risk">
           {error}
         </p>
-      )}
-      {remoteText !== null && (
-        <div className="mt-2 rounded-xl border border-warn bg-warn-soft p-3 text-sm">
-          <p className="font-medium">Nyeste lagrede tekst</p>
-          <p className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap">
-            {remoteText || "(tomt)"}
-          </p>
-          <p className="mt-2 font-medium">Din lokale tekst</p>
-          <p className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap">{value || "(tomt)"}</p>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => choose(false)}>
-              Bruk nyeste
-            </Button>
-            <Button size="sm" onClick={() => choose(true)}>
-              Bruk min tekst
-            </Button>
-          </div>
-        </div>
       )}
     </div>
   );

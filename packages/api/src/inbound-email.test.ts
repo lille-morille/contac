@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
+  activityContacts,
   classMemberships,
+  contactActivities,
   contacts,
+  emailActivities,
   emailDrafts,
   inboundEmails,
   inboundSuggestions,
@@ -27,13 +30,22 @@ type Fixture = {
   bodySenders?: string[];
   senderTeams?: string[];
   currentTeam?: string | null;
-  contactTeams?: { orgId: string; email: string; allowExternalAi?: boolean }[];
+  contactTeams?: {
+    id?: string;
+    orgId: string;
+    email: string;
+    allowExternalAi?: boolean;
+    assigneeId?: string | null;
+  }[];
   routed?: boolean;
 };
 
 function makeApp(fixture: Fixture = {}) {
   const suggestions: Record<string, unknown>[] = [];
   const updates: Record<string, unknown>[] = [];
+  const activities: Record<string, unknown>[] = [];
+  const activityLinks: Record<string, unknown>[] = [];
+  const emailRows: Record<string, unknown>[] = [];
   let stored: Record<string, unknown> = {};
   const queries: { table: unknown; params: unknown[] }[] = [];
   const deps = {
@@ -45,7 +57,13 @@ function makeApp(fixture: Fixture = {}) {
             if (table === organizations)
               return fields && "inboundKey" in fields ? [] : [{ id: "class-a" }];
             if (table === contacts)
-              return fixture.contactTeams ?? [{ orgId: "team-5", email: "oliver.hayden@tum.de" }];
+              return (
+                fixture.contactTeams ?? [{ orgId: "team-5", email: "oliver.hayden@tum.de" }]
+              ).map((row, index) => ({
+                id: row.id ?? `contact-${index + 1}`,
+                assigneeId: row.assigneeId === undefined ? "lenart" : row.assigneeId,
+                ...row,
+              }));
             if (table === profiles)
               return [
                 ...(fixture.directSender
@@ -78,28 +96,53 @@ function makeApp(fixture: Fixture = {}) {
         },
       }),
       insert: (table: unknown) => ({
-        values: (value: Record<string, unknown>) => ({
+        values: (value: Record<string, unknown> | Record<string, unknown>[]) => ({
           onConflictDoNothing: () => {
             if (table === inboundSuggestions) {
-              suggestions.push(value);
+              suggestions.push(value as Record<string, unknown>);
               return Object.assign(Promise.resolve(), {
-                returning: async () => [{ id: "suggestion-1", ...value }],
+                returning: async () => [
+                  { id: "suggestion-1", ...(value as Record<string, unknown>) },
+                ],
               });
             }
             expect(table).toBe(inboundEmails);
-            stored = { id: "inbound-1", ...value, routedAt: fixture.routed ? new Date() : null };
+            stored = {
+              id: "inbound-1",
+              ...(value as Record<string, unknown>),
+              routedAt: fixture.routed ? new Date() : null,
+            };
             return { returning: async () => [stored] };
+          },
+          returning: async () => {
+            if (table === contactActivities) {
+              activities.push(value as Record<string, unknown>);
+              return [{ id: "activity-1", ...(value as Record<string, unknown>) }];
+            }
+            throw new Error("Unexpected returning insert");
+          },
+          then: (resolve: (value: unknown) => unknown) => {
+            if (table === activityContacts) activityLinks.push(value as Record<string, unknown>);
+            if (table === emailActivities) emailRows.push(value as Record<string, unknown>);
+            return Promise.resolve().then(resolve);
           },
         }),
       }),
       update: (table: unknown) => ({
-        set: (value: Record<string, unknown>) => ({
-          where: async () => {
-            expect([inboundEmails, inboundSuggestions]).toContain(table);
-            updates.push(value);
-          },
-        }),
+        set: (value: Record<string, unknown>) => {
+          const query = {
+            where: () => {
+              expect([inboundEmails, inboundSuggestions, contacts]).toContain(table);
+              updates.push(value);
+              return query;
+            },
+            returning: async () => [{ id: "suggestion-1", ...value }],
+            then: (resolve: (value: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
+          };
+          return query;
+        },
       }),
+      transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(deps.db),
     },
   } as unknown as ApiDeps;
   const app = new Hono<ApiEnv>();
@@ -118,13 +161,22 @@ function makeApp(fixture: Fixture = {}) {
       }),
     });
   vi.stubEnv("INBOUND_WEBHOOK_SECRET", "test-secret");
-  return { receive, suggestions, updates, queries, stored: () => stored };
+  return {
+    receive,
+    suggestions,
+    updates,
+    activities,
+    activityLinks,
+    emailRows,
+    queries,
+    stored: () => stored,
+  };
 }
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("forwarded inbound email routing", () => {
-  it("routes the screenshot's body contact to its team and preserves actual headers", async () => {
+  it("keeps an unstructured forward in the inbox for confirmation", async () => {
     const fixture = makeApp();
     expect((await fixture.receive()).status).toBe(202);
     expect(fixture.suggestions).toEqual([
@@ -134,6 +186,80 @@ describe("forwarded inbound email routing", () => {
       fromEmail: "alias@example.no",
       toEmails: ["contac@plingapp.no"],
     });
+    expect(fixture.activities).toHaveLength(0);
+  });
+
+  it("automatically adds a clear forward to its assigned contact with original content", async () => {
+    const fixture = makeApp({ directSender: "lenart" });
+    expect(
+      (
+        await fixture.receive({
+          body: "—\nSignature\n\nBegin forwarded message:\n\nFrom: Oliver <oliver.hayden@tum.de>\nDate: Thu, 8 Oct 2026 23:16:25 +0200\nTo: Lenart <lennarh@stud.ntnu.no>\nSubject: Project\n\nOriginal message",
+        })
+      ).status,
+    ).toBe(202);
+    expect(fixture.activities).toHaveLength(1);
+    expect(fixture.activities[0]).toMatchObject({
+      orgId: "team-5",
+      kind: "email",
+      exportOwnerContactId: "contact-1",
+      createdBy: "lenart",
+      summary: "Original message",
+      occurredAt: new Date("2026-10-08T21:16:25.000Z"),
+    });
+    expect(fixture.activityLinks).toEqual([
+      { orgId: "team-5", activityId: "activity-1", contactId: "contact-1" },
+    ]);
+    expect(fixture.emailRows[0]).toMatchObject({
+      inboundId: "inbound-1",
+      activityId: "activity-1",
+      subject: "Project",
+      fromEmail: "oliver.hayden@tum.de",
+      toEmails: ["lennarh@stud.ntnu.no"],
+    });
+    expect(fixture.updates).toContainEqual({ status: "accepted" });
+    expect(fixture.updates).toContainEqual({ activityId: "activity-1" });
+  });
+
+  it("keeps a clear forward for review when the forwarder is not a known sender", async () => {
+    const fixture = makeApp();
+    expect(
+      (
+        await fixture.receive({
+          body: "From: Oliver <oliver.hayden@tum.de>\nDate: Thu, 8 Oct 2026 23:16:25 +0200\nTo: Lenart <lennarh@stud.ntnu.no>\nSubject: Project\n\nOriginal message",
+        })
+      ).status,
+    ).toBe(202);
+    expect(fixture.activities).toHaveLength(0);
+    expect(fixture.suggestions).toHaveLength(1);
+  });
+
+  it("uses an attached original without calling email matching AI", async () => {
+    const fixture = makeApp({ directSender: "lenart" });
+    expect(
+      (
+        await fixture.receive({
+          body: "Please log the attached message.",
+          forwardedAttachmentPresent: true,
+          forwardedAttachment: {
+            source: "attachment",
+            confidence: "certain",
+            fromEmail: "oliver.hayden@tum.de",
+            toEmails: ["lennarh@stud.ntnu.no"],
+            ccEmails: [],
+            subject: "Attached original",
+            body: "The actual message",
+            occurredAt: "2026-10-08T21:16:25.000Z",
+          },
+        })
+      ).status,
+    ).toBe(202);
+    expect(extractInboundContactEmails).not.toHaveBeenCalled();
+    expect(fixture.activities[0]).toMatchObject({ summary: "The actual message" });
+    expect(fixture.emailRows[0]).toMatchObject({
+      fromEmail: "oliver.hayden@tum.de",
+      subject: "Attached original",
+    });
   });
 
   it("uses a unique body member to keep content in their team and send only overlap alerts elsewhere", async () => {
@@ -141,7 +267,7 @@ describe("forwarded inbound email routing", () => {
       bodySenders: ["lenart", "lenart"],
       senderTeams: ["team-5"],
       contactTeams: [
-        { orgId: "team-5", email: "oliver.hayden@tum.de" },
+        { id: "contact-1", orgId: "team-5", email: "oliver.hayden@tum.de", assigneeId: "lenart" },
         { orgId: "other-team", email: "oliver.hayden@tum.de" },
       ],
     });
@@ -264,6 +390,36 @@ describe("forwarded inbound email routing", () => {
     expect(fixture.suggestions).toEqual([
       { inboundId: "inbound-1", orgId: "team-5", kind: "email", recipientUserId: "lenart" },
     ]);
+  });
+
+  it("leaves multiple assigned body matches for inbox review", async () => {
+    const fixture = makeApp({
+      contactTeams: [
+        { id: "contact-a", orgId: "team-5", email: "oliver.hayden@tum.de", assigneeId: "lenart" },
+        { id: "contact-b", orgId: "team-5", email: "oliver.hayden@tum.de", assigneeId: "lenart" },
+      ],
+    });
+    expect((await fixture.receive()).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.suggestions).toHaveLength(1);
+    expect(fixture.updates).not.toContainEqual({ status: "accepted" });
+  });
+
+  it("leaves an unassigned body match for inbox review", async () => {
+    const fixture = makeApp({
+      contactTeams: [
+        {
+          id: "contact-unassigned",
+          orgId: "team-5",
+          email: "oliver.hayden@tum.de",
+          assigneeId: null,
+        },
+      ],
+    });
+    expect((await fixture.receive()).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.suggestions).toHaveLength(1);
+    expect(fixture.updates).not.toContainEqual({ status: "accepted" });
   });
 
   it("skips AI if the owner's contact matches a header", async () => {

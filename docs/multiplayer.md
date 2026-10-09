@@ -20,6 +20,11 @@ The client subscribes only to its selected team, removes the previous channel on
 switch or logout, and refreshes Realtime authentication when the Auth token
 changes. Events coalesce for 100 ms. Contact and activity row updates fetch just
 the changed row; relationship changes invalidate their TanStack Query slices.
+For a local scalar write, the UI shows a pending value immediately, then places
+the authoritative API response in the cache. A matching database change signal
+does not fetch the same row again, even if it arrives before the HTTP response.
+Other revisions still fetch the row. Derived views reconcile in the background;
+the mutation promise does not wait for a refetch.
 The initial subscription, reconnect, and window focus trigger API refetches.
 Active team queries, including contacts, activities, library, sessions, drafts,
 search results, AI results, LOIs, and settings, retain 60-second polling; the
@@ -31,15 +36,18 @@ their polling paths without a prompt live update.
 Saved shared research notes, activity summaries and transcripts, and LOI section
 and signature text use Yjs. The server stores full Yjs state and mirrors the
 materialized text to the existing row inside one transaction. A new research
-note still requires its first explicit Save. Disconnected or conflicting local
-text is held locally and shown beside the server text; applying it again is an
-explicit user action. A socket update never replaces an unsaved local edit.
+note still requires its first explicit Save. If a disconnected edit conflicts
+with a committed document snapshot, the client reloads that snapshot and drops
+the unsaved edit. Normal connected Yjs updates continue to merge. A socket
+update does not replace text while a local write is still being sent.
 
 Scalar contact, activity, organization, tag relationship, and LOI
 edits use server-enforced expected values or a revision. A stale write receives
-409 and the latest value. Valid edits to different contact fields can proceed
-independently. Dragging a board card remains optimistic and rolls back if the
-server rejects its status change.
+409 and the latest committed value. The workspace discards its pending value
+and shows that server value without a conflict dialog. Server commit order,
+not browser timestamps, determines which value is current. Valid edits to
+different contact fields can proceed independently. Dragging a board card
+remains optimistic and returns to the committed status if its write loses.
 
 Presence advertises only the member ID, current contact ID, and editor ID.
 The UI renders avatars for teammates on the contact. No document text travels

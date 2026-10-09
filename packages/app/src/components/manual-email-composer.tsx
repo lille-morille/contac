@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Mail } from "lucide-react";
+import { Copy, Mail } from "lucide-react";
 import { Button } from "./ui/button.tsx";
 import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
+import { copyText } from "../lib/clipboard.ts";
+
+const inboundEmailAddress = "contac@plingapp.no";
 
 export function ManualEmailComposer({
   contactId,
@@ -26,6 +29,7 @@ export function ManualEmailComposer({
     return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   });
   const [saving, setSaving] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
   async function save() {
     if (saving || busy || !body.trim() || !occurredAt) return;
     setSaving(true);
@@ -61,9 +65,38 @@ export function ManualEmailComposer({
           Avbryt
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Lim inn en e-post du har mottatt eller sendt. Den lagres i kontaktloggen.
-      </p>
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">
+          En enklere måte er å videresende e-posten hit. Når Contac kan lese originalen og matche én
+          kontakt du er ansvarlig for, legges den til automatisk. Ellers kan du kontrollere den i
+          innboksen før den lagres:
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Input
+            className="min-w-48 flex-1 bg-card"
+            value={inboundEmailAddress}
+            readOnly
+            aria-label="Videresend e-post til"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void copyText(inboundEmailAddress).then(
+                () => setCopyMessage("E-postadressen er kopiert"),
+                () => setCopyMessage("Kunne ikke kopiere e-postadressen"),
+              )
+            }
+          >
+            <Copy size={15} /> Kopier
+          </Button>
+        </div>
+        {copyMessage && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {copyMessage}
+          </p>
+        )}
+      </div>
       <label className="block text-sm font-medium">
         Emne (valgfritt)
         <Input

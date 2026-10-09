@@ -9,7 +9,7 @@ const people = [
   { id: "person-c", name: "Cy", allow: false },
 ];
 const timestamp = new Date("2026-01-02T10:00:00Z");
-function activity(id: string, allowExternalAiOverride: boolean | null = null) {
+function activity(id: string) {
   return {
     id,
     kind: "meeting",
@@ -17,12 +17,11 @@ function activity(id: string, allowExternalAiOverride: boolean | null = null) {
     transcript: "Samtaletekst",
     occurredAt: timestamp,
     updatedAt: timestamp,
-    allowExternalAiOverride,
   };
 }
 const shared = activity("shared");
 const individual = activity("individual");
-const excluded = activity("excluded", false);
+const excluded = activity("excluded");
 
 function fakeDeps() {
   let personIndex = 0;
@@ -80,7 +79,7 @@ function fakeDeps() {
                 : [
                     { activityId: "shared", allow: true },
                     { activityId: "shared", allow: true },
-                    { activityId: "excluded", allow: true },
+                    { activityId: "excluded", allow: false },
                   ]
             ) as unknown[];
           }
