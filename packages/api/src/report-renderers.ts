@@ -304,9 +304,10 @@ export function renderReportTypst(report: ReportData): string {
 }
 #let contact-card(row, columns, accent) = {
   let company = if "organization" in columns { row.values.at("organization", default: "") } else { "" }
+  let description = if "description" in columns { row.values.at("description", default: "") } else { "" }
   let metadata = columns.filter(column =>
     column != "number" and column != "name" and column != "organization" and
-    column != "sammendrag" and column != "stikkord" and
+    column != "description" and column != "sammendrag" and column != "stikkord" and
     row.values.at(column, default: "") != ""
   )
   block(width: 100%, breakable: true, above: 12pt, below: 8pt)[
@@ -322,6 +323,14 @@ export function renderReportTypst(report: ReportData): string {
           #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, company)] }
         ],
       )
+      #if description != "" {
+        pad(left: 18mm)[
+          #v(3pt)
+          #text(size: 7.5pt, fill: accent, report-data.labels.at("description"))
+          #linebreak()
+          #text(size: 9pt, fill: ink)[#log-lines(description)]
+        ]
+      }
       #if metadata.len() > 0 {
         [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 6pt,
           ..metadata.map(column => metadata-field(row, column, accent)))]
