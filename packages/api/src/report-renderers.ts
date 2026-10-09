@@ -314,7 +314,7 @@ export function renderReportTypst(report: ReportData): string {
       #line(length: 100%, stroke: 0.7pt + rule)
       #v(5pt)
       #grid(
-        columns: (19mm, 1fr), gutter: 4mm,
+        columns: (15mm, 1fr), gutter: 3mm,
         align: (center + horizon, left + horizon),
         [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
         [
