@@ -321,13 +321,14 @@ export function renderReportTypst(report: ReportData): string {
         [
           #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
           #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, company)] }
+          #if description != "" {
+            [
+              #linebreak()
+              #text(size: 9pt, fill: ink)[#log-lines(description)]
+            ]
+          }
         ],
       )
-      #if description != "" {
-        pad(left: 18mm)[
-          #text(size: 9pt, fill: ink)[#log-lines(description)]
-        ]
-      }
       #if metadata.len() > 0 {
         [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 6pt,
           ..metadata.map(column => metadata-field(row, column, accent)))]
