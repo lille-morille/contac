@@ -223,6 +223,7 @@ export type WorkspaceLocation = {
 export const workspacePages: Page[] = [
   "contacts",
   "contacted",
+  "calendar",
   "search",
   "duplicates",
   "deleted",
@@ -398,6 +399,7 @@ export function assigneeOptions(
 export type Page =
   | "contacts"
   | "contacted"
+  | "calendar"
   | "search"
   | "duplicates"
   | "deleted"

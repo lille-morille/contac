@@ -21,6 +21,7 @@ import { z } from "zod";
 import { requireAuth } from "./middleware/auth.ts";
 import { requireOrg } from "./middleware/org.ts";
 import { registerContactRoutes } from "./contacts.ts";
+import { registerCalendarRoutes } from "./calendar.ts";
 import { registerActivityFeatureRoutes } from "./activity-features.ts";
 import { registerEmailCrossTeamRoutes, registerInboundEmailRoute } from "./email-cross-team.ts";
 import { registerSearchRoutes } from "./search.ts";
@@ -463,6 +464,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
     return c.json({ inviteUrl: `${appOrigin}/invite?token=${encodeURIComponent(token)}` }, 201);
   });
   registerContactRoutes(app, deps);
+  registerCalendarRoutes(app, deps);
   registerActivityFeatureRoutes(app, deps);
   registerSearchRoutes(app, deps);
   registerAiRoutes(app, deps);

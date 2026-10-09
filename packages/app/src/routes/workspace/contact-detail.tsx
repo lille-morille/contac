@@ -899,6 +899,7 @@ export function ContactDetail({
           {c.status !== "duplicate" && (
             <ContactReminderCard
               contactId={c.id}
+              contacts={data.contacts}
               reminders={data.reminders.filter((reminder) => reminder.contactId === c.id)}
               mutate={mutate}
               busy={busy}

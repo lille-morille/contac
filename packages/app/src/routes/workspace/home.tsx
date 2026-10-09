@@ -62,6 +62,7 @@ import { useOrg } from "../../lib/org.tsx";
 import { useTeamRealtime } from "../../lib/team-realtime.tsx";
 import { useTheme } from "../../lib/theme.ts";
 import { ActivityFeed } from "./activity-feed.tsx";
+import { TeamCalendar } from "./calendar.tsx";
 import { ContactBoard } from "./board.tsx";
 import { ContactDetail } from "./contact-detail.tsx";
 import { ContactList, CreateContact } from "./contact-list.tsx";
@@ -757,6 +758,7 @@ export function Home() {
   const contactNav: [Page, string, typeof LayoutGrid][] = [
     ["contacts", "Kontaktlogg", LayoutGrid],
     ["contacted", "Sist kontaktet", CalendarDays],
+    ["calendar", "Kalender", CalendarDays],
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
@@ -1002,7 +1004,9 @@ export function Home() {
         searchText:
           id === "contacts"
             ? "kontakter hjem tavle liste board kanban"
-            : "samtaler møter telefon e-post aktivitet feed",
+            : id === "calendar"
+              ? "kalender uke møte frist påminnelse"
+              : "samtaler møter telefon e-post aktivitet feed",
         run: () => go(id),
       }),
     ),
@@ -1508,6 +1512,12 @@ export function Home() {
               setFocusedActivityId(activityId);
               setSelectedId(contactId);
             }}
+          />
+        ) : page === "calendar" ? (
+          <TeamCalendar
+            contacts={data.contacts}
+            reminders={data.reminders}
+            onOpenContact={setSelectedId}
           />
         ) : page === "profile" || page === "team_settings" || page === "class_settings" ? (
           <Settings

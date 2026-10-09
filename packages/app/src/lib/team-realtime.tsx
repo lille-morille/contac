@@ -57,6 +57,7 @@ export function keysForTeamChange(change: TeamChange, teamId: string): QueryKey[
   if (change.entity === "contacts") keys.push(["duplicates", teamId]);
   if (change.entity === "contacts" || change.entity === "companies")
     keys.push(["inbox", teamId], ["overlap", teamId]);
+  if (change.entity === "calendar_events") keys.push(["calendar-events", teamId]);
   if (change.entity === "contacts" || change.entity === "contact_activities")
     keys.push(["library", teamId], ["semantic-search", teamId], ["group-ai", teamId]);
   if (change.entity === "library_items") keys.push(["library", teamId]);
@@ -208,6 +209,7 @@ export function TeamRealtimeProvider({ children }: { children: ReactNode }) {
         ["contact-data", teamId, "core"],
         ["contact-data", teamId, "activities"],
         ["contact-data", teamId, "personal"],
+        ["calendar-events", teamId],
         ["inbox", teamId],
         ["library", teamId],
         ["sessions", teamId],

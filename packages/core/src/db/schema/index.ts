@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -775,6 +776,28 @@ export const contactReminders = pgTable(
     createdAt: createdAt(),
   },
   (table) => [index("contact_reminders_owner_due_idx").on(table.orgId, table.userId, table.dueAt)],
+);
+export const calendarEvents = pgTable(
+  "calendar_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"meeting" | "deadline">().notNull(),
+    title: text("title").notNull(),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "cascade" }),
+    date: date("date"),
+    startAt: timestamp("start_at", { withTimezone: true }),
+    endAt: timestamp("end_at", { withTimezone: true }),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index("calendar_events_org_date_idx").on(table.orgId, table.date),
+    index("calendar_events_org_start_idx").on(table.orgId, table.startAt),
+  ],
 );
 export const activityContacts = pgTable(
   "activity_contacts",
