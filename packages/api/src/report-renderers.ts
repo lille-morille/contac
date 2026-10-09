@@ -323,7 +323,7 @@ export function renderReportTypst(report: ReportData): string {
         ],
       )
       #if metadata.len() > 0 {
-        [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 3pt,
+        [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 6pt,
           ..metadata.map(column => metadata-field(row, column, accent)))]
       }
     ]
