@@ -96,7 +96,8 @@ before it queries or writes data.
 | `list_activities` | Paginated team activity text |
 | `get_attachment_link` | Short-lived download URL for a team activity attachment |
 | `create_contact` | Create one evidence-based contact with an organization and optional internal plain-text information |
-| `update_contact` | Change an active contact's editable fields, tags, or internal information |
+| `update_contact` | Change an active contact's editable fields, including relevance, tags, or internal information |
+| `batch_update_contacts` | Update up to 100 contacts with an updated or error result per input |
 | `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result per input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
 
@@ -144,7 +145,13 @@ For `update_contact`, read the contact with `get_contact` and pass its
 `contact.updatedAt` as `expectedUpdatedAt`. If another edit happened meanwhile,
 the tool rejects the update; read the latest contact and retry. Omit fields that
 should stay unchanged. `tagIds` replaces the complete tag set. Edit the
-single internal field with `internalInformation`.
+single internal field with `internalInformation`. `relevance` accepts `high`,
+`medium`, `low`, or `null` to clear it. A non-null value is marked as manually
+set, so summary AI preserves it. Clearing the value allows AI to suggest it
+again. `batch_update_contacts` accepts `expectedTeamId` and a `contacts` array
+of up to 100 items with `contactId`, `expectedUpdatedAt`, and any editable
+fields from `update_contact`. It applies each item separately and returns its
+input index and result; stale or invalid items do not stop the others.
 The normal seven statuses are accepted; `duplicate` requires the separate
 confirmed duplicate flow. The first change from `ikke_kontaktet` assigns an
 unassigned contact to the acting user, as in the workspace. Organization,

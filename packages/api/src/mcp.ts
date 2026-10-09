@@ -58,6 +58,7 @@ const contactStatus = z.enum([
   "follow_up",
   "ikke_kontakt_igjen",
 ]);
+const contactRelevance = z.enum(["low", "medium", "high"]);
 const domainColor = z.enum([
   "blue",
   "orange",
@@ -137,6 +138,10 @@ const contactUpdateInput = z
     phone: z.string().trim().max(200).nullable().optional(),
     description: z.string().max(CONTACT_DESCRIPTION_MAX_LENGTH).nullable().optional(),
     stikkord: z.string().trim().max(1000).nullable().optional(),
+    relevance: contactRelevance
+      .nullable()
+      .describe("How informative the conversation was; low, medium, high, or null to clear")
+      .optional(),
     sammendrag: z.string().max(20000).nullable().optional(),
     status: contactStatus.optional(),
     assigneeId: uuid.nullable().optional(),
@@ -842,10 +847,166 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     },
   );
 
+  async function updateOne(input: z.infer<typeof contactUpdateInput>) {
+    const outcome = await deps.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(contacts)
+        .where(and(eq(contacts.orgId, orgId), eq(contacts.id, input.contactId)))
+        .for("update");
+      if (!current || current.status === "duplicate" || current.deletedAt)
+        return { error: "Active contact not found in this team" };
+      if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
+        return { error: "Contact changed since it was read. Call get_contact and retry." };
+      if (input.companyId) {
+        const [company] = await tx
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.orgId, orgId), eq(companies.id, input.companyId)));
+        if (!company) return { error: "Organization not found in this team" };
+      }
+      if (input.assigneeId) {
+        const [member] = await tx
+          .select({ id: memberships.id })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.orgId, orgId),
+              eq(memberships.userId, input.assigneeId),
+              eq(memberships.isActualMember, true),
+            ),
+          );
+        if (!member) return { error: "Assignee must be a team member" };
+      }
+      const tagIds = input.tagIds && [...new Set(input.tagIds)];
+      if (tagIds?.length) {
+        const valid = await tx
+          .select({ id: personTags.id })
+          .from(personTags)
+          .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, tagIds)));
+        if (valid.length !== tagIds.length) return { error: "A tag does not belong to this team" };
+      }
+      const nextStatus = input.status ?? current.status;
+      const firstAssignment =
+        current.status === "ikke_kontaktet" &&
+        nextStatus !== "ikke_kontaktet" &&
+        !current.assigneeId;
+      const {
+        expectedTeamId: _expectedTeamId,
+        contactId,
+        expectedUpdatedAt: _expectedUpdatedAt,
+        tagIds: _tags,
+        sharedNote,
+        internalInformation,
+        ...changes
+      } = input;
+      const now = new Date();
+      const [contact] = await tx
+        .update(contacts)
+        .set({
+          ...changes,
+          ...(changes.name ? { normalizedName: normalize(changes.name) } : {}),
+          ...(changes.email !== undefined ? { email: changes.email?.toLowerCase() || null } : {}),
+          ...(changes.phone !== undefined ? { phoneNormalized: phoneKey(changes.phone) } : {}),
+          ...(changes.stikkord !== undefined
+            ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
+            : {}),
+          ...(changes.sammendrag !== undefined
+            ? { sammendragSourceVersion: null, sammendragGeneratedAt: null }
+            : {}),
+          ...(changes.relevance !== undefined
+            ? { relevanceManual: changes.relevance !== null, relevanceSourceVersion: null }
+            : {}),
+          ...(firstAssignment ? { assigneeId: createdBy } : {}),
+          ...(sharedNote !== undefined || internalInformation !== undefined
+            ? { sharedNote: internalInformation ?? sharedNote, sharedNoteSavedAt: now }
+            : {}),
+          updatedAt: now,
+        })
+        .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
+        .returning();
+      if (tagIds) {
+        await tx
+          .delete(contactPersonTags)
+          .where(
+            and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId)),
+          );
+        if (tagIds.length)
+          await tx
+            .insert(contactPersonTags)
+            .values(tagIds.map((tagId) => ({ orgId, contactId, tagId })));
+      }
+      if (sharedNote !== undefined || internalInformation !== undefined) {
+        const nextNote = internalInformation ?? sharedNote ?? "";
+        const doc = new Y.Doc();
+        if (nextNote) doc.getText("content").insert(0, nextNote);
+        const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
+        doc.destroy();
+        const [document] = await tx
+          .insert(collabDocuments)
+          .values({
+            orgId,
+            kind: "note",
+            entityId: contactId,
+            stateBase64,
+            materializedText: nextNote,
+          })
+          .onConflictDoUpdate({
+            target: [collabDocuments.orgId, collabDocuments.kind, collabDocuments.entityId],
+            set: {
+              stateBase64,
+              materializedText: nextNote,
+              version: sql`${collabDocuments.version} + 1`,
+              updatedAt: now,
+            },
+          })
+          .returning({ version: collabDocuments.version });
+        await tx.execute(sql`SELECT realtime.send(
+            ${JSON.stringify({ teamId: orgId, kind: "note", id: contactId, version: document.version })}::jsonb,
+            'reset', ${`doc:${orgId}:note:${contactId}`}, true
+          )`);
+      }
+      if (
+        changes.allowExternalAi !== undefined &&
+        changes.allowExternalAi !== current.allowExternalAi
+      )
+        await tx.insert(aiEditLog).values({
+          orgId,
+          contactId,
+          feature: "ai_permission",
+          before: { allowExternalAi: current.allowExternalAi },
+          after: { allowExternalAi: contact.allowExternalAi },
+          appliedBy: createdBy,
+        });
+      return { contact, previousAllowExternalAi: current.allowExternalAi };
+    });
+    if (!outcome.contact) return { error: outcome.error ?? "Could not update contact" };
+    if (input.allowExternalAi === true && !outcome.previousAllowExternalAi)
+      queueMicrotask(() => void runContactAutomations(deps, orgId, [input.contactId]));
+    else if (
+      outcome.contact.allowExternalAi &&
+      (input.sammendrag !== undefined ||
+        input.relevance === null ||
+        input.sharedNote !== undefined ||
+        input.internalInformation !== undefined)
+    )
+      queueMicrotask(
+        () => void runContactAutomations(deps, orgId, [input.contactId], ["stikkord"]),
+      );
+    else if (
+      outcome.contact.allowExternalAi &&
+      ["name", "companyId", "description"].some((key) => key in input)
+    )
+      queueMicrotask(
+        () => void runContactAutomations(deps, orgId, [input.contactId], ["hierarchy"]),
+      );
+    return { contact: outcome.contact };
+  }
+
   server.registerTool(
     "update_contact",
     {
-      description: `Update editable fields of an active contact in this team. Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance} Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.`,
+      description: `Update editable fields of an active contact in this team, including relevance (how informative the conversation was: low, medium, high, or null to clear). Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance} Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.`,
       inputSchema: contactUpdateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -853,156 +1014,68 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     async (input) => {
       if (!correctTeam(input.expectedTeamId))
         return failed("Contac team ID does not match the expected team. Stop using Contac.");
-      const outcome = await deps.db.transaction(async (tx) => {
-        const [current] = await tx
-          .select()
-          .from(contacts)
-          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, input.contactId)))
-          .for("update");
-        if (!current || current.status === "duplicate" || current.deletedAt)
-          return { error: "Active contact not found in this team" };
-        if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
-          return { error: "Contact changed since it was read. Call get_contact and retry." };
-        if (input.companyId) {
-          const [company] = await tx
-            .select({ id: companies.id })
-            .from(companies)
-            .where(and(eq(companies.orgId, orgId), eq(companies.id, input.companyId)));
-          if (!company) return { error: "Organization not found in this team" };
-        }
-        if (input.assigneeId) {
-          const [member] = await tx
-            .select({ id: memberships.id })
-            .from(memberships)
-            .where(
-              and(
-                eq(memberships.orgId, orgId),
-                eq(memberships.userId, input.assigneeId),
-                eq(memberships.isActualMember, true),
-              ),
-            );
-          if (!member) return { error: "Assignee must be a team member" };
-        }
-        const tagIds = input.tagIds && [...new Set(input.tagIds)];
-        if (tagIds?.length) {
-          const valid = await tx
-            .select({ id: personTags.id })
-            .from(personTags)
-            .where(and(eq(personTags.orgId, orgId), inArray(personTags.id, tagIds)));
-          if (valid.length !== tagIds.length)
-            return { error: "A tag does not belong to this team" };
-        }
-        const nextStatus = input.status ?? current.status;
-        const firstAssignment =
-          current.status === "ikke_kontaktet" &&
-          nextStatus !== "ikke_kontaktet" &&
-          !current.assigneeId;
-        const {
-          expectedTeamId: _expectedTeamId,
-          contactId,
-          expectedUpdatedAt: _expectedUpdatedAt,
-          tagIds: _tags,
-          sharedNote,
-          internalInformation,
-          ...changes
-        } = input;
-        const now = new Date();
-        const [contact] = await tx
-          .update(contacts)
-          .set({
-            ...changes,
-            ...(changes.name ? { normalizedName: normalize(changes.name) } : {}),
-            ...(changes.email !== undefined ? { email: changes.email?.toLowerCase() || null } : {}),
-            ...(changes.phone !== undefined ? { phoneNormalized: phoneKey(changes.phone) } : {}),
-            ...(changes.stikkord !== undefined
-              ? { stikkordSourceVersion: null, stikkordGeneratedAt: null }
-              : {}),
-            ...(changes.sammendrag !== undefined
-              ? { sammendragSourceVersion: null, sammendragGeneratedAt: null }
-              : {}),
-            ...(firstAssignment ? { assigneeId: createdBy } : {}),
-            ...(sharedNote !== undefined || internalInformation !== undefined
-              ? { sharedNote: internalInformation ?? sharedNote, sharedNoteSavedAt: now }
-              : {}),
-            updatedAt: now,
-          })
-          .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
-          .returning();
-        if (tagIds) {
-          await tx
-            .delete(contactPersonTags)
-            .where(
-              and(eq(contactPersonTags.orgId, orgId), eq(contactPersonTags.contactId, contactId)),
-            );
-          if (tagIds.length)
-            await tx
-              .insert(contactPersonTags)
-              .values(tagIds.map((tagId) => ({ orgId, contactId, tagId })));
-        }
-        if (sharedNote !== undefined || internalInformation !== undefined) {
-          const nextNote = internalInformation ?? sharedNote ?? "";
-          const doc = new Y.Doc();
-          if (nextNote) doc.getText("content").insert(0, nextNote);
-          const stateBase64 = Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
-          doc.destroy();
-          const [document] = await tx
-            .insert(collabDocuments)
-            .values({
-              orgId,
-              kind: "note",
-              entityId: contactId,
-              stateBase64,
-              materializedText: nextNote,
-            })
-            .onConflictDoUpdate({
-              target: [collabDocuments.orgId, collabDocuments.kind, collabDocuments.entityId],
-              set: {
-                stateBase64,
-                materializedText: nextNote,
-                version: sql`${collabDocuments.version} + 1`,
-                updatedAt: now,
-              },
-            })
-            .returning({ version: collabDocuments.version });
-          await tx.execute(sql`SELECT realtime.send(
-            ${JSON.stringify({ teamId: orgId, kind: "note", id: contactId, version: document.version })}::jsonb,
-            'reset', ${`doc:${orgId}:note:${contactId}`}, true
-          )`);
-        }
-        if (
-          changes.allowExternalAi !== undefined &&
-          changes.allowExternalAi !== current.allowExternalAi
-        )
-          await tx.insert(aiEditLog).values({
-            orgId,
-            contactId,
-            feature: "ai_permission",
-            before: { allowExternalAi: current.allowExternalAi },
-            after: { allowExternalAi: contact.allowExternalAi },
-            appliedBy: createdBy,
+      const outcome = await updateOne(input);
+      return outcome.contact ? result(outcome.contact) : failed(outcome.error);
+    },
+  );
+
+  server.registerTool(
+    "batch_update_contacts",
+    {
+      description:
+        "Update up to 100 active contacts in this team. Each item takes contactId, expectedUpdatedAt from get_contact or list_contacts, and one or more update_contact fields, including relevance (low, medium, high, or null to clear). Omitted fields remain unchanged. Stale or invalid items return individual errors without stopping other updates.",
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        contacts: z.array(z.unknown()).min(1).max(100),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, contacts: inputs }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      const results = [];
+      for (const [index, raw] of inputs.entries()) {
+        const parsed = contactUpdateInput.safeParse({
+          ...(raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}),
+          expectedTeamId,
+        });
+        if (!parsed.success) {
+          results.push({
+            index,
+            status: "error" as const,
+            error: parsed.error.issues.map((issue) => issue.message).join("; "),
           });
-        return { contact, previousAllowExternalAi: current.allowExternalAi };
-      });
-      if (!outcome.contact) return failed(outcome.error ?? "Could not update contact");
-      if (input.allowExternalAi === true && !outcome.previousAllowExternalAi)
-        queueMicrotask(() => void runContactAutomations(deps, orgId, [input.contactId]));
-      else if (
-        outcome.contact.allowExternalAi &&
-        (input.sammendrag !== undefined ||
-          input.sharedNote !== undefined ||
-          input.internalInformation !== undefined)
-      )
-        queueMicrotask(
-          () => void runContactAutomations(deps, orgId, [input.contactId], ["stikkord"]),
-        );
-      else if (
-        outcome.contact.allowExternalAi &&
-        ["name", "companyId", "description"].some((key) => key in input)
-      )
-        queueMicrotask(
-          () => void runContactAutomations(deps, orgId, [input.contactId], ["hierarchy"]),
-        );
-      return result(outcome.contact);
+          continue;
+        }
+        try {
+          const outcome = await updateOne(parsed.data);
+          results.push(
+            outcome.contact
+              ? {
+                  index,
+                  contactId: parsed.data.contactId,
+                  status: "updated" as const,
+                  updatedAt: outcome.contact.updatedAt,
+                  relevance: outcome.contact.relevance,
+                }
+              : {
+                  index,
+                  contactId: parsed.data.contactId,
+                  status: "error" as const,
+                  error: outcome.error,
+                },
+          );
+        } catch (error) {
+          results.push({
+            index,
+            contactId: parsed.data.contactId,
+            status: "error" as const,
+            error: error instanceof Error ? error.message : "Could not update contact",
+          });
+        }
+      }
+      return result({ results });
     },
   );
 
