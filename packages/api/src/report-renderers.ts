@@ -279,6 +279,7 @@ export function renderReportTypst(report: ReportData): string {
 }
 #let ink = rgb("#172129")
 #let muted = rgb("#586670")
+#let label = rgb("#77838c")
 #let rule = rgb("#b8c2c8")
 #let section-heading(title, accent, tint) = {
   block(width: 100%, sticky: true, above: 9mm, below: 3mm, inset: (x: 9pt, y: 6pt),
@@ -287,7 +288,7 @@ export function renderReportTypst(report: ReportData): string {
   ]
 }
 #let metadata-field(row, column) = [
-  #text(size: 7.8pt, weight: "bold", fill: muted, report-data.labels.at(column) + ": ")
+  #text(size: 7.5pt, fill: label, report-data.labels.at(column) + ": ")
   #log-lines(row.values.at(column, default: ""))
 ]
 #let detail-field(row, column) = {
@@ -296,7 +297,6 @@ export function renderReportTypst(report: ReportData): string {
     block(width: 100%, breakable: true, above: 12pt, below: 0pt)[
       #text(size: 9pt, weight: "bold", fill: ink, report-data.labels.at(column))
       #linebreak()
-      #v(1pt)
       #log-lines(value)
     ]
   }
@@ -314,17 +314,17 @@ export function renderReportTypst(report: ReportData): string {
       #v(5pt)
       #grid(
         columns: (19mm, 1fr), gutter: 4mm,
-        align: (center + horizon, left + top),
+        align: (center + horizon, left + horizon),
         [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
         [
           #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
           #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, company)] }
-          #if metadata.len() > 0 {
-            [#v(3pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 3pt,
-              ..metadata.map(column => metadata-field(row, column)))]
-          }
         ],
       )
+      #if metadata.len() > 0 {
+        [#v(4pt)#grid(columns: (1fr, 1fr, 1fr), column-gutter: 5mm, row-gutter: 3pt,
+          ..metadata.map(column => metadata-field(row, column)))]
+      }
     ]
     #for column in ("stikkord", "sammendrag") {
       if column in columns { detail-field(row, column) }
