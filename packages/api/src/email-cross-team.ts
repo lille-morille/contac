@@ -37,6 +37,7 @@ import type { ApiDeps, ApiEnv } from "./types.ts";
 import { decrypt } from "./ai-token.ts";
 import { extractInboundContactEmails, runContactAutomations } from "./ai.ts";
 import { withoutGeneratedSignature } from "./email-draft-text.ts";
+import { emailCaptureAddress } from "./email-capture-address.ts";
 import { buildContactOverlapAlerts } from "./contact-overlap-alerts.ts";
 
 async function contactOverlapInbox(
@@ -571,11 +572,8 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .select({ inboundKey: organizations.inboundKey })
       .from(organizations)
       .where(eq(organizations.id, c.get("org").id));
-    const domain = process.env.INBOUND_EMAIL_DOMAIN?.trim().toLowerCase();
-    const common = process.env.INBOUND_ADDRESS?.trim().toLowerCase();
     return c.json({
-      captureAddress:
-        common || (domain && team?.inboundKey ? `inbox+${team.inboundKey}@${domain}` : null),
+      captureAddress: emailCaptureAddress(team?.inboundKey ?? null),
     });
   });
   app.get("/v1/org/email-drafts", async (c) => {

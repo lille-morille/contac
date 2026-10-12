@@ -87,6 +87,7 @@ before it queries or writes data.
 | `search_contacts` | Find team contacts and matching contact, activity, or internal-information passages by meaning and keywords |
 | `list_contacts` | Paginated active contacts and their fields |
 | `get_contact` | Contact, organization, tags, internal information, contact summary, key takeaways, activities, email records, transcripts, participants, and attachment metadata |
+| `create_email_draft` | Save an unsent draft using a contact number, subject, and raw content |
 | `list_team_reference` | Organizations (with `domainsRevision`), domains (with `revision`), links, and person tags |
 | `create_domain` | Create or reuse a normalized-name domain in the connected team |
 | `update_domain` | Edit a domain with its expected revision |
@@ -119,6 +120,15 @@ check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed
 when other items fail. Search existing contacts first.
+
+`create_email_draft` takes `expectedTeamId`, the active team's `contactNumber`,
+`subject`, and `content`. It saves an unsent draft for that contact. The system
+fills From from the connected user's profile email, To from the contact email,
+and Bcc from the configured team capture address. Cc is empty. Supply only the
+message content without a sign-off or signature; the tool saves it exactly as
+given, and the mail app can add the sender's configured signature. A contact
+without an email or a user without a valid profile email must be corrected in
+Contac first. Saving a draft does not send or log an email.
 
 Calendar event tools cover shared meetings and deadlines. `list_calendar_events`
 requires `fromDate` and `toDate` (local calendar dates), plus `startAt` and `endAt`
