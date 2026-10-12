@@ -1,4 +1,4 @@
-import { CONTACT_DESCRIPTION_MAX_LENGTH } from "@contac/core";
+import { CONTACT_DESCRIPTION_MAX_LENGTH, normalizeEmail } from "@contac/core";
 import {
   activityContacts,
   activityFiles,
@@ -11,6 +11,7 @@ import {
   contacts,
   domainTags,
   emailActivities,
+  emailDrafts,
   libraryItems,
   memberships,
   organizations,
@@ -26,6 +27,7 @@ import { z } from "zod";
 import * as Y from "yjs";
 import { runContactAutomations } from "./ai.ts";
 import { replaceCompanyDomains } from "./domain-management.ts";
+import { emailCaptureAddress } from "./email-capture-address.ts";
 import { registerMcpCalendarTools } from "./mcp-calendar.ts";
 import { searchTeam } from "./search.ts";
 import {
@@ -487,6 +489,78 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
             .map((row) => row.contactId),
         })),
       });
+    },
+  );
+
+  server.registerTool(
+    "create_email_draft",
+    {
+      description:
+        "Save an unsent email draft for an active contact by contactNumber. Supply only the subject and raw message content, without a sign-off or signature. The connected user's profile email, contact email, and team capture Bcc are filled in automatically. This does not send or log the email.",
+      inputSchema: z.object({
+        expectedTeamId: uuid,
+        contactNumber: z.number().int().positive(),
+        subject: z.string().trim().min(1).max(500),
+        content: z
+          .string()
+          .min(1)
+          .max(250_000)
+          .refine((value) => value.trim().length > 0, "Email content cannot be blank")
+          .describe(
+            "The exact email body to save. Do not include a sign-off or signature (such as 'Mvh' and a name); the sender's mail app supplies its own signature.",
+          ),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      _meta: mcpOauthToolMeta(),
+    },
+    async ({ expectedTeamId, contactNumber, subject, content }) => {
+      if (!correctTeam(expectedTeamId))
+        return failed("Contac team ID does not match the expected team. Stop using Contac.");
+      const [[contact], [profile], [team]] = await Promise.all([
+        deps.db
+          .select({ id: contacts.id, email: contacts.email })
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.orgId, orgId),
+              eq(contacts.contactNumber, contactNumber),
+              ne(contacts.status, "duplicate"),
+              isNull(contacts.deletedAt),
+            ),
+          ),
+        deps.db
+          .select({ email: profiles.profileEmail })
+          .from(profiles)
+          .where(eq(profiles.id, createdBy)),
+        deps.db
+          .select({ inboundKey: organizations.inboundKey })
+          .from(organizations)
+          .where(eq(organizations.id, orgId)),
+      ]);
+      if (!contact) return failed("Active contact number not found in this team");
+      const toEmail = contact.email && z.email().safeParse(contact.email);
+      if (!toEmail || !toEmail.success)
+        return failed("Contact needs a valid email address before a draft can be created");
+      const fromEmail = profile?.email && z.email().safeParse(profile.email);
+      if (!fromEmail || !fromEmail.success)
+        return failed("Set a valid profile email before creating an email draft");
+      if (!team) return failed("Team not found");
+      const captureAddress = emailCaptureAddress(team.inboundKey);
+      const [draft] = await deps.db
+        .insert(emailDrafts)
+        .values({
+          orgId,
+          contactId: contact.id,
+          createdBy,
+          fromEmail: normalizeEmail(fromEmail.data),
+          toEmails: [normalizeEmail(toEmail.data)],
+          ccEmails: [],
+          bccEmails: captureAddress ? [captureAddress] : [],
+          subject,
+          body: content,
+        })
+        .returning();
+      return result(draft);
     },
   );
 

@@ -116,6 +116,7 @@ describe("personal MCP team boundary", () => {
       "search_contacts",
       "list_contacts",
       "get_contact",
+      "create_email_draft",
       "list_team_reference",
       "create_domain",
       "update_domain",
