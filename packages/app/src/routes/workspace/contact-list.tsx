@@ -242,6 +242,7 @@ export function ContactList({
         </thead>
         <tbody>
           {rows.map((c) => {
+            const company = data.companies.find((item) => item.id === c.companyId);
             const summary = c.stikkord || lastActivity(c.id)?.summary || "";
             const tags = data.contactPersonTags
               .filter((link) => link.contactId === c.id)
@@ -263,6 +264,11 @@ export function ContactList({
                     onClick={() => onOpen(c.id)}
                   >
                     <span className="block font-medium text-foreground">{c.name}</span>
+                    {company && (
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {company.name}
+                      </span>
+                    )}
                     {c.description && (
                       <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">
                         {c.description}
