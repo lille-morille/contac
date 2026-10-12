@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Copy, Mail } from "lucide-react";
 import { Button } from "./ui/button.tsx";
+import { DateTimePicker } from "./ui/date-time-picker.tsx";
 import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 import { copyText } from "../lib/clipboard.ts";
 
 const inboundEmailAddress = "contac@plingapp.no";
+const localDateTime = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
 export function ManualEmailComposer({
   contactId,
@@ -24,10 +27,7 @@ export function ManualEmailComposer({
   const [fromEmail, setFromEmail] = useState(contactEmail ?? "");
   const [to, setTo] = useState("");
   const [body, setBody] = useState("");
-  const [occurredAt, setOccurredAt] = useState(() => {
-    const now = new Date();
-    return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-  });
+  const [occurredAt, setOccurredAt] = useState(() => localDateTime(new Date()));
   const [saving, setSaving] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
   async function save() {
@@ -126,16 +126,16 @@ export function ManualEmailComposer({
           />
         </label>
       </div>
-      <label className="block text-sm font-medium">
+      <div className="block text-sm font-medium">
         Dato og tidspunkt
-        <Input
-          className="mt-2 bg-card"
-          type="datetime-local"
-          required
+        <DateTimePicker
           value={occurredAt}
-          onChange={(e) => setOccurredAt(e.target.value)}
+          onChange={(next) => setOccurredAt(localDateTime(new Date(next)))}
+          ariaLabel="Dato og tidspunkt for e-post"
+          disabled={saving || busy}
+          field
         />
-      </label>
+      </div>
       <label className="block text-sm font-medium">
         E-postinnhold
         <Textarea

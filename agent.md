@@ -22,7 +22,8 @@ The Økter workflow from chunk 02 has since been retired by spec 06. The team wo
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.
 The MCP endpoint provides team-scoped reads and writes for contact creation and updates,
-activities, domains, and organization-domain links. Agent connections
+activities, domains, organization-domain links, and shared calendar events. It also manages
+the connected user's private contact reminders. Agent connections
 follow the workspace's currently selected team and use personal OAuth. Every data tool requires
 the expected team ID; `get_team_identity` verifies the live connection. Old
 named team tokens have been retired. See [docs/mcp.md](docs/mcp.md).

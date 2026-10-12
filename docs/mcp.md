@@ -100,9 +100,14 @@ before it queries or writes data.
 | `batch_update_contacts` | Update up to 100 contacts with an updated or error result per input |
 | `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result per input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |
+| `list_calendar_events` / `get_calendar_event` | Read shared meetings and deadlines |
+| `create_calendar_event` / `update_calendar_event` / `delete_calendar_event` | Create, replace, or delete a shared meeting or deadline |
+| `list_calendar_reminders` / `get_calendar_reminder` | Read the connected user's private contact reminders |
+| `create_calendar_reminder` / `update_calendar_reminder` / `dismiss_calendar_reminder` / `delete_calendar_reminder` | Manage the connected user's private reminders |
 
 The agent cannot delete contacts, edit or delete activities, change team settings,
-or read personal reminders, inbox suggestions, AI credentials, or another team's data. Duplicate contacts are
+or read another user's reminders, inbox suggestions, AI credentials, or another team's data. Calendar tools can delete
+shared calendar events and the connected user's own reminders. Duplicate contacts are
 excluded from ordinary reads. Use `search_contacts` before paginating through
 `list_contacts` when looking for a person or topic. It accepts `query` (2–500
 characters), optional `limit` (1–30, default 10), and `expectedTeamId`. Results
@@ -114,6 +119,28 @@ check active team contacts by normalized name plus organization, email, or
 phone; likely matches are returned for review rather than created. Batch
 results preserve the input index and allow valid nonduplicates to succeed
 when other items fail. Search existing contacts first.
+
+Calendar event tools cover shared meetings and deadlines. `list_calendar_events`
+requires `fromDate` and `toDate` (local calendar dates), plus `startAt` and `endAt`
+(ISO timestamps defining the corresponding timed range); both end bounds are
+exclusive. It returns up to 50 items by default and `nextCursor` for more.
+`get_calendar_event` returns the event and its `updatedAt` version. Creation
+accepts an `event` object. Meetings require `startAt` and `endAt`, may link an
+active team `contactId`, and may omit `title`; an empty title becomes `Møte med
+[contact name]`, or `Møte` without a contact. Deadlines require `title` and
+`date`, and may include a timed `startAt`. To update, pass the complete new
+`event` object and the current `updatedAt` as `expectedUpdatedAt`. Deletion also
+requires `expectedUpdatedAt`. A stale edit or deletion fails so the agent can
+reread the event before trying again.
+
+Private reminder tools operate only on the connected user's reminders within
+the selected team, even for a classroom admin. `list_calendar_reminders` lists
+active reminders by default, with optional due-time bounds, pagination, and
+`includeDismissed`. A reminder requires an active team `contactId` and a
+`dueAt` ISO timestamp; `message` is optional. Updates can change the contact,
+time, or message. `dismiss_calendar_reminder` marks an active reminder done;
+`delete_calendar_reminder` removes one permanently. Reminders have no
+`updatedAt` version, so agents should read one before changing or deleting it.
 
 Domain tools use the connected team and require `expectedTeamId`. Read
 `list_team_reference` before editing. `create_domain` accepts `name` and optional
@@ -140,6 +167,8 @@ To release the unified internal field and contact summary, apply migration `0050
 `DATABASE_URL=... bun run db:migrate` before deploying the updated API and web
 app. The connected MCP uses the API's `/mcp` endpoint, so there is no separate
 MCP server to deploy; refresh the client's tool catalog after the API rollout.
+Apply `20261012120000_optional_calendar_meeting_contact.sql` before deploying
+the calendar MCP tools, so contact-free meetings pass the database constraint.
 
 For `update_contact`, read the contact with `get_contact` and pass its
 `contact.updatedAt` as `expectedUpdatedAt`. If another edit happened meanwhile,

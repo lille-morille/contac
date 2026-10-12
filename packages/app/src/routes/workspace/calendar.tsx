@@ -3,6 +3,9 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/button.tsx";
 import { Card } from "../../components/ui/card.tsx";
+import { ContactCombobox } from "../../components/ui/contact-combobox.tsx";
+import { DateTimePicker } from "../../components/ui/date-time-picker.tsx";
+import { DateTimeRangePicker } from "../../components/ui/date-time-range-picker.tsx";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +13,6 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog.tsx";
 import { Input } from "../../components/ui/input.tsx";
-import { Select } from "../../components/ui/select.tsx";
 import { request } from "../../lib/api.ts";
 import { useOrg } from "../../lib/org.tsx";
 import type { Contact, Reminder } from "./model.tsx";
@@ -55,6 +57,7 @@ export function CalendarEventForm({
   contactId,
   initial,
   initialDate,
+  initialStart,
   defaultKind = "meeting",
   onSaved,
   onCancel,
@@ -63,6 +66,7 @@ export function CalendarEventForm({
   contactId?: string;
   initial?: CalendarEvent;
   initialDate?: Date;
+  initialStart?: Date;
   defaultKind?: "meeting" | "deadline";
   onSaved: () => void;
   onCancel?: () => void;
@@ -71,9 +75,11 @@ export function CalendarEventForm({
   const qc = useQueryClient();
   const start = initial?.startAt
     ? new Date(initial.startAt)
-    : initialDate
-      ? new Date(initialDate.getFullYear(), initialDate.getMonth(), initialDate.getDate(), 9)
-      : defaultStart();
+    : initialStart
+      ? new Date(initialStart)
+      : initialDate
+        ? new Date(initialDate.getFullYear(), initialDate.getMonth(), initialDate.getDate(), 9)
+        : defaultStart();
   const [kind, setKind] = useState<"meeting" | "deadline">(initial?.kind ?? defaultKind);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [selectedContactId, setSelectedContactId] = useState(initial?.contactId ?? contactId ?? "");
@@ -87,12 +93,13 @@ export function CalendarEventForm({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const selectedContact = contacts.find((item) => item.id === selectedContactId);
 
   async function save() {
     if (!org) return;
     setError("");
-    if (!title.trim() || (kind === "meeting" && !selectedContactId)) {
-      setError("Skriv en tittel og velg en kontakt.");
+    if (kind === "deadline" && !title.trim()) {
+      setError("Skriv en tittel.");
       return;
     }
     const begin = new Date(startValue);
@@ -117,7 +124,7 @@ export function CalendarEventForm({
           ? {
               kind,
               title: title.trim(),
-              contactId: selectedContactId,
+              contactId: selectedContactId || null,
               startAt: begin.toISOString(),
               endAt: finish.toISOString(),
               ...(initial ? { expectedUpdatedAt: initial.updatedAt } : {}),
@@ -177,67 +184,45 @@ export function CalendarEventForm({
         </div>
       )}
       <label className="block text-xs font-medium">
-        Tittel
+        Tittel {kind === "meeting" && <span className="text-muted-foreground">(valgfritt)</span>}
         <Input
           className="mt-1"
           value={title}
           maxLength={200}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder={kind === "meeting" ? "Møte med kontakt" : "Frist"}
+          placeholder={
+            kind === "meeting"
+              ? selectedContact
+                ? `Møte med ${selectedContact.name}`
+                : "Møte"
+              : "Frist"
+          }
         />
       </label>
       {kind === "meeting" ? (
         <>
-          <label className="block text-xs font-medium">
-            Kontakt
-            <Select
-              className="mt-1 w-full"
+          <div className="block text-xs font-medium">
+            Kontakt <span className="text-muted-foreground">(valgfritt)</span>
+            <ContactCombobox
+              contacts={contacts.filter((item) => item.status !== "duplicate")}
               value={selectedContactId}
-              onValueChange={setSelectedContactId}
-              placeholder="Velg kontakt"
-              items={[
-                { value: "", label: "Velg kontakt" },
-                ...contacts
-                  .filter((item) => item.status !== "duplicate")
-                  .map((item) => ({ value: item.id, label: item.name })),
-              ]}
+              onChange={setSelectedContactId}
             />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-xs font-medium">
-              Start
-              <Input
-                className="mt-1"
-                type="datetime-local"
-                value={startValue}
-                onChange={(event) => setStartValue(event.target.value)}
-              />
-            </label>
-            <label className="block text-xs font-medium">
-              Slutt
-              <Input
-                className="mt-1"
-                type="datetime-local"
-                value={endValue}
-                onChange={(event) => setEndValue(event.target.value)}
-              />
-            </label>
+          </div>
+          <div className="block text-xs font-medium">
+            Start og slutt
+            <DateTimeRangePicker
+              start={startValue}
+              end={endValue}
+              onChange={(nextStart, nextEnd) => {
+                setStartValue(nextStart);
+                setEndValue(nextEnd);
+              }}
+            />
           </div>
         </>
       ) : (
         <>
-          <label className="block text-xs font-medium">
-            Dato
-            <Input
-              className="mt-1"
-              type="date"
-              value={date}
-              onChange={(event) => {
-                setDate(event.target.value);
-                setStartValue((current) => `${event.target.value}${current.slice(10)}`);
-              }}
-            />
-          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -246,20 +231,25 @@ export function CalendarEventForm({
             />
             Bestemt klokkeslett
           </label>
-          {deadlineTimed && (
-            <label className="block text-xs font-medium">
-              Tid
-              <Input
-                className="mt-1"
-                type="datetime-local"
-                value={startValue}
-                onChange={(event) => {
-                  setStartValue(event.target.value);
-                  setDate(event.target.value.slice(0, 10));
-                }}
-              />
-            </label>
-          )}
+          <div className="block text-xs font-medium">
+            {deadlineTimed ? "Dato og klokkeslett" : "Dato"}
+            <DateTimePicker
+              value={deadlineTimed ? startValue : date}
+              dateOnly={!deadlineTimed}
+              field
+              ariaLabel={deadlineTimed ? "Tidspunkt for frist" : "Dato for frist"}
+              onChange={(next) => {
+                if (deadlineTimed) {
+                  const selected = new Date(next);
+                  setStartValue(localInput(selected));
+                  setDate(dateKey(selected));
+                } else {
+                  setDate(next);
+                  setStartValue((current) => `${next}${current.slice(10)}`);
+                }
+              }}
+            />
+          </div>
         </>
       )}
       {error && (
@@ -296,6 +286,18 @@ type TimedItem = {
   reminder?: Reminder;
 };
 const HOUR_HEIGHT = 56;
+const SLOT_HEIGHT = HOUR_HEIGHT / 2;
+
+function gridSlotStart(day: Date, pointerY: number, gridTop: number) {
+  const slot = Math.max(0, Math.min(47, Math.floor((pointerY - gridTop) / SLOT_HEIGHT)));
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    Math.floor(slot / 2),
+    (slot % 2) * 30,
+  );
+}
 
 export function TeamCalendar({
   contacts,
@@ -312,6 +314,8 @@ export function TeamCalendar({
   const [creating, setCreating] = useState(false);
   const [createKind, setCreateKind] = useState<"meeting" | "deadline">("meeting");
   const [focusedDay, setFocusedDay] = useState<Date | undefined>();
+  const [focusedStart, setFocusedStart] = useState<Date | undefined>();
+  const [hoveredStart, setHoveredStart] = useState<Date | null>(null);
   const [now, setNow] = useState(() => new Date());
   const gridScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -347,12 +351,15 @@ export function TeamCalendar({
   const events = query.data ?? [];
   const contactName = (id: string | null) =>
     contacts.find((item) => item.id === id)?.name ?? "Kontakt";
-  function openCreate(kind: "meeting" | "deadline", day?: Date) {
+  function openCreate(kind: "meeting" | "deadline", day?: Date, start?: Date) {
     setCreateKind(kind);
     setFocusedDay(day);
+    setFocusedStart(start);
+    setHoveredStart(null);
     setCreating(true);
   }
   function changeWeek(offset: number) {
+    setHoveredStart(null);
     setWeek((current) => {
       const next = new Date(current);
       next.setDate(next.getDate() + offset * 7);
@@ -441,7 +448,8 @@ export function TeamCalendar({
             Kalender
           </h1>
           <p className="text-sm text-muted-foreground">
-            Møter og frister deles med teamet. Bare du ser dine påminnelser.
+            Møter og frister deles med teamet. Bare du ser dine påminnelser. Klikk på et ledig
+            tidspunkt for å planlegge et møte.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -479,7 +487,7 @@ export function TeamCalendar({
       )}
       <Card className="overflow-x-auto">
         <div className="min-w-[760px]">
-          <div className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] border-b border-border">
+          <div className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] overflow-y-auto border-b border-border [scrollbar-gutter:stable]">
             <div className="border-r border-border p-2 text-xs text-muted-foreground">Tid</div>
             {days.map((day) => (
               <button
@@ -492,7 +500,7 @@ export function TeamCalendar({
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] border-b border-border">
+          <div className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] overflow-y-auto border-b border-border [scrollbar-gutter:stable]">
             <div className="border-r border-border p-2 text-xs text-muted-foreground">
               Hele dagen
             </div>
@@ -516,7 +524,7 @@ export function TeamCalendar({
               </div>
             ))}
           </div>
-          <div ref={gridScrollRef} className="max-h-[65vh] overflow-auto">
+          <div ref={gridScrollRef} className="max-h-[65vh] overflow-auto [scrollbar-gutter:stable]">
             <div
               className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))]"
               style={{ height: 24 * HOUR_HEIGHT }}
@@ -535,15 +543,68 @@ export function TeamCalendar({
               {days.map((day) => (
                 <div
                   key={dateKey(day)}
-                  className="relative border-r border-border"
+                  className="relative cursor-crosshair border-r border-border"
                   style={{
                     backgroundImage: `repeating-linear-gradient(to bottom, transparent 0px, transparent ${HOUR_HEIGHT - 1}px, var(--border) ${HOUR_HEIGHT - 1}px, var(--border) ${HOUR_HEIGHT}px)`,
                   }}
+                  onPointerMove={(event) => {
+                    if (
+                      event.target instanceof Element &&
+                      event.target.closest("[data-calendar-item]")
+                    ) {
+                      setHoveredStart(null);
+                      return;
+                    }
+                    if (event.pointerType === "touch") return;
+                    const next = gridSlotStart(
+                      day,
+                      event.clientY,
+                      event.currentTarget.getBoundingClientRect().top,
+                    );
+                    setHoveredStart((current) =>
+                      current?.getTime() === next.getTime() ? current : next,
+                    );
+                  }}
+                  onPointerLeave={() => setHoveredStart(null)}
+                  onClick={(event) => {
+                    if (
+                      event.target instanceof Element &&
+                      event.target.closest("[data-calendar-item]")
+                    )
+                      return;
+                    const start = gridSlotStart(
+                      day,
+                      event.clientY,
+                      event.currentTarget.getBoundingClientRect().top,
+                    );
+                    openCreate("meeting", day, start);
+                  }}
                 >
+                  {hoveredStart && dateKey(hoveredStart) === dateKey(day) && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0 z-[5] overflow-hidden rounded-md border border-dashed border-primary/60 bg-primary-soft/80 px-1.5 py-1 text-[11px] leading-tight text-primary shadow-sm"
+                      style={{
+                        top: hour(hoveredStart) * HOUR_HEIGHT + 1,
+                        height: Math.min(
+                          HOUR_HEIGHT - 2,
+                          (24 - hour(hoveredStart)) * HOUR_HEIGHT - 2,
+                        ),
+                      }}
+                    >
+                      <span className="flex items-center gap-1 font-medium">
+                        <Plus size={12} /> Nytt møte
+                      </span>
+                      <span className="block truncate">
+                        {clock(hoveredStart)}–
+                        {clock(new Date(hoveredStart.getTime() + 60 * 60_000))}
+                      </span>
+                    </div>
+                  )}
                   {positioned(dayItems(day), day).map(
                     ({ item, lane, columns, begin, duration }) => (
                       <button
                         key={`${item.kind}-${item.id}`}
+                        data-calendar-item
                         className={`absolute z-10 overflow-hidden rounded-md border px-1.5 py-0.5 text-left text-xs leading-tight hover:brightness-95 ${item.kind === "meeting" ? "border-primary/30 bg-primary-soft text-foreground" : item.kind === "deadline" ? "border-orange/30 bg-orange-soft text-foreground" : "border-blue/30 bg-blue-soft text-foreground"}`}
                         style={{
                           top: begin * HOUR_HEIGHT + 1,
@@ -552,11 +613,12 @@ export function TeamCalendar({
                           width: `${100 / columns}%`,
                         }}
                         title={`${clock(item.start)} ${item.title}`}
-                        onClick={() =>
-                          item.reminder
-                            ? onOpenContact(item.reminder.contactId)
-                            : item.event && setEditing(item.event)
-                        }
+                        onPointerEnter={() => setHoveredStart(null)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (item.reminder) onOpenContact(item.reminder.contactId);
+                          else if (item.event) setEditing(item.event);
+                        }}
                       >
                         <span className="block truncate font-medium">
                           {clock(item.start)} {item.title}
@@ -611,10 +673,14 @@ export function TeamCalendar({
           <DialogDescription>Møter og frister er synlige for alle i teamet.</DialogDescription>
           <div className="mt-4">
             <CalendarEventForm
-              key={editing?.id ?? `${createKind}-${focusedDay?.getTime() ?? "now"}`}
+              key={
+                editing?.id ??
+                `${createKind}-${focusedStart?.getTime() ?? focusedDay?.getTime() ?? "now"}`
+              }
               contacts={contacts}
               initial={editing ?? undefined}
               initialDate={focusedDay}
+              initialStart={focusedStart}
               defaultKind={createKind}
               onSaved={() => {
                 setCreating(false);

@@ -129,6 +129,17 @@ describe("personal MCP team boundary", () => {
       "batch_update_contacts",
       "batch_create_contacts",
       "add_activity",
+      "list_calendar_events",
+      "get_calendar_event",
+      "create_calendar_event",
+      "update_calendar_event",
+      "delete_calendar_event",
+      "list_calendar_reminders",
+      "get_calendar_reminder",
+      "create_calendar_reminder",
+      "update_calendar_reminder",
+      "dismiss_calendar_reminder",
+      "delete_calendar_reminder",
     ]) {
       const response = await toolRequest(deps, name);
       expect(response.status).toBe(200);

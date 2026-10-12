@@ -60,11 +60,11 @@ describe("report source generation", () => {
     expect(source).toContain("#let cite-contact(..args)");
     expect(source).toContain("kontaktlogg-k-");
     expect(source).toContain('paper: "a4", flipped: false');
-    expect(source).toContain("#let contact-card(row, columns)");
+    expect(source).toContain("#let contact-card(row, columns, accent)");
     expect(source).toContain("block(width: 100%, breakable: true");
     expect(source).toContain("for section in data.sections");
     expect(source).toContain('("stikkord", "sammendrag")');
-    expect(source).toContain("row-gutter: 3pt");
+    expect(source).toContain("row-gutter: 6pt");
     expect(reportEntryParts(sample().rows[0]!.entries[0]!)).toEqual({
       heading: "7. okt. 2026, 12:00 · Møte",
       body: "Sammendrag/notater: Møte #1 & detaljer",

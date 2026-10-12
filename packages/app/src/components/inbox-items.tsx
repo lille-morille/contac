@@ -5,6 +5,7 @@ import { useState } from "react";
 import { request } from "../lib/api.ts";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
+import { DateTimePicker } from "./ui/date-time-picker.tsx";
 import { Input } from "./ui/input.tsx";
 import { MultiSelect } from "./ui/multi-select.tsx";
 import { Select } from "./ui/select.tsx";
@@ -333,17 +334,15 @@ export function InboxItems({
                                 onChange={(event) => changeReview({ ccEmails: event.target.value })}
                               />
                             </label>
-                            <label className="text-xs font-medium">
+                            <div className="text-xs font-medium">
                               Dato og tidspunkt
-                              <Input
-                                className="mt-1"
-                                type="datetime-local"
+                              <DateTimePicker
                                 value={review.occurredAt}
-                                onChange={(event) =>
-                                  changeReview({ occurredAt: event.target.value })
-                                }
+                                onChange={(next) => changeReview({ occurredAt: localTime(next) })}
+                                ariaLabel="Dato og tidspunkt for e-post"
+                                field
                               />
-                            </label>
+                            </div>
                           </div>
                           <label className="block text-xs font-medium">
                             Emne

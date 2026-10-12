@@ -1,28 +1,12 @@
-import { calendarEvents, contacts } from "@contac/core/db";
-import { and, eq, gt, gte, isNull, lt, ne, or } from "drizzle-orm";
+import { calendarEvents } from "@contac/core/db";
+import { and, eq, gt, gte, lt, or } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { calendarEventInput, calendarEventValues } from "./calendar-data.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const uuid = z.uuid();
 const day = z.iso.date();
-const eventInput = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("meeting"),
-    title: z.string().trim().min(1).max(200),
-    contactId: uuid,
-    startAt: z.iso.datetime(),
-    endAt: z.iso.datetime(),
-    expectedUpdatedAt: z.iso.datetime().optional(),
-  }),
-  z.object({
-    kind: z.literal("deadline"),
-    title: z.string().trim().min(1).max(200),
-    date: day,
-    startAt: z.iso.datetime().nullable().default(null),
-    expectedUpdatedAt: z.iso.datetime().optional(),
-  }),
-]);
 
 export function registerCalendarRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
   app.get("/v1/org/calendar-events", async (c) => {
@@ -55,36 +39,14 @@ export function registerCalendarRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
 
   async function save(c: Context<ApiEnv>, eventId?: string) {
     const body = await c.req.json().catch(() => null);
-    const parsed = eventInput.safeParse(body);
+    const parsed = calendarEventInput.safeParse(body);
     if (!parsed.success) return c.json({ error: "Invalid calendar event" }, 400);
     const data = parsed.data;
     if (eventId && !data.expectedUpdatedAt)
       return c.json({ error: "Forventet versjon mangler" }, 400);
-    if (data.kind === "meeting") {
-      if (new Date(data.endAt) <= new Date(data.startAt))
-        return c.json({ error: "Meeting must end after it starts" }, 400);
-      const [contact] = await deps.db
-        .select({ id: contacts.id })
-        .from(contacts)
-        .where(
-          and(
-            eq(contacts.orgId, c.get("org").id),
-            eq(contacts.id, data.contactId),
-            ne(contacts.status, "duplicate"),
-            isNull(contacts.deletedAt),
-          ),
-        );
-      if (!contact) return c.json({ error: "Contact not found" }, 404);
-    }
-    const values = {
-      kind: data.kind,
-      title: data.title,
-      contactId: data.kind === "meeting" ? data.contactId : null,
-      date: data.kind === "deadline" ? data.date : null,
-      startAt: data.startAt ? new Date(data.startAt) : null,
-      endAt: data.kind === "meeting" ? new Date(data.endAt) : null,
-      updatedAt: new Date(),
-    };
+    const prepared = await calendarEventValues(deps, c.get("org").id, data);
+    if (!prepared.ok) return c.json({ error: prepared.error }, prepared.status);
+    const { values } = prepared;
     if (eventId) {
       const [row] = await deps.db
         .update(calendarEvents)

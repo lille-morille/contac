@@ -26,6 +26,7 @@ import { z } from "zod";
 import * as Y from "yjs";
 import { runContactAutomations } from "./ai.ts";
 import { replaceCompanyDomains } from "./domain-management.ts";
+import { registerMcpCalendarTools } from "./mcp-calendar.ts";
 import { searchTeam } from "./search.ts";
 import {
   authorizeMcpOauth,
@@ -169,6 +170,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
   const correctTeam = (expectedTeamId: string) => expectedTeamId === orgId;
+  registerMcpCalendarTools(server, deps, identity);
 
   server.registerTool(
     "get_team_identity",

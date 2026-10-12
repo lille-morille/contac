@@ -8,15 +8,24 @@ import type { ApiDeps, ApiEnv } from "./types.ts";
 const teamId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const contactId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function fixture() {
+function fixture(contactName?: string) {
   const queries: { sql: string; params: unknown[] }[] = [];
+  const inserts: Record<string, unknown>[] = [];
   const dialect = new PgDialect();
   const db = {
     select: () => ({
       from: () => ({
         where: async (condition: SQL) => {
           queries.push(dialect.sqlToQuery(condition));
-          return [];
+          return contactName ? [{ name: contactName }] : [];
+        },
+      }),
+    }),
+    insert: () => ({
+      values: (values: Record<string, unknown>) => ({
+        returning: async () => {
+          inserts.push(values);
+          return [values];
         },
       }),
     }),
@@ -28,7 +37,7 @@ function fixture() {
     await next();
   });
   registerCalendarRoutes(app, { db } as unknown as ApiDeps);
-  return { app, queries };
+  return { app, queries, inserts };
 }
 
 describe("team calendar access", () => {
@@ -62,5 +71,43 @@ describe("team calendar access", () => {
     expect(queries[0]?.sql).toContain('"contacts"."org_id" =');
     expect(queries[0]?.params).toContain(teamId);
     expect(queries[0]?.params).toContain(contactId);
+  });
+
+  it("creates a meeting without a contact or title", async () => {
+    const { app, queries, inserts } = fixture();
+    for (const contactId of [undefined, null]) {
+      const response = await app.request("/v1/org/calendar-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "meeting",
+          contactId,
+          startAt: "2026-10-09T09:00:00.000Z",
+          endAt: "2026-10-09T10:00:00.000Z",
+        }),
+      });
+      expect(response.status).toBe(201);
+    }
+    expect(queries).toHaveLength(0);
+    expect(inserts).toHaveLength(2);
+    for (const insert of inserts)
+      expect(insert).toMatchObject({ title: "Møte", contactId: null, orgId: teamId });
+  });
+
+  it("uses the linked contact name when a meeting title is blank", async () => {
+    const { app, inserts } = fixture("Ada Lovelace");
+    const response = await app.request("/v1/org/calendar-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "meeting",
+        title: "   ",
+        contactId,
+        startAt: "2026-10-09T09:00:00.000Z",
+        endAt: "2026-10-09T10:00:00.000Z",
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(inserts[0]).toMatchObject({ title: "Møte med Ada Lovelace", contactId });
   });
 });
