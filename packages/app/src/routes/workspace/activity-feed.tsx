@@ -14,6 +14,14 @@ import {
   type Data,
   type WorkspaceLocation,
 } from "./model.tsx";
+
+const dayFormat = new Intl.DateTimeFormat("nb-NO", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
 export function ActivityFeed({
   data,
   currentUserId,
@@ -68,6 +76,20 @@ export function ActivityFeed({
         b.activity.occurredAt.localeCompare(a.activity.occurredAt) ||
         b.activity.createdAt.localeCompare(a.activity.createdAt),
     );
+  const days = entries.reduce<Array<{ key: string; label: string; entries: typeof entries }>>(
+    (groups, entry) => {
+      const date = new Date(entry.activity.occurredAt);
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      const last = groups.at(-1);
+      if (last?.key === key) {
+        last.entries.push(entry);
+      } else {
+        groups.push({ key, label: dayFormat.format(date), entries: [entry] });
+      }
+      return groups;
+    },
+    [],
+  );
   return (
     <div className="mx-auto max-w-4xl">
       <h1 className="sr-only">Sist kontaktet</h1>
@@ -132,86 +154,96 @@ export function ActivityFeed({
         </label>
       </div>
       {entries.length ? (
-        <div className="mt-6 space-y-3">
-          {entries.map(({ activity, contacts, matchingContacts }) => {
-            const actor = data.members.find((member) => member.userId === activity.createdBy);
-            const label =
-              activity.kind === "meeting"
-                ? "Møte"
-                : activity.kind === "phone"
-                  ? "Telefonsamtale"
-                  : activity.kind === "email"
-                    ? "E-post"
-                    : activity.missedOutcome
-                      ? missedOutcomeLabels[activity.missedOutcome]
-                      : "Ubesvart anrop";
-            const Icon =
-              activity.kind === "meeting"
-                ? Users
-                : activity.kind === "phone"
-                  ? PhoneCall
-                  : activity.kind === "email"
-                    ? Mail
-                    : Phone;
-            return (
-              <Card key={activity.id} className="p-4 sm:p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
-                      <Icon size={18} />
-                    </span>
-                    <div>
-                      <h2 className="font-semibold">{label}</h2>
-                      <p className="text-xs text-muted-foreground">
-                        {dateTimeLabel(activity.occurredAt)}
-                        {actor && ` · Registrert av ${actor.name || "Medlem"}`}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onOpenActivity(matchingContacts[0]!.id, activity.id)}
-                  >
-                    Åpne i kontakt
-                  </Button>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {contacts.map((contact) => {
-                    const company = data.companies.find((item) => item.id === contact.companyId);
-                    return (
-                      <button
-                        key={contact.id}
-                        type="button"
-                        className="rounded-lg border border-border bg-muted/50 px-2.5 py-1 text-left text-xs hover:border-primary/30 hover:text-primary"
-                        onClick={() => onOpenActivity(contact.id, activity.id)}
+        <div className="mt-6 space-y-5">
+          {days.map((day) => (
+            <section key={day.key} className="space-y-3" aria-label={day.label}>
+              <h2 className="sticky top-0 z-10 flex items-center gap-3 bg-background/95 py-2 text-sm font-semibold capitalize text-foreground backdrop-blur-sm">
+                <span>{day.label}</span>
+                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+              </h2>
+              {day.entries.map(({ activity, contacts, matchingContacts }) => {
+                const actor = data.members.find((member) => member.userId === activity.createdBy);
+                const label =
+                  activity.kind === "meeting"
+                    ? "Møte"
+                    : activity.kind === "phone"
+                      ? "Telefonsamtale"
+                      : activity.kind === "email"
+                        ? "E-post"
+                        : activity.missedOutcome
+                          ? missedOutcomeLabels[activity.missedOutcome]
+                          : "Ubesvart anrop";
+                const Icon =
+                  activity.kind === "meeting"
+                    ? Users
+                    : activity.kind === "phone"
+                      ? PhoneCall
+                      : activity.kind === "email"
+                        ? Mail
+                        : Phone;
+                return (
+                  <Card key={activity.id} className="p-4 sm:p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
+                          <Icon size={18} />
+                        </span>
+                        <div>
+                          <h3 className="font-semibold">{label}</h3>
+                          <p className="text-xs text-muted-foreground">
+                            {dateTimeLabel(activity.occurredAt)}
+                            {actor && ` · Registrert av ${actor.name || "Medlem"}`}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onOpenActivity(matchingContacts[0]!.id, activity.id)}
                       >
-                        {contact.name}
-                        {company ? ` · ${company.name}` : ""}
-                      </button>
-                    );
-                  })}
-                </div>
-                {activity.summary ? (
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">
-                    {activity.summary}
-                  </p>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">Ingen notater.</p>
-                )}
-                {activity.transcript && (
-                  <details className="mt-3 border-t border-border pt-3">
-                    <summary className="cursor-pointer text-sm font-medium text-primary">
-                      Vis transkripsjon
-                    </summary>
-                    <p className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
-                      {activity.transcript}
-                    </p>
-                  </details>
-                )}
-              </Card>
-            );
-          })}
+                        Åpne i kontakt
+                      </Button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {contacts.map((contact) => {
+                        const company = data.companies.find(
+                          (item) => item.id === contact.companyId,
+                        );
+                        return (
+                          <button
+                            key={contact.id}
+                            type="button"
+                            className="rounded-lg border border-border bg-muted/50 px-2.5 py-1 text-left text-xs hover:border-primary/30 hover:text-primary"
+                            onClick={() => onOpenActivity(contact.id, activity.id)}
+                          >
+                            {contact.name}
+                            {company ? ` · ${company.name}` : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {activity.summary ? (
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">
+                        {activity.summary}
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-muted-foreground">Ingen notater.</p>
+                    )}
+                    {activity.transcript && (
+                      <details className="mt-3 border-t border-border pt-3">
+                        <summary className="cursor-pointer text-sm font-medium text-primary">
+                          Vis transkripsjon
+                        </summary>
+                        <p className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                          {activity.transcript}
+                        </p>
+                      </details>
+                    )}
+                  </Card>
+                );
+              })}
+            </section>
+          ))}
         </div>
       ) : (
         <Card className="mt-6 p-8 text-center text-sm text-muted-foreground">
