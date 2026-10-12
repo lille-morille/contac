@@ -584,9 +584,31 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const rows = await deps.db
       .select()
       .from(emailDrafts)
-      .where(and(eq(emailDrafts.orgId, c.get("org").id), eq(emailDrafts.contactId, contactId.data)))
+      .where(
+        and(
+          eq(emailDrafts.orgId, c.get("org").id),
+          eq(emailDrafts.contactId, contactId.data),
+          isNull(emailDrafts.markedSentAt),
+        ),
+      )
       .orderBy(desc(emailDrafts.updatedAt));
     return c.json(rows);
+  });
+  app.post("/v1/org/email-drafts/:id/delete", async (c) => {
+    const draftId = uuid.safeParse(c.req.param("id"));
+    if (!draftId.success) return c.json({ error: "Invalid draft" }, 400);
+    const [deleted] = await deps.db
+      .delete(emailDrafts)
+      .where(
+        and(
+          eq(emailDrafts.id, draftId.data),
+          eq(emailDrafts.orgId, c.get("org").id),
+          eq(emailDrafts.createdBy, c.get("user").id),
+          isNull(emailDrafts.markedSentAt),
+        ),
+      )
+      .returning({ id: emailDrafts.id });
+    return deleted ? c.json({ deleted: true }) : c.json({ error: "Unsent draft not found" }, 404);
   });
   app.post("/v1/org/email-drafts", async (c) => {
     const parsed = draftInput.safeParse(await c.req.json().catch(() => null));

@@ -9,6 +9,8 @@ import {
   contactReminders,
   contacts,
   emailActivities,
+  emailDrafts,
+  inboundSuggestions,
   domainTags,
   favoriteContacts,
   workspaceFiles,
@@ -1311,6 +1313,20 @@ export function registerContactRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         .from(activityContacts)
         .where(
           and(eq(activityContacts.orgId, orgId), eq(activityContacts.activityId, activityId.data)),
+        );
+      // Both references have restrictive foreign keys. Remove the draft with
+      // its logged email and retain inbound suggestions without a dead link.
+      await tx
+        .delete(emailDrafts)
+        .where(and(eq(emailDrafts.orgId, orgId), eq(emailDrafts.activityId, activityId.data)));
+      await tx
+        .update(inboundSuggestions)
+        .set({ activityId: null })
+        .where(
+          and(
+            eq(inboundSuggestions.orgId, orgId),
+            eq(inboundSuggestions.activityId, activityId.data),
+          ),
         );
       const [row] = await tx
         .delete(contactActivities)

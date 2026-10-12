@@ -1,6 +1,6 @@
 import { emailList, normalizeEmail } from "@contac/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, ExternalLink, Send } from "lucide-react";
+import { Mail, ExternalLink, Send, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { request } from "../lib/api.ts";
 import { buildMailtoUrl } from "../lib/mailto.ts";
@@ -149,6 +149,20 @@ export function EmailComposer({
         await request(`/org/email-drafts/${row.id}/mark-sent`, org.id, {});
         await onActivity();
       }
+      await qc.invalidateQueries({ queryKey: ["email-drafts", org.id, contact.id] });
+      setOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeDraft() {
+    if (!org || !draft.id || !window.confirm("Slette dette utkastet?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/org/email-drafts/${draft.id}/delete`, org.id, {});
       await qc.invalidateQueries({ queryKey: ["email-drafts", org.id, contact.id] });
       setOpen(false);
     } catch (cause) {
@@ -351,6 +365,11 @@ export function EmailComposer({
             </p>
           ) : (
             <div className="mt-5 flex flex-wrap justify-end gap-2">
+              {draft.id && (
+                <Button variant="destructive" disabled={busy} onClick={() => void removeDraft()}>
+                  <Trash2 size={15} /> Slett utkast
+                </Button>
+              )}
               <Button variant="outline" disabled={busy} onClick={() => void action("save")}>
                 Lagre utkast
               </Button>
