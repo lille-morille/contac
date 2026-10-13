@@ -142,6 +142,7 @@ export type ReportEntry = {
 };
 export type ReportRow = {
   contact: ReportContact;
+  exportNumber: number;
   hasActivity: boolean;
   entries: ReportEntry[];
 };
@@ -253,6 +254,16 @@ export function orderedReportContacts(
   });
 }
 
+export function reportExportNumbers(
+  orderedContacts: readonly { id: string }[],
+  excludedContactIds: ReadonlySet<string>,
+): Map<string, number> {
+  const numbers = new Map<string, number>();
+  for (const contact of orderedContacts)
+    if (!excludedContactIds.has(contact.id)) numbers.set(contact.id, numbers.size + 1);
+  return numbers;
+}
+
 export function buildReportData(input: {
   contacts: ReportContact[];
   activities: ExportActivity[];
@@ -261,9 +272,9 @@ export function buildReportData(input: {
   const validContacts = input.contacts.filter((contact) => contact.status !== "duplicate");
   const allById = new Map(validContacts.map((contact) => [contact.id, contact]));
   const excluded = new Set(input.settings.excludedContactIds);
-  const ordered = orderedReportContacts(validContacts, input.activities, input.settings).filter(
-    (contact) => !excluded.has(contact.id),
-  );
+  const orderedAll = orderedReportContacts(validContacts, input.activities, input.settings);
+  const exportNumbers = reportExportNumbers(orderedAll, excluded);
+  const ordered = orderedAll.filter((contact) => !excluded.has(contact.id));
   const selectedIds = new Set(ordered.map((contact) => contact.id));
   const reportOrder = new Map(ordered.map((contact, index) => [contact.id, index]));
   const entries = new Map(ordered.map((contact) => [contact.id, [] as ReportEntry[]]));
@@ -298,6 +309,7 @@ export function buildReportData(input: {
   }
   const rows = ordered.map((contact) => ({
     contact,
+    exportNumber: exportNumbers.get(contact.id)!,
     hasActivity: linked.has(contact.id),
     entries: (entries.get(contact.id) ?? []).sort(
       (a, b) =>

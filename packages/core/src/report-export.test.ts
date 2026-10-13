@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReportData, defaultReportSettings, reportSettingsSchema } from "./report-export.ts";
+import { buildReportData, defaultReportSettings, reportExportNumbers, reportSettingsSchema } from "./report-export.ts";
 import type { ExportActivity } from "./contact-export.ts";
 
 const uuid = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`;
@@ -40,6 +40,35 @@ const meeting = (owner: number, linked: number[]): ExportActivity => ({
 });
 
 describe("saved report composition", () => {
+  it("numbers included contacts consecutively across sections and updates numbers after a move", () => {
+    const configured = settings();
+    configured.sectionMode = "custom";
+    configured.customSections = [
+      { id: uuid(90), title: "Først" },
+      { id: uuid(91), title: "Sist" },
+    ];
+    configured.customAssignments = {
+      [uuid(12)]: uuid(90),
+      [uuid(34)]: uuid(90),
+      [uuid(56)]: uuid(91),
+    };
+    configured.excludedContactIds = [uuid(34)];
+    const contacts = [contact(12), contact(34), contact(56)];
+    let report = buildReportData({ contacts, activities: [], settings: configured });
+    expect(report.sections.flatMap((section) => section.rows.map((row) => [row.contact.contactNumber, row.exportNumber])))
+      .toEqual([[12, 1], [56, 2]]);
+    expect([...reportExportNumbers(contacts, new Set(configured.excludedContactIds))]).toEqual([
+      [uuid(12), 1],
+      [uuid(56), 2],
+    ]);
+
+    configured.excludedContactIds = [];
+    configured.orderMode = "manual";
+    configured.contactOrder = [uuid(34), uuid(12), uuid(56)];
+    report = buildReportData({ contacts, activities: [], settings: configured });
+    expect(report.sections.flatMap((section) => section.rows.map((row) => [row.contact.contactNumber, row.exportNumber])))
+      .toEqual([[34, 1], [12, 2], [56, 3]]);
+  });
   it("upgrades saved log columns to summaries and supplies new section defaults", () => {
     const legacy = {
       format: "typst",

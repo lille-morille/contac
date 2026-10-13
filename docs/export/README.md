@@ -10,7 +10,7 @@ Et sitat #cite-contact(12).
 #include "dependencies/kontaktlogg.typ"
 ```
 
-The number is the contact's permanent team-scoped number, independent of display order. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with restrained color on section headings. Each contact begins with the person's name and company, followed by compact metadata, Key takeaways, and Sammendrag. Neutral rules and spacing separate contacts. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
+The argument to `cite-contact` is the contact's permanent team-scoped number, independent of display order. The exported log displays included contacts as `K-1`, `K-2`, and so on in current report order; the citation helper translates the permanent number to that displayed number and links to the right card. Reordering or changing inclusion changes display numbers, while existing citation arguments remain valid for included contacts. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with restrained color on section headings. Each contact begins with the person's name and company, followed by compact metadata, Key takeaways, and Sammendrag. Neutral rules and spacing separate contacts. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
 
 ## Fast PDF preview
 
@@ -61,8 +61,8 @@ Copy or download Typst from the existing saved export workspace and replace
 all of the template's root `kontaktlogg.typ`. It retains the selected contacts,
 columns and relevance order. Report sections import `cite-contact` through
 `dependencies/helpers.typ`, which delegates to that exported file's helper.
-Citations therefore use exactly the same `kontaktlogg-k-N` targets as the
-backend's portrait contact cards. The template also supports direct imports from
+Citations therefore use exactly the same permanent-number `kontaktlogg-k-N` targets as the
+backend's portrait contact cards, while showing each card's current export number. The template also supports direct imports from
 `kontaktlogg.typ`. No second contact-log renderer or CSV import is involved.
 
 **Last ned signerte LOI-er** downloads `/v1/org/export/signed-lois.zip`, containing

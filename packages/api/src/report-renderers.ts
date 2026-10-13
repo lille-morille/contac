@@ -87,7 +87,7 @@ export function reportCell(row: ReportRow, column: ReportColumnId): string {
   const person = row.contact;
   switch (column) {
     case "number":
-      return `K-${person.contactNumber}`;
+      return `K-${row.exportNumber}`;
     case "assignee":
       return person.assigneeName ?? "";
     case "organization":
@@ -193,6 +193,7 @@ function typstString(value: string): string {
 function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
   return rows.map((row) => ({
     number: row.contact.contactNumber,
+    exportNumber: row.exportNumber,
     status: row.contact.status,
     values: Object.fromEntries(
       columns.map((column) => [
@@ -265,7 +266,7 @@ export function renderReportTypst(report: ReportData): string {
     assert(type(number) == int, message: "Bruk permanent kontaktnummer, for eksempel #cite-contact(12).")
     let person = contact-index.at(str(number), default: none)
     assert(person != none, message: "K-" + str(number) + " er ikke med i den eksporterte kontaktloggen.")
-    link(contact-target(number), "K-" + str(number) + if numbers.len() == 1 { ": " + person.values.at("name") } else { "" })
+    link(contact-target(number), "K-" + str(person.exportNumber) + if numbers.len() == 1 { ": " + person.values.at("name") } else { "" })
   })
   [(#links.join([; ]))]
 }
@@ -317,7 +318,7 @@ export function renderReportTypst(report: ReportData): string {
       #grid(
         columns: (15mm, 1fr), gutter: 3mm,
         align: (center + horizon, left + horizon),
-        [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.number))],
+        [#contact-anchor(row.number)#text(size: 15pt, weight: "bold", fill: ink, "K-" + str(row.exportNumber))],
         [
           #text(size: 13pt, weight: "bold", fill: ink, row.values.at("name"))
           #if company != "" { [#h(7pt)#text(size: 11pt, fill: muted, company)] }
@@ -399,7 +400,7 @@ export function renderReportLatex(report: ReportData): string {
     flushFields();
     return (
       `\\hypertarget{kontaktlogg-k-${row.contact.contactNumber}}{}\n` +
-      `\\subsection*{K-${row.contact.contactNumber} ${latexEscape(row.contact.name)}}\n` +
+      `\\subsection*{K-${row.exportNumber} ${latexEscape(row.contact.name)}}\n` +
       parts.join("\n")
     );
   };

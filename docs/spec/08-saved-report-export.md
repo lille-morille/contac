@@ -20,7 +20,7 @@ All three page sections—Eksport og rapport, Innhold og kolonner, and Kontakter
 
 Keep each activity's notes once, under the contact on whom it was created. Secondary linked contacts have a short cross-reference to that contact, and the full entry lists other participants by permanent team contact number. If the original contact is deleted, a duplicate, or excluded from this report, assign the activity to the first included linked contact in saved report order. Omit it if no linked contact is included. Remove the manual `Eksporteres under` control and write endpoint; retain the stored creation owner as the normal owner. Omit transcripts from every export format.
 
-Typst citations use immutable team contact numbers, such as `#cite-contact(12)`. Reordering never changes them. A citation to a contact omitted from the generated Typst source fails compilation.
+Typst citations take immutable team contact numbers, such as `#cite-contact(12)`. Each included contact is displayed as `K-1`, `K-2`, and so on in current export order across the preview, Typst, LaTeX, CSV, and copied table. Reordering or excluding contacts recalculates these displayed numbers without changing citation arguments or permanent team numbers. The Typst helper resolves a permanent number to its displayed export number and link target. A citation to a contact omitted from the generated Typst source fails compilation. This numbering change was assigned on 2026-10-13.
 
 ## Formats and actions
 

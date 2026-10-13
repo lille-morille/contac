@@ -5,6 +5,7 @@ import {
   reportColumnLabels,
   reportSectionForContact,
   compareReportContacts,
+  reportExportNumbers,
   type ReportColumnId,
   type ReportFormat,
   type ReportSettings,
@@ -50,7 +51,7 @@ type SaveState = "saved" | "pending" | "saving" | "error";
 
 const detailColumns = new Set<ReportColumnId>(["description", "sammendrag", "stikkord"]);
 const columnDescriptions: Partial<Record<ReportColumnId, string>> = {
-  number: "Unik ID for hver kontakt, blir brukt til å referere til kontakten i teksten",
+  number: "Løpenummer i den eksporterte kontaktloggen",
   contactInfo: "Mobilnummer og/eller epost",
   stikkord: "Key takeaways fra hele kontakten",
   sammendrag: "Funn og temaer fra hele kontakten",
@@ -111,10 +112,14 @@ function orderContacts(contacts: PreviewContact[], settings: ReportSettings) {
   });
 }
 
-function previewCell(contact: PreviewContact, column: ReportColumnId): string {
+function previewCell(
+  contact: PreviewContact,
+  column: ReportColumnId,
+  exportNumber?: number,
+): string {
   switch (column) {
     case "number":
-      return `K-${contact.contactNumber}`;
+      return exportNumber ? `K-${exportNumber}` : `K-${contact.contactNumber}`;
     case "assignee":
       return contact.assigneeName ?? "";
     case "organization":
@@ -260,10 +265,11 @@ function InlineReportEditor({
   );
 }
 
-function PreviewCards({
+export function PreviewCards({
   contacts,
   columns,
   excluded,
+  exportNumbers,
   onMove,
   onToggle,
   onOpen,
@@ -276,6 +282,7 @@ function PreviewCards({
   contacts: PreviewContact[];
   columns: ReportColumnId[];
   excluded: Set<string>;
+  exportNumbers: ReadonlyMap<string, number>;
   onMove: (id: string, target: string) => void;
   onToggle: (id: string, include: boolean) => void;
   onOpen: (id: string) => void;
@@ -291,27 +298,28 @@ function PreviewCards({
       {contacts.map((contact, index) => {
         const previous = contacts[index - 1];
         const next = contacts[index + 1];
+        const exportNumber = exportNumbers.get(contact.id);
         const metadata = columns.filter(
           (column) =>
             column !== "number" &&
             column !== "description" &&
             column !== "sammendrag" &&
             column !== "stikkord" &&
-            (column === "name" || previewCell(contact, column)),
+            (column === "name" || previewCell(contact, column, exportNumber)),
         );
         const details = columns.filter(
           (column) =>
             (column === "description" || column === "sammendrag" || column === "stikkord") &&
-            (column === "sammendrag" || column === "stikkord" || previewCell(contact, column)),
+            (column === "sammendrag" || column === "stikkord" || previewCell(contact, column, exportNumber)),
         );
         return (
           <article key={contact.id} className="rounded-xl border border-border bg-card p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
               <span className="text-xs font-semibold text-primary">
-                Nr. {contact.contactNumber}
+                {exportNumber ? `K-${exportNumber}` : `Ikke med · permanent K-${contact.contactNumber}`}
               </span>
               <span className="text-xs text-muted-foreground">
-                Relevans: {previewCell(contact, "relevance")}
+                Relevans: {previewCell(contact, "relevance", exportNumber)}
               </span>
               <div className="flex items-center gap-1">
                 {settings.sectionMode === "custom" && (
@@ -367,7 +375,7 @@ function PreviewCards({
                     {reportColumnLabels[column]}
                   </div>
                   <div className="whitespace-pre-wrap break-words">
-                    {previewCell(contact, column) || "—"}
+                    {previewCell(contact, column, exportNumber) || "—"}
                   </div>
                 </div>
               ))}
@@ -395,7 +403,7 @@ function PreviewCards({
                   />
                 ) : (
                   <div className="whitespace-pre-wrap break-words">
-                    {previewCell(contact, column)}
+                    {previewCell(contact, column, exportNumber)}
                   </div>
                 )}
               </div>
@@ -610,6 +618,7 @@ export function ExportPage({
   }
   const ordered = draft && workspace.data ? orderContacts(workspace.data.contacts, draft) : [];
   const excluded = new Set(draft?.excludedContactIds ?? []);
+  const exportNumbers = reportExportNumbers(ordered, excluded);
   const included = ordered.filter((contact) => !excluded.has(contact.id));
   const visible = ordered.filter((contact) =>
     `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.sammendrag ?? ""} ${contact.stikkord ?? ""}`
@@ -1105,6 +1114,7 @@ export function ExportPage({
                 contacts={group.contacts}
                 columns={draft.columns}
                 excluded={excluded}
+                exportNumbers={exportNumbers}
                 onMove={moveContact}
                 onToggle={toggleContact}
                 onOpen={onOpenContact}

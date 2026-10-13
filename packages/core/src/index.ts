@@ -18,6 +18,7 @@ export {
   buildReportData,
   defaultReportSettings,
   orderedReportContacts,
+  reportExportNumbers,
   reportColumnLabels,
   reportColumnIds,
   reportFormats,

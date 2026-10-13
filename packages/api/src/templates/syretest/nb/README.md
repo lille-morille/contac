@@ -2,7 +2,7 @@
 
 1. Edit `project.yaml` and the files in `sections/`.
 2. Copy Contac's Typst export into `kontaktlogg.typ`, replacing the entire file.
-3. Cite permanent contact numbers with `#cite-contact(1, 2)` (import from `dependencies/helpers.typ` in each section). Library quote snippets use the same helper. Choose included contacts, column order and relevance order in Contac’s Eksport page before copying the Typst export.
+3. Cite permanent contact numbers with `#cite-contact(1, 2)` (import from `dependencies/helpers.typ` in each section). The rendered citations show the contacts' current export numbers. Library quote snippets use the same helper. Choose included contacts, column order and relevance order in Contac’s Eksport page before copying the Typst export.
 4. Add bibliography entries to `bibliography.yml`, then cite with `@source-key`.
 5. Download signed LOIs from Contac and extract the ZIP into this project's root. It supplies `loi/manifest.json` and the original PDFs. All pages appear automatically in the appendix.
 6. For PDFs added manually to `loi/`, install `pypdf` with `python3 -m pip install pypdf`, then run `python3 prepare-lois.py`. Run it again after adding/removing/replacing a PDF. Typst cannot scan a directory itself. You may also edit the manifest manually.
