@@ -11,7 +11,6 @@ import { Avatar } from "../../components/ui/avatar.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Select } from "../../components/ui/select.tsx";
 import { profileAvatarUrl } from "../../lib/api.ts";
-import { useOrg } from "../../lib/org.tsx";
 import { assigneeOptions, statusOptions, type Contact, type Data } from "./model.tsx";
 export type BoardDrag = {
   gestureId: number;
@@ -55,8 +54,6 @@ export function ContactBoard({
   highlightId: string | null;
   currentUserId: string;
 }) {
-  const state = useOrg();
-  const currentUserId = state.user?.id ?? "";
   const boardRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingBoardDrag | null>(null);
   const dragRef = useRef<BoardDrag | null>(null);
@@ -301,6 +298,7 @@ export function ContactBoard({
                             : contact
                         }
                         data={data}
+                        currentUserId={currentUserId}
                         onOpen={() => onOpen(contact.id)}
                         onChangeStatus={(status) => updateStatus(contact.id, status)}
                         onChangeAssignee={(assigneeId) => {
@@ -379,7 +377,11 @@ export function ContactBoard({
                   width: drag.width,
                 }}
               >
-                <ContactCardContent contact={draggedContact} data={data} />
+                <ContactCardContent
+                  contact={draggedContact}
+                  data={data}
+                  currentUserId={currentUserId}
+                />
               </motion.div>
             )}
           </AnimatePresence>,
@@ -391,6 +393,7 @@ export function ContactBoard({
 export function ContactCard({
   contact: c,
   data,
+  currentUserId,
   onOpen,
   onChangeStatus,
   onChangeAssignee,
@@ -402,6 +405,7 @@ export function ContactCard({
 }: {
   contact: Contact;
   data: Data;
+  currentUserId: string;
   onOpen: () => void;
   onChangeStatus: (status: Status) => void;
   onChangeAssignee: (assigneeId: string) => void;
@@ -426,6 +430,7 @@ export function ContactCard({
       <ContactCardContent
         contact={c}
         data={data}
+        currentUserId={currentUserId}
         onChangeStatus={onChangeStatus}
         onChangeAssignee={onChangeAssignee}
       />
@@ -435,11 +440,13 @@ export function ContactCard({
 export function ContactCardContent({
   contact: c,
   data,
+  currentUserId,
   onChangeStatus,
   onChangeAssignee,
 }: {
   contact: Contact;
   data: Data;
+  currentUserId: string;
   onChangeStatus?: (status: Status) => void;
   onChangeAssignee?: (assigneeId: string) => void;
 }) {
