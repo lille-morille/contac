@@ -298,21 +298,60 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
             ),
           )
       : [];
-    const sentDrafts = directSender
+    const senderDrafts = directSender
       ? await deps.db
           .select()
           .from(emailDrafts)
           .where(eq(emailDrafts.fromEmail, message.fromEmail))
           .orderBy(desc(emailDrafts.markedSentAt))
       : [];
-    const matchingDraft = sentDrafts.find(
+    const sentCandidates = senderDrafts.filter(
       (draft) =>
         draft.markedSentAt &&
+        draft.activityId &&
         senderMemberships.some((membership) => membership.orgId === draft.orgId) &&
         sameEmailSet(draft.toEmails, message.toEmails),
     );
+    const sentEmailRows = sentCandidates.length
+      ? await deps.db
+          .select({ activityId: emailActivities.activityId, inboundId: emailActivities.inboundId })
+          .from(emailActivities)
+          .where(
+            inArray(
+              emailActivities.activityId,
+              sentCandidates.map((draft) => draft.activityId!),
+            ),
+          )
+      : [];
+    const sentInboundByActivity = new Map(
+      sentEmailRows.map((row) => [row.activityId, row.inboundId]),
+    );
+    const matchingDraft = sentCandidates.find(
+      (draft) =>
+        sentInboundByActivity.has(draft.activityId!) &&
+        (sentInboundByActivity.get(draft.activityId!) === null ||
+          sentInboundByActivity.get(draft.activityId!) === inbound.id),
+    );
+    const openedCandidates = !forwardedIntent
+      ? senderDrafts.filter(
+          (draft) =>
+            !draft.markedSentAt &&
+            !draft.activityId &&
+            draft.openedAt &&
+            draft.openedAt <= inbound.receivedAt &&
+            senderMemberships.some((membership) => membership.orgId === draft.orgId) &&
+            classContacts.some(
+              (contact) => contact.id === draft.contactId && contact.orgId === draft.orgId,
+            ) &&
+            sameEmailSet(draft.toEmails, message.toEmails) &&
+            draft.subject.trim() === message.subject.trim(),
+        )
+      : [];
+    const openedDraft =
+      !matchingDraft && openedCandidates.length === 1 ? openedCandidates[0] : undefined;
     let senderOrgId =
       matchingDraft?.orgId ??
+      openedDraft?.orgId ??
       (addressedTeam && senderMemberships.some((row) => row.orgId === addressedTeam.id)
         ? addressedTeam.id
         : undefined) ??
@@ -344,7 +383,156 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
     let extractedEmails = forward
       ? emailList([forward.fromEmail, ...forward.toEmails, ...forward.ccEmails])
       : [];
-    if (senderOrgId && sender && !matchingDraft?.activityId) {
+    let draftAccepted = false;
+    if (senderOrgId && matchingDraft?.activityId) {
+      const [linked] = await deps.db
+        .update(emailActivities)
+        .set({ inboundId: inbound.id })
+        .where(
+          and(
+            eq(emailActivities.activityId, matchingDraft.activityId),
+            eq(emailActivities.orgId, senderOrgId),
+            or(isNull(emailActivities.inboundId), eq(emailActivities.inboundId, inbound.id)),
+          ),
+        )
+        .returning({ activityId: emailActivities.activityId });
+      draftAccepted = !!linked;
+      if (linked)
+        await deps.db
+          .update(inboundSuggestions)
+          .set({ status: "accepted", activityId: linked.activityId })
+          .where(
+            and(
+              eq(inboundSuggestions.inboundId, inbound.id),
+              eq(inboundSuggestions.orgId, senderOrgId),
+            ),
+          );
+    }
+    if (senderOrgId && openedDraft && !draftAccepted) {
+      const ids = [
+        ...new Set([
+          openedDraft.contactId,
+          ...classContacts
+            .filter((row) => row.orgId === senderOrgId && contactMatchesEmail(row.email, message))
+            .map((row) => row.id),
+        ]),
+      ];
+      const activityId = await deps.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(emailDrafts)
+          .where(and(eq(emailDrafts.id, openedDraft.id), eq(emailDrafts.orgId, senderOrgId)))
+          .for("update");
+        if (
+          !current ||
+          current.markedSentAt ||
+          current.activityId ||
+          !current.openedAt ||
+          current.openedAt > inbound.receivedAt ||
+          current.fromEmail !== message.fromEmail ||
+          !sameEmailSet(current.toEmails, message.toEmails) ||
+          current.subject.trim() !== message.subject.trim()
+        )
+          return null;
+        const [claimed] = await tx
+          .update(emailDrafts)
+          .set({ markedSentAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(emailDrafts.id, openedDraft.id),
+              eq(emailDrafts.orgId, senderOrgId),
+              isNull(emailDrafts.markedSentAt),
+              isNull(emailDrafts.activityId),
+            ),
+          )
+          .returning({ id: emailDrafts.id });
+        if (!claimed) return null;
+        const [activity] = await tx
+          .insert(contactActivities)
+          .values({
+            orgId: senderOrgId,
+            kind: "email",
+            summary: inbound.body,
+            exportOwnerContactId: openedDraft.contactId,
+            createdBy: sender!.userId,
+            occurredAt: inbound.receivedAt,
+          })
+          .returning({ id: contactActivities.id });
+        await tx
+          .insert(activityContacts)
+          .values(
+            ids.map((contactId) => ({ orgId: senderOrgId, activityId: activity!.id, contactId })),
+          );
+        await tx.insert(emailActivities).values({
+          activityId: activity!.id,
+          orgId: senderOrgId,
+          inboundId: inbound.id,
+          fromEmail: inbound.fromEmail,
+          toEmails: inbound.toEmails,
+          ccEmails: inbound.ccEmails,
+          bccEmails: inbound.bccEmails,
+          subject: inbound.subject,
+        });
+        await tx
+          .update(emailDrafts)
+          .set({ activityId: activity!.id })
+          .where(eq(emailDrafts.id, openedDraft.id));
+        await tx
+          .update(contacts)
+          .set({ updatedAt: new Date() })
+          .where(and(eq(contacts.orgId, senderOrgId), inArray(contacts.id, ids)));
+        return activity!.id;
+      });
+      if (activityId) {
+        draftAccepted = true;
+        queueMicrotask(() => {
+          void runContactAutomations(deps, senderOrgId!, ids);
+        });
+      } else {
+        // A simultaneous manual mark-sent may have claimed the draft first.
+        const [sent] = await deps.db
+          .select({
+            activityId: emailDrafts.activityId,
+            fromEmail: emailDrafts.fromEmail,
+            toEmails: emailDrafts.toEmails,
+            subject: emailDrafts.subject,
+          })
+          .from(emailDrafts)
+          .where(eq(emailDrafts.id, openedDraft.id));
+        if (
+          sent?.activityId &&
+          sent.fromEmail === message.fromEmail &&
+          sameEmailSet(sent.toEmails, message.toEmails) &&
+          sent.subject.trim() === message.subject.trim()
+        ) {
+          const [linked] = await deps.db
+            .update(emailActivities)
+            .set({ inboundId: inbound.id })
+            .where(
+              and(
+                eq(emailActivities.activityId, sent.activityId),
+                eq(emailActivities.orgId, senderOrgId),
+                or(isNull(emailActivities.inboundId), eq(emailActivities.inboundId, inbound.id)),
+              ),
+            )
+            .returning({ activityId: emailActivities.activityId });
+          draftAccepted = !!linked;
+        } else {
+          const [linked] = await deps.db
+            .select({ activityId: emailActivities.activityId })
+            .from(emailActivities)
+            .where(
+              and(
+                eq(emailActivities.orgId, senderOrgId),
+                eq(emailActivities.inboundId, inbound.id),
+              ),
+            )
+            .limit(1);
+          draftAccepted = !!linked;
+        }
+      }
+    }
+    if (senderOrgId && sender && !draftAccepted) {
       // Persist ownership before external extraction. The unique suggestion also
       // prevents concurrent intake retries from charging the team twice.
       const [claimed] = await deps.db
@@ -463,21 +651,6 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
       }
     }
 
-    if (senderOrgId && matchingDraft?.activityId) {
-      await deps.db
-        .update(emailActivities)
-        .set({ inboundId: inbound.id })
-        .where(eq(emailActivities.activityId, matchingDraft.activityId));
-      await deps.db
-        .update(inboundSuggestions)
-        .set({ status: "accepted", activityId: matchingDraft.activityId })
-        .where(
-          and(
-            eq(inboundSuggestions.inboundId, inbound.id),
-            eq(inboundSuggestions.orgId, senderOrgId),
-          ),
-        );
-    }
     for (const orgId of matchedTeams) {
       if (orgId === senderOrgId) continue;
       if (sender && !senderOrgId) continue;

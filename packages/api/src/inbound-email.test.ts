@@ -38,6 +38,9 @@ type Fixture = {
     assigneeId?: string | null;
   }[];
   routed?: boolean;
+  drafts?: Record<string, unknown>[];
+  sentEmailRows?: Record<string, unknown>[];
+  manualSentRace?: boolean;
 };
 
 function makeApp(fixture: Fixture = {}) {
@@ -46,6 +49,8 @@ function makeApp(fixture: Fixture = {}) {
   const activities: Record<string, unknown>[] = [];
   const activityLinks: Record<string, unknown>[] = [];
   const emailRows: Record<string, unknown>[] = [];
+  const draftRows = (fixture.drafts ?? []).map((row) => ({ ...row }));
+  emailRows.push(...(fixture.sentEmailRows ?? []).map((row) => ({ ...row })));
   let stored: Record<string, unknown> = {};
   const queries: { table: unknown; params: unknown[] }[] = [];
   const deps = {
@@ -77,7 +82,12 @@ function makeApp(fixture: Fixture = {}) {
             if (table === memberships)
               return (fixture.senderTeams ?? ["team-5"]).map((orgId) => ({ orgId }));
             if (table === classMemberships) return [{ currentTeamId: fixture.currentTeam ?? null }];
-            if (table === emailDrafts) return [];
+            if (table === emailDrafts) {
+              const selected = draftRows.filter((row) => params.includes(row.id));
+              return selected.length ? selected : draftRows;
+            }
+            if (table === emailActivities) return emailRows;
+            if (table === inboundEmails) return stored.id ? [stored] : [];
             throw new Error("Unexpected select");
           };
           const query = {
@@ -89,6 +99,20 @@ function makeApp(fixture: Fixture = {}) {
             },
             limit: async () => result(),
             orderBy: async () => result(),
+            for: async () => {
+              if (table === emailDrafts && fixture.manualSentRace) {
+                Object.assign(draftRows[0]!, {
+                  markedSentAt: new Date(),
+                  activityId: "manual-activity",
+                });
+                emailRows.push({
+                  activityId: "manual-activity",
+                  orgId: "team-5",
+                  inboundId: null,
+                });
+              }
+              return result();
+            },
             then: (resolve: (value: unknown[]) => unknown) =>
               Promise.resolve(result()).then(resolve),
           };
@@ -99,6 +123,13 @@ function makeApp(fixture: Fixture = {}) {
         values: (value: Record<string, unknown> | Record<string, unknown>[]) => ({
           onConflictDoNothing: () => {
             if (table === inboundSuggestions) {
+              const suggestion = value as Record<string, unknown>;
+              if (
+                suggestions.some(
+                  (row) => row.inboundId === suggestion.inboundId && row.orgId === suggestion.orgId,
+                )
+              )
+                return Object.assign(Promise.resolve(), { returning: async () => [] });
               suggestions.push(value as Record<string, unknown>);
               return Object.assign(Promise.resolve(), {
                 returning: async () => [
@@ -107,6 +138,7 @@ function makeApp(fixture: Fixture = {}) {
               });
             }
             expect(table).toBe(inboundEmails);
+            if (stored.id) return { returning: async () => [] };
             stored = {
               id: "inbound-1",
               ...(value as Record<string, unknown>),
@@ -122,7 +154,8 @@ function makeApp(fixture: Fixture = {}) {
             throw new Error("Unexpected returning insert");
           },
           then: (resolve: (value: unknown) => unknown) => {
-            if (table === activityContacts) activityLinks.push(value as Record<string, unknown>);
+            if (table === activityContacts)
+              activityLinks.push(...(Array.isArray(value) ? value : [value]));
             if (table === emailActivities) emailRows.push(value as Record<string, unknown>);
             return Promise.resolve().then(resolve);
           },
@@ -132,11 +165,35 @@ function makeApp(fixture: Fixture = {}) {
         set: (value: Record<string, unknown>) => {
           const query = {
             where: () => {
-              expect([inboundEmails, inboundSuggestions, contacts]).toContain(table);
+              expect([
+                inboundEmails,
+                inboundSuggestions,
+                contacts,
+                emailDrafts,
+                emailActivities,
+              ]).toContain(table);
               updates.push(value);
+              if (table === inboundEmails) Object.assign(stored, value);
+              if (table === emailDrafts && "activityId" in value)
+                Object.assign(draftRows[0]!, value);
+              if (table === emailActivities && "inboundId" in value) {
+                const row = emailRows.find((item) => item.inboundId == null);
+                if (row) Object.assign(row, value);
+              }
               return query;
             },
-            returning: async () => [{ id: "suggestion-1", ...value }],
+            returning: async () => {
+              if (table === emailDrafts && "markedSentAt" in value) {
+                if (draftRows[0]?.markedSentAt) return [];
+                Object.assign(draftRows[0]!, value);
+                return [{ id: draftRows[0]?.id }];
+              }
+              if (table === emailActivities)
+                return emailRows
+                  .filter((row) => row.inboundId === value.inboundId)
+                  .map((row) => ({ activityId: row.activityId }));
+              return [{ id: "suggestion-1", ...value }];
+            },
             then: (resolve: (value: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
           };
           return query;
@@ -168,6 +225,7 @@ function makeApp(fixture: Fixture = {}) {
     activities,
     activityLinks,
     emailRows,
+    draftRows,
     queries,
     stored: () => stored,
   };
@@ -435,5 +493,145 @@ describe("forwarded inbound email routing", () => {
     expect((await fixture.receive()).status).toBe(202);
     expect(extractInboundContactEmails).not.toHaveBeenCalled();
     expect(fixture.suggestions[0]).toMatchObject({ recipientUserId: "lenart" });
+  });
+});
+
+const openedDraft = (overrides: Record<string, unknown> = {}) => ({
+  id: "draft-1",
+  orgId: "team-5",
+  contactId: "contact-1",
+  createdBy: "lenart",
+  fromEmail: "alias@example.no",
+  toEmails: ["oliver.hayden@tum.de"],
+  subject: "Research question",
+  openedAt: new Date("2026-10-13T12:00:00.000Z"),
+  markedSentAt: null,
+  activityId: null,
+  updatedAt: new Date("2026-10-13T12:00:00.000Z"),
+  ...overrides,
+});
+
+const sentCopy = {
+  toEmails: ["oliver.hayden@tum.de"],
+  subject: "Research question",
+  body: "The text actually sent, including a mail-client signature",
+  receivedAt: "2026-10-13T12:05:00.000Z",
+};
+
+describe("opened draft Bcc reconciliation", () => {
+  it("saves the received copy once and removes the opened draft from the unsent list", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      drafts: [openedDraft({ subject: "  Research question  " })],
+    });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toMatchObject([
+      {
+        orgId: "team-5",
+        kind: "email",
+        summary: sentCopy.body,
+        exportOwnerContactId: "contact-1",
+        occurredAt: new Date(sentCopy.receivedAt),
+      },
+    ]);
+    expect(fixture.emailRows).toMatchObject([
+      {
+        inboundId: "inbound-1",
+        fromEmail: "alias@example.no",
+        toEmails: sentCopy.toEmails,
+        subject: sentCopy.subject,
+      },
+    ]);
+    expect(fixture.activityLinks).toEqual([
+      { orgId: "team-5", activityId: "activity-1", contactId: "contact-1" },
+    ]);
+    expect(fixture.draftRows[0]).toMatchObject({ activityId: "activity-1" });
+    expect(fixture.draftRows[0]?.markedSentAt).toBeInstanceOf(Date);
+    expect(fixture.suggestions).toEqual([]);
+    expect(await (await fixture.receive(sentCopy)).json()).toEqual({ duplicate: true });
+    expect(fixture.activities).toHaveLength(1);
+  });
+
+  it("links other team contacts in the received headers", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      drafts: [openedDraft()],
+      contactTeams: [
+        { id: "contact-1", orgId: "team-5", email: "oliver.hayden@tum.de" },
+        { id: "contact-2", orgId: "team-5", email: "colleague@example.no" },
+      ],
+    });
+    expect(
+      (await fixture.receive({ ...sentCopy, ccEmails: ["colleague@example.no"] })).status,
+    ).toBe(202);
+    expect(fixture.activityLinks).toEqual([
+      { orgId: "team-5", activityId: "activity-1", contactId: "contact-1" },
+      { orgId: "team-5", activityId: "activity-1", contactId: "contact-2" },
+    ]);
+    expect(fixture.emailRows[0]?.ccEmails).toEqual(["colleague@example.no"]);
+  });
+
+  it("requires the actual From address to identify a verified member", async () => {
+    const fixture = makeApp({ drafts: [openedDraft()] });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.suggestions).toHaveLength(1);
+  });
+
+  it.each([
+    { name: "subject", draft: openedDraft({ subject: "Different subject" }) },
+    { name: "recipients", draft: openedDraft({ toEmails: ["someone@example.no"] }) },
+    { name: "unopened", draft: openedDraft({ openedAt: null }) },
+    {
+      name: "opened after arrival",
+      draft: openedDraft({ openedAt: new Date("2026-10-13T12:06:00.000Z") }),
+    },
+  ])("keeps a draft with a changed $name in the inbox", async ({ draft }) => {
+    const fixture = makeApp({ directSender: "lenart", drafts: [draft] });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.draftRows[0]?.markedSentAt).toBeNull();
+    expect(fixture.suggestions).toHaveLength(1);
+  });
+
+  it("keeps two matching opened drafts in the inbox", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      drafts: [openedDraft(), openedDraft({ id: "draft-2" })],
+    });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.suggestions).toHaveLength(1);
+  });
+
+  it("links the copy to a simultaneous manual mark-sent without creating another activity", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      drafts: [openedDraft()],
+      manualSentRace: true,
+    });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.emailRows).toMatchObject([
+      { activityId: "manual-activity", inboundId: "inbound-1" },
+    ]);
+    expect(fixture.suggestions).toEqual([]);
+  });
+
+  it("does not overwrite a sent activity already linked to another inbound email", async () => {
+    const fixture = makeApp({
+      directSender: "lenart",
+      drafts: [
+        openedDraft({
+          markedSentAt: new Date("2026-10-13T12:02:00.000Z"),
+          activityId: "old-activity",
+        }),
+      ],
+      sentEmailRows: [{ activityId: "old-activity", orgId: "team-5", inboundId: "older-inbound" }],
+    });
+    expect((await fixture.receive(sentCopy)).status).toBe(202);
+    expect(fixture.activities).toEqual([]);
+    expect(fixture.emailRows[0]?.inboundId).toBe("older-inbound");
+    expect(fixture.suggestions).toHaveLength(1);
   });
 });
