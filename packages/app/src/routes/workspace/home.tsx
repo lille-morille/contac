@@ -1590,7 +1590,14 @@ export function Home() {
                         label: "Uten ansvarlig",
                         icon: <UserRound size={16} />,
                       },
-                      ...data.members.map((m) => ({
+                      ...data.members
+                        .filter((m) => m.userId === state.user?.id)
+                        .map((m) => ({
+                          value: m.userId,
+                          label: "Meg (Anders Morille)",
+                          icon: <Avatar name={m.name || "Medlem"} src={profileAvatarUrl(m.avatarPath)} className="size-5" />,
+                        })),
+                      ...data.members.filter((m) => m.userId !== state.user?.id).map((m) => ({
                         value: m.userId,
                         label: m.name || "Medlem",
                         icon: (
@@ -1688,6 +1695,7 @@ export function Home() {
                 }}
                 mutate={mutate}
                 highlightId={createdHighlightId}
+                currentUserId={state.user?.id ?? ""}
               />
             ) : (
               <ContactList
@@ -1701,6 +1709,7 @@ export function Home() {
                 }}
                 lastActivity={lastActivity}
                 highlightId={createdHighlightId}
+                currentUserId={state.user?.id ?? ""}
               />
             )}
           </>
@@ -1812,7 +1821,7 @@ export function Home() {
             }}
           >
             {shortcutChooser?.kind === "assignee" &&
-              assigneeOptions(data.members).map((option) => (
+              assigneeOptions(data.members, state.user?.id).map((option) => (
                 <button
                   key={option.value}
                   type="button"

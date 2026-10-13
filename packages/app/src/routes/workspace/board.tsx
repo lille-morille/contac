@@ -11,6 +11,7 @@ import { Avatar } from "../../components/ui/avatar.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Select } from "../../components/ui/select.tsx";
 import { profileAvatarUrl } from "../../lib/api.ts";
+import { useOrg } from "../../lib/org.tsx";
 import { assigneeOptions, statusOptions, type Contact, type Data } from "./model.tsx";
 export type BoardDrag = {
   gestureId: number;
@@ -44,6 +45,7 @@ export function ContactBoard({
   onOpen,
   mutate,
   highlightId,
+  currentUserId,
 }: {
   rows: Contact[];
   visibleStatuses?: string[];
@@ -51,7 +53,10 @@ export function ContactBoard({
   onOpen: (id: string) => void;
   mutate: (path: string, body: unknown) => Promise<unknown>;
   highlightId: string | null;
+  currentUserId: string;
 }) {
+  const state = useOrg();
+  const currentUserId = state.user?.id ?? "";
   const boardRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<PendingBoardDrag | null>(null);
   const dragRef = useRef<BoardDrag | null>(null);
@@ -496,7 +501,7 @@ export function ContactCardContent({
             <Select
               value={c.assigneeId ?? ""}
               onValueChange={onChangeAssignee}
-              items={assigneeOptions(data.members)}
+              items={assigneeOptions(data.members, currentUserId)}
               iconOnly
               aria-label={`Endre ansvarlig for ${c.name}`}
               className="size-6 rounded-full border-transparent bg-transparent hover:bg-muted"

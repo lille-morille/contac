@@ -360,21 +360,26 @@ export type Data = {
 };
 export function assigneeOptions(
   members: Data["members"],
+  currentUserId?: string,
   former?: Data["contactAssignees"][number],
 ) {
+  const current = members.find((member) => member.userId === currentUserId);
+  const others = members.filter((member) => member.userId !== currentUserId);
+  const option = (member: Data["members"][number], isCurrent = false) => ({
+    value: member.userId,
+    label: isCurrent ? "Meg (Anders Morille)" : member.name || "Medlem",
+    icon: (
+      <Avatar
+        name={member.name || "Medlem"}
+        src={profileAvatarUrl(member.avatarPath)}
+        className="size-5"
+      />
+    ),
+  });
   return [
-    { value: "", label: "Ingen", icon: <Avatar name="Uten ansvarlig" className="size-5" /> },
-    ...members.map((member) => ({
-      value: member.userId,
-      label: member.name || "Medlem",
-      icon: (
-        <Avatar
-          name={member.name || "Medlem"}
-          src={profileAvatarUrl(member.avatarPath)}
-          className="size-5"
-        />
-      ),
-    })),
+    { value: "", label: "Uten ansvarlig", icon: <Avatar name="Uten ansvarlig" className="size-5" /> },
+    ...(current ? [option(current, true)] : []),
+    ...others.map((member) => option(member)),
     ...(former && !members.some((member) => member.userId === former.userId)
       ? [
           {

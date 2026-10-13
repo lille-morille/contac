@@ -884,6 +884,7 @@ export function ContactDetail({
                   }
                   items={assigneeOptions(
                     data.members,
+                    state.user?.id,
                     data.contactAssignees.find((member) => member.userId === c.assigneeId),
                   )}
                   disabled={c.status === "duplicate"}

@@ -217,6 +217,7 @@ export function ContactList({
   onOpen,
   lastActivity,
   highlightId,
+  currentUserId,
 }: {
   rows: Contact[];
   data: Data;
@@ -224,9 +225,10 @@ export function ContactList({
   onOpen: (id: string) => void;
   lastActivity: (id: string, includeMissed?: boolean) => Activity | undefined;
   highlightId: string | null;
+  currentUserId: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const assignees = assigneeOptions(data.members);
+  const assignees = assigneeOptions(data.members, currentUserId);
   const tagNames = new Map(data.personTags.map((tag) => [tag.id, tag.name]));
   return (
     <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-card shadow-card">

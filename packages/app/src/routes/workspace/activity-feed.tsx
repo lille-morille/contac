@@ -112,6 +112,19 @@ export function ActivityFeed({
               },
               { value: "all", label: "Alle kontakter", icon: <Users size={16} /> },
               ...data.members
+                .filter((member) => member.userId === currentUserId)
+                .map((member) => ({
+                  value: member.userId,
+                  label: "Meg (Anders Morille)",
+                  icon: (
+                    <Avatar
+                      name={member.name || "Medlem"}
+                      src={profileAvatarUrl(member.avatarPath)}
+                      className="size-5"
+                    />
+                  ),
+                })),
+              ...data.members
                 .filter((member) => member.userId !== currentUserId)
                 .map((member) => ({
                   value: member.userId,
