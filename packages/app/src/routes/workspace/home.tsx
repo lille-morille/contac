@@ -1594,7 +1594,7 @@ export function Home() {
                         .filter((m) => m.userId === state.user?.id)
                         .map((m) => ({
                           value: m.userId,
-                          label: "Meg (Anders Morille)",
+                          label: `Meg (${m.name || "Medlem"})`,
                           icon: <Avatar name={m.name || "Medlem"} src={profileAvatarUrl(m.avatarPath)} className="size-5" />,
                         })),
                       ...data.members.filter((m) => m.userId !== state.user?.id).map((m) => ({

@@ -38,7 +38,6 @@ export function ActivityFeed({
   const [assigneeId, setAssigneeId] = useState(initialFilters.assignee ?? currentUserId);
   const [conversationsOnly, setConversationsOnly] = useState(initialFilters.conversationsOnly);
   const [search, setSearch] = useState(initialFilters.search);
-  const currentMember = data.members.find((member) => member.userId === currentUserId);
   const entries = data.activities
     .filter((activity) => !conversationsOnly || activity.kind !== "missed_phone")
     .map((activity) => {
@@ -105,17 +104,12 @@ export function ActivityFeed({
             }}
             aria-label="Filtrer aktiviteter etter kontaktansvarlig"
             items={[
-              {
-                value: currentUserId,
-                label: `Mine kontakter${currentMember?.name ? ` · ${currentMember.name}` : ""}`,
-                icon: <UserRound size={16} />,
-              },
-              { value: "all", label: "Alle kontakter", icon: <Users size={16} /> },
+              { value: "unassigned", label: "Uten ansvarlig", icon: <UserRound size={16} /> },
               ...data.members
                 .filter((member) => member.userId === currentUserId)
                 .map((member) => ({
                   value: member.userId,
-                  label: "Meg (Anders Morille)",
+                  label: `Meg (${member.name || "Medlem"})`,
                   icon: (
                     <Avatar
                       name={member.name || "Medlem"}
@@ -124,6 +118,7 @@ export function ActivityFeed({
                     />
                   ),
                 })),
+              { value: "all", label: "Alle kontakter", icon: <Users size={16} /> },
               ...data.members
                 .filter((member) => member.userId !== currentUserId)
                 .map((member) => ({
@@ -137,7 +132,6 @@ export function ActivityFeed({
                     />
                   ),
                 })),
-              { value: "unassigned", label: "Uten ansvarlig", icon: <UserRound size={16} /> },
             ]}
           />
         </label>

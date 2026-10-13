@@ -367,7 +367,7 @@ export function assigneeOptions(
   const others = members.filter((member) => member.userId !== currentUserId);
   const option = (member: Data["members"][number], isCurrent = false) => ({
     value: member.userId,
-    label: isCurrent ? "Meg (Anders Morille)" : member.name || "Medlem",
+    label: isCurrent ? `Meg (${member.name || "Medlem"})` : member.name || "Medlem",
     icon: (
       <Avatar
         name={member.name || "Medlem"}
