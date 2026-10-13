@@ -8,9 +8,13 @@ import { defineConfig } from "vite";
 // to pdf-lib's tslib 1.x during a clean Docker build. Use the app's pinned 2.x.
 const appRequire = createRequire(new URL("./package.json", import.meta.url));
 const tslib = appRequire.resolve("tslib/tslib.es6.js");
+const buildTimestamp = Date.now();
 
 export default defineConfig({
   envDir: "../..",
+  define: {
+    __CONTAC_BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+  },
   resolve: {
     alias: [{ find: /^tslib$/, replacement: tslib }],
   },

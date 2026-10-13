@@ -14,6 +14,7 @@ export const Route = createRootRoute({
     <html lang="nb" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <meta name="contac-build-timestamp" content={String(__CONTAC_BUILD_TIMESTAMP__)} />
         <script
           dangerouslySetInnerHTML={{
             __html:

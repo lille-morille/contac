@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Check,
   Plus,
+  RefreshCw,
   Search,
   Settings2,
   Star,
@@ -115,6 +116,39 @@ export function Home() {
   const [createReferral, setCreateReferral] = useState<ReferralPrefill | null>(null);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    const current = Number(
+      document.querySelector<HTMLMetaElement>('meta[name="contac-build-timestamp"]')?.content,
+    );
+    if (!Number.isFinite(current) || current <= 0) return;
+
+    let stopped = false;
+    const checkForUpdate = async () => {
+      try {
+        const response = await fetch("/", { cache: "no-store" });
+        if (!response.ok) return;
+        const html = await response.text();
+        const latest = Number(
+          new DOMParser()
+            .parseFromString(html, "text/html")
+            .querySelector<HTMLMetaElement>('meta[name="contac-build-timestamp"]')?.content,
+        );
+        if (!stopped && Number.isFinite(latest) && latest > current) {
+          setUpdateAvailable(true);
+        }
+      } catch {
+        // A temporary network failure should not interrupt the workspace.
+      }
+    };
+    void checkForUpdate();
+    const interval = window.setInterval(() => void checkForUpdate(), 60_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, []);
   const [shortcutChooser, setShortcutChooser] = useState<{
     contactId: string;
     kind: "assignee" | "status" | "tags";
@@ -1228,6 +1262,19 @@ export function Home() {
           )}
         </div>
         <div className="mt-4 shrink-0 space-y-1 border-t border-border pt-3">
+          {updateAvailable && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-primary hover:bg-card/70"
+              onClick={() => window.location.reload()}
+            >
+              <RefreshCw size={16} className="shrink-0" />
+              <span>
+                <span className="block font-medium">Oppdatering tilgjenglig</span>
+                <span className="block">Refresh nettsiden</span>
+              </span>
+            </button>
+          )}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
