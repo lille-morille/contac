@@ -6,6 +6,7 @@ import {
   contacts,
   emailActivities,
   inboundSuggestions,
+  profiles,
 } from "@contac/core/db";
 import { registerEmailCrossTeamRoutes } from "./email-cross-team.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
@@ -21,7 +22,7 @@ const suggestionId = "33333333-3333-4333-8333-333333333333";
 const contactId = "44444444-4444-4444-8444-444444444444";
 const activityId = "55555555-5555-4555-8555-555555555555";
 
-function fixture() {
+function fixture(verifiedSender = false) {
   const writes: { table: unknown; values: Record<string, unknown> }[] = [];
   const inbound = {
     id: "inbound-1",
@@ -61,11 +62,14 @@ function fixture() {
                 },
               ]
             : table === contacts
-              ? [{ id: contactId }]
-              : [];
+              ? [{ id: contactId, email: "contact@example.no" }]
+              : table === profiles && verifiedSender
+                ? [{ userId }]
+                : [];
         const query = {
           innerJoin: () => query,
           where: () => query,
+          limit: async () => result(),
           then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve(result()).then(resolve),
         };
         return query;
@@ -149,5 +153,31 @@ describe("forwarded email inbox review", () => {
     expect(writes.find((write) => write.table === activityContacts)?.values).toEqual([
       { orgId: teamId, activityId, contactId },
     ]);
+    expect(writes.some((write) => write.table === contacts && "status" in write.values)).toBe(
+      false,
+    );
+  });
+
+  it("moves the recipient to waiting when the accepted email was sent by a team member", async () => {
+    const { accept, writes } = fixture(true);
+    expect(
+      (
+        await accept({
+          contactIds: [contactId],
+          message: {
+            fromEmail: "teammate@example.no",
+            toEmails: ["contact@example.no"],
+            ccEmails: [],
+            subject: "Research question",
+            body: "Sent message",
+            occurredAt: "2026-10-08T21:16:25.000Z",
+          },
+        })
+      ).status,
+    ).toBe(200);
+    expect(writes).toContainEqual({
+      table: contacts,
+      values: expect.objectContaining({ status: "venter_pa_svar" }),
+    });
   });
 });

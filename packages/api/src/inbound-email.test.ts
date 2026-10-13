@@ -547,6 +547,7 @@ describe("opened draft Bcc reconciliation", () => {
     ]);
     expect(fixture.draftRows[0]).toMatchObject({ activityId: "activity-1" });
     expect(fixture.draftRows[0]?.markedSentAt).toBeInstanceOf(Date);
+    expect(fixture.updates).toContainEqual(expect.objectContaining({ status: "venter_pa_svar" }));
     expect(fixture.suggestions).toEqual([]);
     expect(await (await fixture.receive(sentCopy)).json()).toEqual({ duplicate: true });
     expect(fixture.activities).toHaveLength(1);
@@ -569,6 +570,7 @@ describe("opened draft Bcc reconciliation", () => {
       { orgId: "team-5", activityId: "activity-1", contactId: "contact-2" },
     ]);
     expect(fixture.emailRows[0]?.ccEmails).toEqual(["colleague@example.no"]);
+    expect(fixture.updates).toContainEqual(expect.objectContaining({ status: "venter_pa_svar" }));
   });
 
   it("requires the actual From address to identify a verified member", async () => {

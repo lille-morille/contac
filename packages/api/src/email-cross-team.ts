@@ -30,7 +30,7 @@ import {
   profiles,
   workspaceFiles,
 } from "@contac/core/db";
-import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { ApiDeps, ApiEnv } from "./types.ts";
@@ -172,6 +172,54 @@ async function linkedContacts(deps: ApiDeps, orgId: string, message: Message, pr
       ...rows.filter((row) => contactMatchesEmail(row.email, message)).map((row) => row.id),
     ]),
   ];
+}
+
+type EmailTransaction = Parameters<Parameters<ApiDeps["db"]["transaction"]>[0]>[0];
+
+async function markOutgoingRecipientsAwaitingReply(
+  tx: EmailTransaction,
+  orgId: string,
+  contactIds: string[],
+  message: Pick<Message, "fromEmail" | "toEmails" | "ccEmails">,
+) {
+  const recipients = new Set(emailList([...message.toEmails, ...message.ccEmails]));
+  if (!message.fromEmail || !recipients.size || !contactIds.length) return;
+  const [sender] = await tx
+    .select({ userId: profiles.id })
+    .from(profiles)
+    .innerJoin(memberships, eq(memberships.userId, profiles.id))
+    .where(
+      and(
+        eq(profiles.profileEmail, normalizeEmail(message.fromEmail)),
+        eq(memberships.orgId, orgId),
+        eq(memberships.isActualMember, true),
+      ),
+    )
+    .limit(1);
+  if (!sender) return;
+  const linked = await tx
+    .select({ id: contacts.id, email: contacts.email })
+    .from(contacts)
+    .where(and(eq(contacts.orgId, orgId), inArray(contacts.id, contactIds)));
+  const ids = linked
+    .filter((contact) => contact.email && recipients.has(normalizeEmail(contact.email)))
+    .map((contact) => contact.id);
+  if (!ids.length) return;
+  await tx
+    .update(contacts)
+    .set({
+      status: "venter_pa_svar",
+      assigneeId: sql`CASE WHEN ${contacts.status} = 'ikke_kontaktet' AND ${contacts.assigneeId} IS NULL THEN ${sender.userId}::uuid ELSE ${contacts.assigneeId} END`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(contacts.orgId, orgId),
+        inArray(contacts.id, ids),
+        isNull(contacts.deletedAt),
+        ne(contacts.status, "duplicate"),
+      ),
+    );
 }
 
 export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
@@ -473,6 +521,7 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
           bccEmails: inbound.bccEmails,
           subject: inbound.subject,
         });
+        await markOutgoingRecipientsAwaitingReply(tx, senderOrgId, ids, inbound);
         await tx
           .update(emailDrafts)
           .set({ activityId: activity!.id })
@@ -634,6 +683,7 @@ export function registerInboundEmailRoute(app: Hono<ApiEnv>, deps: ApiDeps) {
             bccEmails: original.bccEmails,
             subject: original.subject,
           });
+          await markOutgoingRecipientsAwaitingReply(tx, senderOrgId, [contactId], original);
           await tx
             .update(inboundSuggestions)
             .set({ activityId: activity!.id })
@@ -728,6 +778,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         })),
       );
       await tx.insert(emailActivities).values({ orgId, activityId: created!.id, ...headers });
+      await markOutgoingRecipientsAwaitingReply(tx, orgId, contactIds, headers);
       await tx
         .update(contacts)
         .set({ updatedAt: new Date() })
@@ -894,6 +945,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         bccEmails: message.bccEmails,
         subject: message.subject,
       });
+      await markOutgoingRecipientsAwaitingReply(tx, draft.orgId, ids, message);
       await tx
         .update(contacts)
         .set({ updatedAt: new Date() })
@@ -1266,6 +1318,7 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         bccEmails: message.bccEmails,
         subject: message.subject,
       });
+      await markOutgoingRecipientsAwaitingReply(tx, orgId, ids, message);
       await tx
         .update(contacts)
         .set({ updatedAt: new Date() })
