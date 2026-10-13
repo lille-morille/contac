@@ -1660,18 +1660,20 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       .from(inboundEmails)
       .where(and(eq(inboundEmails.classId, admin.classId), isNull(inboundEmails.adminResolvedAt)))
       .orderBy(desc(inboundEmails.receivedAt));
-    const assigned = all.length
-      ? await deps.db
-          .select({ inboundId: inboundSuggestions.inboundId })
-          .from(inboundSuggestions)
-          .where(
-            inArray(
-              inboundSuggestions.inboundId,
-              all.map((row) => row.id),
-            ),
-          )
-      : [];
-    return c.json(all.filter((row) => !assigned.some((item) => item.inboundId === row.id)));
+    if (!all.length) return c.json([]);
+    const inboundIds = all.map((row) => row.id);
+    const [assigned, recorded] = await Promise.all([
+      deps.db
+        .select({ inboundId: inboundSuggestions.inboundId })
+        .from(inboundSuggestions)
+        .where(inArray(inboundSuggestions.inboundId, inboundIds)),
+      deps.db
+        .select({ inboundId: emailActivities.inboundId })
+        .from(emailActivities)
+        .where(inArray(emailActivities.inboundId, inboundIds)),
+    ]);
+    const handled = new Set([...assigned, ...recorded].map((row) => row.inboundId));
+    return c.json(all.filter((row) => !handled.has(row.id)));
   });
   app.post("/v1/class/inbox/:id/route", async (c) => {
     const itemId = uuid.safeParse(c.req.param("id"));
