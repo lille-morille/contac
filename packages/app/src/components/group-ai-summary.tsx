@@ -97,7 +97,11 @@ export function GroupAiSummary({
           disabled={busy || !settings.data.hasToken || !summary.data?.includedCount}
           onClick={() => void generate()}
         >
-          {summary.data?.summary ? "Generer på nytt" : "Generer sammendrag"}
+          {busy
+            ? "Genererer sammendrag…"
+            : summary.data?.summary
+              ? "Generer på nytt"
+              : "Generer sammendrag"}
         </Button>
       )}
       {settings.data?.modes.group_findings !== "manual" && (

@@ -25,6 +25,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { decrypt } from "./ai-token.ts";
 import { normalizeDomainName, resolveDomainProposal } from "./ai-domain.ts";
+import { summarizeGroupInBatches } from "./ai-group-batching.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 import { eligibleContactFields } from "@contac/core/ai-suggestion-policy";
@@ -1898,28 +1899,35 @@ export function registerAiRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     if (!context.included.length)
       return c.json({ error: "Ingen tillatte samtaler i gruppen" }, 400);
     try {
-      const generated = await callModel(
-        deps,
-        orgId,
-        settings,
-        "group_findings",
-        "Skriv et kort norsk sammendrag av viktigste funn på tvers av kontakter. Skill fakta, problemer og åpne spørsmål. Ikke finn på fakta. Returner ren tekst.",
-        context.conversations,
-      );
+      const summary = await summarizeGroupInBatches(context.conversations, async (batch) => {
+        const generated = await callModel(
+          deps,
+          orgId,
+          settings,
+          "group_findings",
+          batch.stage === "source"
+            ? "Skriv et kort norsk sammendrag av dokumenterte funn i disse samtaleutdragene. Skill fakta, problemer og åpne spørsmål. Utdrag kan være deler av lengre samtaler; ikke gjett hva som mangler. Behold viktige nyanser til en eventuell sammenslåing. Ikke finn på fakta. Returner ren tekst."
+            : "Slå sammen disse delsammendragene til ett kort norsk sammendrag av viktigste funn på tvers av kontakter. Fjern gjentakelser, skill fakta, problemer og åpne spørsmål, og behold vesentlige forskjeller eller motstrid. Ikke finn på fakta. Returner ren tekst.",
+          batch,
+          false,
+          batch.stage === "source" ? 1200 : 1600,
+        );
+        return generated.output;
+      });
       const [row] = await deps.db
         .insert(groupAiSummaries)
         .values({
           orgId,
           targetKind: kind.data,
           targetId: targetId.data,
-          summary: generated.output,
+          summary,
           sourceVersion: context.version,
           excludedCount: context.excludedCount,
         })
         .onConflictDoUpdate({
           target: [groupAiSummaries.orgId, groupAiSummaries.targetKind, groupAiSummaries.targetId],
           set: {
-            summary: generated.output,
+            summary,
             sourceVersion: context.version,
             excludedCount: context.excludedCount,
             generatedAt: new Date(),
