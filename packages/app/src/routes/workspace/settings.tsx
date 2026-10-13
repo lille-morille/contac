@@ -5,7 +5,6 @@ import { ProfileEditor } from "../../components/profile-editor.tsx";
 import { TeamAiSettings } from "../../components/team-ai-settings.tsx";
 import { TeamLoiSettings } from "../../components/team-loi-settings.tsx";
 import { ClassRecoverySettings } from "../../components/class-recovery-settings.tsx";
-import { AdminFeedbackLog } from "../../components/feedback.tsx";
 import { ProfileAgentAccess } from "../../components/profile-agent-access.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Card } from "../../components/ui/card.tsx";
@@ -436,9 +435,6 @@ export function Settings({
             </p>
           )}
         </Card>
-      )}
-      {section === "class_settings" && state.classSpace?.role === "admin" && (
-        <AdminFeedbackLog classId={state.classSpace.classId} />
       )}
       {section === "class_settings" && state.classSpace?.role === "admin" && (
         <ClassRecoverySettings classId={state.classSpace.classId} />

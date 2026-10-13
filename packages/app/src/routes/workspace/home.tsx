@@ -23,7 +23,6 @@ import {
   Moon,
   BookOpen,
   FileText,
-  MessageSquare,
   Check,
   Plus,
   RefreshCw,
@@ -48,7 +47,6 @@ import type { SearchResult } from "../../components/semantic-search.tsx";
 import { CommandPalette, type PaletteItem } from "../../components/command-palette.tsx";
 import { type ReferralPrefill } from "../../components/contact-ai-panel.tsx";
 import { InboxItems, type InboxData, type AdminInboxItem } from "../../components/inbox-items.tsx";
-import { FeedbackDialog, type FeedbackInboxItem } from "../../components/feedback.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import {
   Dialog,
@@ -115,7 +113,6 @@ export function Home() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createReferral, setCreateReferral] = useState<ReferralPrefill | null>(null);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(() => {
     if (import.meta.env.DEV) return;
@@ -229,7 +226,6 @@ export function Home() {
         commandOpen ||
         createOpen ||
         shortcutHelpOpen ||
-        feedbackOpen ||
         shortcutChooser ||
         contactMenu ||
         inboxOpen ||
@@ -253,7 +249,6 @@ export function Home() {
     commandOpen,
     createOpen,
     shortcutHelpOpen,
-    feedbackOpen,
     shortcutChooser,
     contactMenu,
     inboxOpen,
@@ -376,12 +371,6 @@ export function Home() {
     queryKey: ["class-inbox", state.classSpace?.classId],
     queryFn: () => request<AdminInboxItem[]>("/class/inbox"),
     enabled: !!org && state.classSpace?.role === "admin" && !!state.user?.onboarded,
-    refetchInterval: 30_000,
-  });
-  const feedbackInboxQuery = useQuery({
-    queryKey: ["feedback-inbox", state.user?.id],
-    queryFn: () => request<FeedbackInboxItem[]>("/feedback/inbox"),
-    enabled: !!org && !!state.user?.onboarded,
     refetchInterval: 30_000,
   });
   const viewScope =
@@ -837,7 +826,6 @@ export function Home() {
         commandOpen ||
         createOpen ||
         shortcutHelpOpen ||
-        feedbackOpen ||
         shortcutChooser ||
         contactMenu
       )
@@ -962,7 +950,6 @@ export function Home() {
     (inboxQuery.data?.overlaps?.length ?? 0) +
     (inboxQuery.data?.suggestions.length ?? 0) +
     (inboxQuery.data?.requests.length ?? 0) +
-    (feedbackInboxQuery.data?.length ?? 0) +
     (classInboxQuery.data?.length ?? 0);
   const paletteItems: PaletteItem[] = [
     {
@@ -1275,13 +1262,6 @@ export function Home() {
               </span>
             </button>
           )}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
-            onClick={() => setFeedbackOpen(true)}
-          >
-            <MessageSquare size={16} /> Send tilbakemelding
-          </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground hover:bg-card/70 hover:text-foreground"
@@ -2061,7 +2041,6 @@ export function Home() {
           />
         </DialogContent>
       </Dialog>
-      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       <InboxDialog.Root open={inboxOpen} onOpenChange={setInboxOpen}>
         <InboxDialog.Portal>
           <div className="pointer-events-none fixed inset-0 z-[70] overflow-hidden lg:left-60">
@@ -2097,7 +2076,6 @@ export function Home() {
                   orgId={org.id}
                   inbox={inboxQuery.data}
                   adminItems={classInboxQuery.data}
-                  feedbackItems={feedbackInboxQuery.data}
                   contacts={data.contacts}
                   teams={state.organizations}
                   onRefresh={() => qc.invalidateQueries({ queryKey: ["contact-data", org.id] })}
@@ -2111,7 +2089,6 @@ export function Home() {
                   !inboxQuery.data?.overlaps?.length &&
                   !inboxQuery.data?.suggestions.length &&
                   !inboxQuery.data?.requests.length &&
-                  !feedbackInboxQuery.data?.length &&
                   !classInboxQuery.data?.length ? (
                     <p className="py-5 text-sm text-muted-foreground">Innboksen er tom.</p>
                   ) : null
