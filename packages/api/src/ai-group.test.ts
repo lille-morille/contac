@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { activityContacts, companyDomains, contactActivities, contacts } from "@contac/core/db";
+import {
+  activityContacts,
+  companyDomains,
+  contactActivities,
+  contacts,
+  groupAiSummaries,
+} from "@contac/core/db";
+import { getTableColumns } from "drizzle-orm";
 import { groupContext } from "./ai.ts";
 import type { ApiDeps } from "./types.ts";
 
@@ -93,6 +100,10 @@ function fakeDeps() {
 }
 
 describe("group conversation context", () => {
+  it("reads the saved summary timestamp from the migrated column", () => {
+    expect(getTableColumns(groupAiSummaries).generatedAt.name).toBe("generated_at");
+  });
+
   for (const kind of ["company", "domain"] as const) {
     it(`counts linked contacts and includes each eligible activity once for ${kind}`, async () => {
       const context = await groupContext(fakeDeps(), "team-1", kind, "target-1");

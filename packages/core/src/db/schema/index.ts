@@ -765,7 +765,7 @@ export const groupAiSummaries = pgTable("group_ai_summaries", {
   summary: text("summary").notNull(),
   sourceVersion: text("source_version").notNull(),
   excludedCount: integer("excluded_count").notNull().default(0),
-  generatedAt: createdAt(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export const contactReminders = pgTable(
   "contact_reminders",

@@ -62,10 +62,18 @@ export function GroupAiSummary({
         <Sparkles size={16} className="text-primary" />
         <h2 className="font-semibold">Oppsummer samtaler fra {name}</h2>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {summary.data?.linkedCount ?? 0} tilknyttede kontakter · {summary.data?.includedCount ?? 0}{" "}
-        med tillatte samtaler
-      </p>
+      {summary.data && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {summary.data.linkedCount} tilknyttede kontakter · {summary.data.includedCount} med
+          tillatte samtaler
+        </p>
+      )}
+      {summary.isPending && <p className="mt-3 text-sm text-muted-foreground">Henter samtaler…</p>}
+      {summary.isError && (
+        <p role="alert" className="mt-3 text-sm text-risk">
+          Kunne ikke hente samtaler. Prøv igjen om litt.
+        </p>
+      )}
       {summary.data?.summary && (
         <>
           <p className="mt-3 whitespace-pre-wrap text-sm">{summary.data.summary.summary}</p>
@@ -75,7 +83,7 @@ export function GroupAiSummary({
           </p>
         </>
       )}
-      {!summary.data?.summary && (
+      {summary.data && !summary.data.summary && (
         <p className="mt-3 text-sm text-muted-foreground">
           {summary.data?.includedCount
             ? "Ingen oppsummering ennå."
