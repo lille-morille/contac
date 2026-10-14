@@ -1,5 +1,5 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ExternalLink, LockKeyhole, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Building2, ExternalLink, Users } from "lucide-react";
 import { useState } from "react";
 import { contactStatuses, type ContactStatus } from "./contact-status.tsx";
 import { request } from "../lib/api.ts";
@@ -15,10 +15,25 @@ type Overlap = {
   assigneeName: string | null;
   status: ContactStatus;
   lastContactAt: string | null;
-  accessStatus: "none" | "pending" | "approved";
 };
 type SharedLog = {
-  contact: { name: string; teamName: string };
+  contact: {
+    name: string;
+    teamName: string;
+    organizationName: string;
+    assigneeName: string | null;
+    email: string | null;
+    phone: string | null;
+    status: ContactStatus;
+    description: string | null;
+    sammendrag: string | null;
+    stikkord: string | null;
+    sharedNote: string;
+    relevance: "low" | "medium" | "high" | null;
+    tags: string[];
+    domains: string[];
+    additionalInfo: { id: string; markdown: string }[];
+  };
   activities: {
     id: string;
     kind: string;
@@ -42,9 +57,7 @@ export function CrossTeamOverlap({
   updatedAt: string;
 }) {
   const { org } = useOrg();
-  const qc = useQueryClient();
   const [selected, setSelected] = useState<Overlap | null>(null);
-  const [error, setError] = useState("");
   const overlap = useQuery({
     queryKey: ["overlap", org?.id, contactId, updatedAt],
     queryFn: () => request<Overlap[]>(`/org/overlaps/${contactId}`, org!.id),
@@ -57,19 +70,6 @@ export function CrossTeamOverlap({
     enabled: !!org && !!selected,
     refetchInterval: selected ? 60_000 : false,
   });
-  async function ask(item: Overlap) {
-    if (!org) return;
-    setError("");
-    try {
-      await request("/org/log-access-requests", org.id, {
-        requesterContactId: contactId,
-        ownerContactId: item.contactId,
-      });
-      await qc.invalidateQueries({ queryKey: ["overlap", org.id, contactId] });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
   if (!overlap.data?.length) return null;
   return (
     <Card className="p-4">
@@ -92,34 +92,19 @@ export function CrossTeamOverlap({
               Siste kontakt: {item.lastContactAt ? date(item.lastContactAt) : "Ingen registrert"}
             </p>
             <div className="mt-2">
-              {item.accessStatus === "approved" ? (
-                <Button size="sm" variant="outline" onClick={() => setSelected(item)}>
-                  <ExternalLink size={14} /> Les kontaktlogg
-                </Button>
-              ) : item.accessStatus === "pending" ? (
-                <span className="text-xs text-muted-foreground">
-                  Forespørsel venter på godkjenning
-                </span>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => void ask(item)}>
-                  <LockKeyhole size={14} /> Be om lesetilgang
-                </Button>
-              )}
+              <Button size="sm" variant="outline" onClick={() => setSelected(item)}>
+                <ExternalLink size={14} /> Les kontaktlogg
+              </Button>
             </div>
           </div>
         ))}
       </div>
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-risk">
-          {error}
-        </p>
-      )}
       <Dialog open={!!selected} onOpenChange={(value) => !value && setSelected(null)}>
         <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
           <DialogTitle>Kontaktlogg · {log.data?.contact.name ?? "Kontakt"}</DialogTitle>
           <DialogDescription>
-            Lesetilgang fra {log.data?.contact.teamName ?? selected?.teamName}. Nye aktiviteter
-            vises også her. Det delte notatet er ikke inkludert.
+            Informasjon registrert av {log.data?.contact.teamName ?? selected?.teamName}. Dette er
+            en skrivebeskyttet visning som oppdateres når teamet legger til mer.
           </DialogDescription>
           {log.isLoading && <p className="mt-4 text-sm text-muted-foreground">Laster logg …</p>}
           {log.isError && (
@@ -127,7 +112,100 @@ export function CrossTeamOverlap({
               {log.error.message}
             </p>
           )}
-          <div className="mt-4 space-y-3">
+          {log.data && (
+            <div className="mt-5 space-y-5 text-sm">
+              <section className="rounded-xl border border-border p-4">
+                <h3 className="font-semibold">Oppsummering</h3>
+                <p className="mt-2 whitespace-pre-wrap">
+                  {log.data.contact.sammendrag ||
+                    log.data.contact.description ||
+                    "Teamet har ikke skrevet en oppsummering ennå."}
+                </p>
+                {log.data.contact.sammendrag && log.data.contact.description && (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-muted-foreground">Kort beskrivelse</p>
+                    <p className="mt-1 whitespace-pre-wrap">{log.data.contact.description}</p>
+                  </div>
+                )}
+              </section>
+              <section className="rounded-xl border border-border p-4">
+                <h3 className="font-semibold">Kontaktinformasjon</h3>
+                <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Organisasjon</dt>
+                    <dd>{log.data.contact.organizationName}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Status</dt>
+                    <dd>{statusName(log.data.contact.status)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Ansvarlig</dt>
+                    <dd>{log.data.contact.assigneeName || "Ingen"}</dd>
+                  </div>
+                  {log.data.contact.email && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">E-post</dt>
+                      <dd className="break-all">{log.data.contact.email}</dd>
+                    </div>
+                  )}
+                  {log.data.contact.phone && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Telefon</dt>
+                      <dd>{log.data.contact.phone}</dd>
+                    </div>
+                  )}
+                  {log.data.contact.relevance && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Relevans</dt>
+                      <dd>
+                        {{ high: "Høy", medium: "Middels", low: "Lav" }[log.data.contact.relevance]}
+                      </dd>
+                    </div>
+                  )}
+                  {log.data.contact.domains.length > 0 && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Domene</dt>
+                      <dd>{log.data.contact.domains.join(", ")}</dd>
+                    </div>
+                  )}
+                  {log.data.contact.tags.length > 0 && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Persontagger</dt>
+                      <dd>{log.data.contact.tags.join(", ")}</dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
+              {log.data.contact.stikkord && (
+                <section className="rounded-xl border border-border p-4">
+                  <h3 className="font-semibold">Stikkord</h3>
+                  <p className="mt-2 whitespace-pre-wrap">{log.data.contact.stikkord}</p>
+                </section>
+              )}
+              {log.data.contact.sharedNote && (
+                <section className="rounded-xl border border-border p-4">
+                  <h3 className="font-semibold">Delt notat</h3>
+                  <p className="mt-2 whitespace-pre-wrap">{log.data.contact.sharedNote}</p>
+                </section>
+              )}
+              {log.data.contact.additionalInfo.length > 0 && (
+                <section className="rounded-xl border border-border p-4">
+                  <h3 className="font-semibold">Tilleggsinformasjon</h3>
+                  {log.data.contact.additionalInfo.map((item) => (
+                    <p key={item.id} className="mt-2 whitespace-pre-wrap">
+                      {item.markdown}
+                    </p>
+                  ))}
+                </section>
+              )}
+              <h3 className="font-semibold">Aktiviteter ({log.data.activities.length})</h3>
+              {log.data.activities.length === 0 && (
+                <p className="text-muted-foreground">Ingen aktiviteter registrert ennå.</p>
+              )}
+            </div>
+          )}
+          <div className="mt-3 space-y-3">
             {log.data?.activities.map((activity) => (
               <div key={activity.id} className="rounded-xl border border-border p-4 text-sm">
                 <p className="font-medium">

@@ -3,7 +3,10 @@ import { Hono } from "hono";
 import {
   activityContacts,
   classMemberships,
+  companyDomains,
+  contactAdditionalInfo,
   contactOverlapDismissals,
+  contactPersonTags,
   contacts,
   inboundSuggestions,
   logAccessRequests,
@@ -135,5 +138,113 @@ describe("cross-team inbox routes", () => {
     expect(await response.json()).toMatchObject([
       { contactId: otherId, teamName: "Team B", status: "ikke_kontaktet" },
     ]);
+  });
+});
+
+function makeSharedLogApp({ matched = true, sameClass = true } = {}) {
+  let grants = 0;
+  const other = {
+    id: otherId,
+    orgId: "team-b",
+    companyId: "company-b",
+    name: "Ada",
+    normalizedName: "ada",
+    email: "ada@example.no",
+    phone: "+47 123 45 678",
+    phoneNormalized: "4712345678",
+    status: "venter_pa_svar",
+    description: "Intervjuet om anskaffelser",
+    sammendrag: "Ønsker en enklere bestillingsprosess.",
+    stikkord: "Innkjøp, friksjon",
+    sharedNote: "Ring igjen neste uke.",
+    relevance: "high",
+  };
+  const own = { ...other, id: ownId, orgId: teamId, companyId: "company-a" };
+  const deps = {
+    db: {
+      select: (fields?: Record<string, unknown>) => ({
+        from: (table: unknown) => {
+          const result = () => {
+            if (table === contacts && fields && "teamName" in fields)
+              return [
+                {
+                  contact: other,
+                  teamName: "Team B",
+                  classId: "class-a",
+                  companyName: "acme",
+                  organizationName: "Acme",
+                  assigneeName: "Victoria",
+                },
+              ];
+            if (table === contacts) return matched ? [{ contact: own, companyName: "acme" }] : [];
+            if (table === organizations) return [{ classId: sameClass ? "class-a" : "class-b" }];
+            if (table === contactPersonTags) return [{ name: "Beslutningstaker" }];
+            if (table === companyDomains) return [{ name: "Helse" }];
+            if (table === contactAdditionalInfo)
+              return [{ id: "info-1", markdown: "Kjent fra pilot." }];
+            if (table === activityContacts) return [];
+            throw new Error("Unexpected table");
+          };
+          const query = {
+            innerJoin: () => query,
+            leftJoin: () => query,
+            where: () =>
+              Object.assign(Promise.resolve(result()), { orderBy: async () => result() }),
+          };
+          return query;
+        },
+      }),
+      insert: (table: unknown) => {
+        expect(table).toBe(logAccessRequests);
+        return {
+          values: () => ({
+            onConflictDoUpdate: async () => {
+              grants++;
+            },
+          }),
+        };
+      },
+    },
+  } as unknown as ApiDeps;
+  const app = new Hono<ApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("org", { id: teamId, role: "member" });
+    c.set("user", { id: userId, email: "member@example.no" });
+    await next();
+  });
+  registerEmailCrossTeamRoutes(app, deps);
+  return { app, grants: () => grants };
+}
+
+describe("cross-team contact log", () => {
+  it("shows the other team's contact summary even when there are no activities", async () => {
+    const { app } = makeSharedLogApp();
+    const response = await app.request(`/v1/org/shared-log/${otherId}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      contact: {
+        name: "Ada",
+        teamName: "Team B",
+        organizationName: "Acme",
+        assigneeName: "Victoria",
+        status: "venter_pa_svar",
+        sammendrag: "Ønsker en enklere bestillingsprosess.",
+        sharedNote: "Ring igjen neste uke.",
+        tags: ["Beslutningstaker"],
+        domains: ["Helse"],
+        additionalInfo: [{ markdown: "Kjent fra pilot." }],
+      },
+      activities: [],
+    });
+  });
+
+  it.each([
+    { matched: false, sameClass: true },
+    { matched: true, sameClass: false },
+  ])("keeps unrelated contacts out of the shared view", async (access) => {
+    const { app, grants } = makeSharedLogApp(access);
+    const response = await app.request(`/v1/org/shared-log/${otherId}`);
+    expect(response.status).toBe(403);
+    expect(grants()).toBe(0);
   });
 });

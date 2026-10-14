@@ -1,6 +1,6 @@
 # Contac product brief for implementation agents
 
-Contac is a contact and interview log for university teams exploring industry problems and business ideas. The class contains several teams. Students coordinate outreach so the same person is not repeatedly contacted by unaware teams. Each team has its own contacts, organizations, activities, notes, and library; the class layer exposes limited overlap metadata and controlled access to another team's log.
+Contac is a contact and interview log for university teams exploring industry problems and business ideas. The class contains several teams. Students coordinate outreach so the same person is not repeatedly contacted by unaware teams. Each team has its own contacts, organizations, activities, notes, and library; the class layer exposes overlap metadata and a read-only view of matched contacts in other teams in the same class.
 
 The product is split into five specifications. **Chunks 01–05 are implemented** in the current workspace:
 
@@ -40,5 +40,5 @@ The repository contains a Bun monorepo with `packages/core` (Drizzle schema/migr
 - A shared activity is one record linked to one or more contacts. Its transcript/summary is edited once; its contact timeline appearances do not create export duplicates.
 - Each team has a shared contact note. Research notes are excluded from AI summaries, deterministic full-log export, and check-in activity selection, but are included in local search and may be quoted in the team library.
 - External AI is off for every feature by default and requires a team admin's OpenRouter token. A contact may forbid third-party AI; local search remains available. Automatic AI changes need a visible edit log and snapshot restore.
-- Class-wide contact overlap exposes only agreed metadata until the other team grants ongoing read-only log access. The class admin can inspect and edit all data and settings.
+- Class-wide contact overlap gives members a read-only view of the other team's matched contact information and log without separate approval. The class admin can inspect and edit all data and settings.
 - Keep work within the assigned chunk. Track any review decision still marked open in the relevant spec instead of silently inventing a rule.

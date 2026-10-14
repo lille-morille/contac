@@ -44,7 +44,7 @@ The inbox entry point sits in the sidebar directly below **Ny kontakt**, followi
 
 Teams maintain separate contact records. Match across teams by normalized email, normalized phone, **or** name plus organization, including contacts in `Ikke kontaktet`. A match directly produces an alert; no manual confirmation step is required. On a matched contact, show that another team has registered the person, plus that team's name, its assignee's name, its contact status, and date of last contact. A known-sender email received via Bcc can update the alert without exposing its contents to other teams.
 
-Another team's log is hidden by default. A member may request access to a particular contact log. Any member of the owning team can approve. Approval gives ongoing **read-only** access to current and future entries for that contact and cannot later be revoked. A team setting may change the default cross-team sharing behavior. The class admin can inspect, edit, and change settings regardless of team. Shared notes are team data; a cross-team log grant should expose only the granted log unless the sharing setting explicitly says otherwise.
+**Reviewed follow-up (2026-10-14):** For a contact matched across teams in the same class, **Les kontaktlogg** opens a read-only view of the other team's information without an approval step. The view shows the saved contact summary, description, contact fields, status, assignee, tags, domain, keywords, shared note, additional information, and all linked activities with transcripts, email headers, and attachments. It remains current as that team adds information. Keep the view scoped to the matched contact; other contacts linked to a shared activity are not exposed through it. Existing access-request records and endpoints remain for compatibility, but the overlap button does not require them. The class admin can inspect and edit all teams as before.
 
 ## Acceptance examples
 
@@ -52,14 +52,14 @@ Another team's log is hidden by default. A member may request access to a partic
 2. A Bcc copy from a registered member reconciles with their matching sent record. Another team with the same engaged contact sees only the overlap alert.
 3. An unknown sender's message matches contact emails in two teams. Each receives an independent suggestion; neither team auto-accepts.
 4. An email with no matching team contact appears in the class-admin inbox.
-5. A granted cross-team log view is read-only and includes later entries.
+5. A matched cross-team contact opens in a read-only view that includes its current information and later entries.
 
 ## Decisions made for chunk 03
 
 - Match inbound messages to contacts in From, To, and Cc.
 - Match a Bcc copy to a sent draft when normalized To recipients form the same set, regardless of order or case; extra recipients do not match.
 - A registered sender's unmatched message stays a suggestion in the sender's team. If there is no team destination, it goes to the separate class-admin inbox.
-- Team sharing defaults to approval requests. An admin may switch to automatic read-only access. A grant includes activities and attachments and remains effective for future entries; the shared research note is excluded. Access already granted is not revoked by changing the team setting.
+- The 2026-10-14 follow-up makes matched same-class contact logs automatically readable, including the shared note. Earlier approval and note-exclusion behavior is superseded for this view.
 - Email draft AI is separately off by default. A team admin must enable it and supply a token/model. Each request is manual and uses contact fields plus the latest eligible communication.
 
 **Assigned follow-up (2026-10-08):** Add `Registrer e-post` beside `Registrer møte` on a contact. Members can paste received or sent email text (up to 250,000 characters), with optional subject/from/to and an editable date. Save directly as a linked email activity using the existing timeline and team AI rules. Body-only input is supported; failed saves retain the draft. This action records an email in the log.

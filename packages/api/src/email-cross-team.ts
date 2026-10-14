@@ -16,10 +16,14 @@ import {
   checkinAiSettings,
   aiUsage,
   classMemberships,
+  companyDomains,
   companies,
+  contactAdditionalInfo,
   contactActivities,
   contactOverlapDismissals,
+  contactPersonTags,
   contacts,
+  domainTags,
   emailActivities,
   emailDrafts,
   inboundEmails,
@@ -27,6 +31,7 @@ import {
   logAccessRequests,
   memberships,
   organizations,
+  personTags,
   profiles,
   workspaceFiles,
 } from "@contac/core/db";
@@ -1533,10 +1538,13 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         teamName: organizations.name,
         classId: organizations.classId,
         companyName: companies.normalizedName,
+        organizationName: companies.name,
+        assigneeName: profiles.fullName,
       })
       .from(contacts)
       .innerJoin(organizations, eq(organizations.id, contacts.orgId))
       .innerJoin(companies, eq(companies.id, contacts.companyId))
+      .leftJoin(profiles, eq(profiles.id, contacts.assigneeId))
       .where(and(eq(contacts.id, contactId.data), isNull(contacts.deletedAt)));
     if (!target || target.contact.orgId === orgId || target.contact.status === "duplicate")
       return c.json({ error: "Log not found" }, 404);
@@ -1566,6 +1574,38 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
       )
     )
       return c.json({ error: "Matching contact not found" }, 403);
+    const [tagRows, domainRows, additionalInfo] = await Promise.all([
+      deps.db
+        .select({ name: personTags.name })
+        .from(contactPersonTags)
+        .innerJoin(personTags, eq(personTags.id, contactPersonTags.tagId))
+        .where(
+          and(
+            eq(contactPersonTags.orgId, target.contact.orgId),
+            eq(contactPersonTags.contactId, contactId.data),
+          ),
+        ),
+      deps.db
+        .select({ name: domainTags.name })
+        .from(companyDomains)
+        .innerJoin(domainTags, eq(domainTags.id, companyDomains.domainId))
+        .where(
+          and(
+            eq(companyDomains.orgId, target.contact.orgId),
+            eq(companyDomains.companyId, target.contact.companyId),
+          ),
+        ),
+      deps.db
+        .select({ id: contactAdditionalInfo.id, markdown: contactAdditionalInfo.markdown })
+        .from(contactAdditionalInfo)
+        .where(
+          and(
+            eq(contactAdditionalInfo.orgId, target.contact.orgId),
+            eq(contactAdditionalInfo.contactId, contactId.data),
+          ),
+        )
+        .orderBy(desc(contactAdditionalInfo.createdAt)),
+    ]);
     await deps.db
       .insert(logAccessRequests)
       .values({
@@ -1619,9 +1659,25 @@ export function registerEmailCrossTeamRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     const emailRows = ids.length
       ? await deps.db.select().from(emailActivities).where(inArray(emailActivities.activityId, ids))
       : [];
-    // Shared research notes and other contacts in multi-person activities stay private to the owning team.
+    // Return only the matched contact's data, never other contacts linked to an activity.
     return c.json({
-      contact: { name: target.contact.name, teamName: target.teamName },
+      contact: {
+        name: target.contact.name,
+        teamName: target.teamName,
+        organizationName: target.organizationName,
+        assigneeName: target.assigneeName,
+        email: target.contact.email,
+        phone: target.contact.phone,
+        status: target.contact.status,
+        description: target.contact.description,
+        sammendrag: target.contact.sammendrag,
+        stikkord: target.contact.stikkord,
+        sharedNote: target.contact.sharedNote,
+        relevance: target.contact.relevance,
+        tags: tagRows.map((row) => row.name),
+        domains: domainRows.map((row) => row.name),
+        additionalInfo,
+      },
       activities: links.map((row) => {
         const email = emailRows.find((emailRow) => emailRow.activityId === row.activity.id);
         return {
