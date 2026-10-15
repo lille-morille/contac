@@ -299,7 +299,7 @@ export function PreviewCards({
 }) {
   if (!contacts.length) return null;
   return (
-    <div className="max-h-[75vh] space-y-3 overflow-y-auto rounded-xl border border-border bg-muted/20 p-3">
+    <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-3">
       {contacts.map((contact, index) => {
         const previous = contacts[index - 1];
         const next = contacts[index + 1];
@@ -698,12 +698,13 @@ export function ExportPage({
   const excluded = new Set(draft?.excludedContactIds ?? []);
   const exportNumbers = reportExportNumbers(ordered, excluded);
   const included = ordered.filter((contact) => !excluded.has(contact.id));
+  const normalizedSearch = search.trim().toLocaleLowerCase("nb");
   const visible = ordered.filter(
     (contact) =>
       (readinessFilter === "all" || contact.exportStatus === readinessFilter) &&
       `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.sammendrag ?? ""} ${contact.stikkord ?? ""}`
         .toLocaleLowerCase("nb")
-        .includes(search.toLocaleLowerCase("nb")),
+        .includes(normalizedSearch),
   );
   const readinessCounts = {
     not_ready: ordered.filter((contact) => contact.exportStatus === "not_ready").length,
@@ -1241,9 +1242,17 @@ export function ExportPage({
               </Button>
             ))}
           </div>
+          {normalizedSearch && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Viser {visible.length} av{" "}
+              {readinessFilter === "all" ? ordered.length : readinessCounts[readinessFilter]}{" "}
+              kontakter som matcher søket.
+            </p>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
-              {included.length} av {ordered.length} kontakter er med
+              {included.length} av {ordered.length} kontakter er inkludert i eksporten
+              {included.length < ordered.length && ` · ${ordered.length - included.length} utelatt`}
             </span>
             <div className="flex flex-wrap gap-1">
               <Button

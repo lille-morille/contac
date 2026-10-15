@@ -189,7 +189,7 @@ describe("report source generation", () => {
       const pdf = join(directory, "out.pdf");
       writeFileSync(
         main,
-        '#outline(target: heading.where(supplement: [Vedlegg]), title: [Vedlegg])\n#set heading(numbering: "A", supplement: [Vedlegg])\n= Kontaktlogg\n#include "kontaktlogg.typ"\n',
+        '#outline(target: heading.where(supplement: [Vedlegg]), title: [Vedlegg])\n#set heading(numbering: "A", supplement: [Vedlegg])\n#import "kontaktlogg.typ": render-contact-log, report-data, settings\n#render-contact-log(report-data, settings, intro: [Vedleggsveiledning])\n',
       );
       const compiled = spawnSync("typst", ["compile", main, pdf], { encoding: "utf8" });
       expect(compiled.status, compiled.stderr).toBe(0);
@@ -201,6 +201,11 @@ describe("report source generation", () => {
         body: { text: string };
         supplement: { text: string };
       }>;
+      const titleHeadings = headings.filter(
+        (heading) => heading.level === 1 && heading.body.text === report.settings.title,
+      );
+      expect(titleHeadings).toHaveLength(1);
+      expect(titleHeadings[0]?.supplement.text).toBe("Vedlegg");
       const subsections = headings.filter((heading) => heading.level === 2);
       expect(subsections.map((heading) => heading.body.text)).toEqual(
         report.sections.map((section) => section.title),
@@ -210,6 +215,7 @@ describe("report source generation", () => {
       const pdfText = spawnSync("pdftotext", [pdf, "-"], { encoding: "utf8" });
       expect(pdfText.status, pdfText.stderr).toBe(0);
       expect(pdfText.stdout).not.toContain("K-1");
+      expect(pdfText.stdout).toContain("Vedleggsveiledning");
       expect(pdfText.stdout).toMatch(/Rollebeskrivelse for\s+kontaktpersonen/u);
       expect(pdfText.stdout).not.toContain("Kort beskrivelse");
       for (const section of report.sections) expect(pdfText.stdout).toContain(section.title);

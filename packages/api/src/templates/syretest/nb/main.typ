@@ -48,9 +48,10 @@
 #set heading(numbering: "A", supplement: [Vedlegg])
 #counter(heading).update(0)
 #set text(size: 11pt)
-= Kontaktlogg (Obligatorisk vedlegg)
-#guidance[Utfyllende dokumentasjon er essensielt for at et team senere skal kunne forstå og anvende informasjonen uten å ha deltatt i syretesten. Sorter kontaktloggen i relevante kategorier, med den viktigste informasjonen først. Kontakter relatert til drepte caser/pivotering eller informasjon som ikke er relevant, legges nederst i kontaktloggen med tydelig merking. Kontaktloggen må være lesbar.]
-#include "kontaktlogg.typ"
+#import "kontaktlogg.typ": render-contact-log, report-data, settings
+#render-contact-log(report-data, settings, intro: [
+  #guidance[Utfyllende dokumentasjon er essensielt for at et team senere skal kunne forstå og anvende informasjonen uten å ha deltatt i syretesten. Sorter kontaktloggen i relevante kategorier, med den viktigste informasjonen først. Kontakter relatert til drepte caser/pivotering eller informasjon som ikke er relevant, legges nederst i kontaktloggen med tydelig merking. Kontaktloggen må være lesbar.]
+])
 #let loi-files = json("loi/manifest.json")
 #for file in loi-files {
   for (index, size) in file.pages.enumerate() {

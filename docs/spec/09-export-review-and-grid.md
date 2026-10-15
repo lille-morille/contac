@@ -10,6 +10,8 @@ Reviewed landscape refinement (2026-10-15): place Kort beskrivelse beneath Konta
 
 Reviewed export-language refinement (2026-10-15): save Norwegian or English as a team export setting, defaulting existing settings to Norwegian. Translate generated column labels, status and relevance values, automatic section headings, and Typst messages consistently in preview and exported formats. Preserve user-written contact content and custom labels. Switch the untouched default report title with the language.
 
+Reviewed Typst appendix refinement (2026-10-15): render the saved contact-log title as a level-one heading using the surrounding document's heading style. The contact-log sections remain level-two headings beneath it in the appendix contents. The report template uses this heading directly instead of adding a separate appendix title page or duplicate title.
+
 ## Shared content and readiness
 
 Sammendrag and Key takeaways remain single shared fields on each contact. New contacts begin with `export_status = not_ready`. Changes to name, organization, description, Sammendrag, Key takeaways, company name, or conversation evidence reset readiness to `not_ready`. New or changed activities and changed activity links count as evidence changes. Workflow status, assignee, email address, phone number, relevance, and internal research notes do not reset readiness. The three states are `not_ready`, `ready`, and `needs_review`. An uncertain agent sets `needs_review` with a reason; a human can review and mark the contact ready on the Export page. Changing a contact during review must invalidate a stale completion.

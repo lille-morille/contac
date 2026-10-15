@@ -80,10 +80,11 @@ describe("report downloads", () => {
         .join("\n");
       expect(source).not.toMatch(/Rana Gruber|SYR-98|sanntidsanalyse av malm/);
       expect(strFromU8(files["loi/manifest.json"]!)).toBe("[]\n");
+      expect(strFromU8(files["kontaktlogg.typ"]!)).toContain(
+        language === "nb" ? "#heading(level: 1)[Kontaktlogg]" : "#heading(level: 1)[Contact Log]",
+      );
       expect(strFromU8(files["main.typ"]!)).toContain(
-        language === "nb"
-          ? "Kontaktlogg (Obligatorisk vedlegg)"
-          : "Contact Log (Mandatory Appendix)",
+        '#import "kontaktlogg.typ": render-contact-log, report-data, settings',
       );
       expect(strFromU8(files["project.yaml"]!)).toContain(`language: ${language}`);
     },

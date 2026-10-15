@@ -399,13 +399,15 @@ export function renderReportTypst(report: ReportData): string {
     ..cells,
   )
 }
-#let render-contact-log(data, settings) = [
+#let render-contact-log(data, settings, intro: none) = [
   #pagebreak(weak: true)
   #set page(paper: "a4", flipped: settings.layout == "grid", margin: (x: 12mm, y: 12mm))
-  #set text(size: if settings.layout == "grid" { 8pt } else { 9pt }, lang: settings.language, fill: ink)
+  #set text(lang: settings.language)
+  #heading(level: 1)[#settings.title]
+  #set text(size: if settings.layout == "grid" { 8pt } else { 9pt }, fill: ink)
   #set par(leading: 0.32em)
-  #text(size: 16pt, weight: "bold", fill: ink, settings.title)
-  #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
+  #if settings.subtitle != "" { [#settings.subtitle] }
+  #if intro != none { intro }
   #for section in data.sections {
     section-heading(section.title, rgb(section.accent), rgb(section.tint), settings.layout)
     if settings.layout == "grid" {

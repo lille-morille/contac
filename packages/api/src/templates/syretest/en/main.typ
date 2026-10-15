@@ -48,9 +48,10 @@
 #set heading(numbering: "A", supplement: [Appendices])
 #counter(heading).update(0)
 #set text(size: 11pt)
-= Contact Log (Mandatory Appendix)
-#guidance[Thorough documentation is essential so that a team can later understand and use the information without having taken part in the feasibility study. Sort the contact log into relevant categories, with the most important information first. Contacts related to discarded cases, pivots, or information that is no longer relevant should be placed at the bottom of the contact log and clearly labelled. The contact log must be readable.]
-#include "kontaktlogg.typ"
+#import "kontaktlogg.typ": render-contact-log, report-data, settings
+#render-contact-log(report-data, settings, intro: [
+  #guidance[Thorough documentation is essential so that a team can later understand and use the information without having taken part in the feasibility study. Sort the contact log into relevant categories, with the most important information first. Contacts related to discarded cases, pivots, or information that is no longer relevant should be placed at the bottom of the contact log and clearly labelled. The contact log must be readable.]
+])
 #let loi-files = json("loi/manifest.json")
 #for file in loi-files {
   for (index, size) in file.pages.enumerate() {
