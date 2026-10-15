@@ -214,6 +214,7 @@ export function registerMcpExportReviewTools(
   const settingsPatch = z.object({
     format: z.enum(reportFormats).optional(),
     layout: z.enum(reportLayouts).optional(),
+    language: z.enum(["nb", "en"]).optional(),
     title: z.string().trim().min(1).max(160).optional(),
     subtitle: z.string().max(300).optional(),
     columns: z.array(z.enum(reportColumnIds)).optional(),
@@ -246,7 +247,17 @@ export function registerMcpExportReviewTools(
       const saved = await readSettings(deps, orgId);
       if (saved.revision !== expectedRevision)
         return failed("Export settings changed. Read get_export_workspace and retry.");
-      const parsed = reportSettingsSchema.safeParse({ ...saved.settings, ...patch });
+      const translatedTitle =
+        patch.language === "en" && saved.settings.title === "Kontaktlogg"
+          ? "Contact log"
+          : patch.language === "nb" && saved.settings.title === "Contact log"
+            ? "Kontaktlogg"
+            : saved.settings.title;
+      const parsed = reportSettingsSchema.safeParse({
+        ...saved.settings,
+        ...patch,
+        title: patch.title ?? translatedTitle,
+      });
       if (!parsed.success) return failed(parsed.error.message);
       const settings = parsed.data;
       const sectionIds = new Set(settings.customSections.map((section) => section.id));

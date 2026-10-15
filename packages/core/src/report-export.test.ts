@@ -82,6 +82,7 @@ describe("saved report composition", () => {
     const parsed = reportSettingsSchema.parse(legacy);
     expect(parsed.columns).toEqual(["number", "name", "stikkord", "sammendrag"]);
     expect(parsed.sectionMode).toBe("activity");
+    expect(parsed.language).toBe("nb");
     expect(parsed.sortMode).toBe("relevance");
   });
   it("uses status order and moves all contacts without activity to the compact section", () => {

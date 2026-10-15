@@ -915,6 +915,32 @@ export function ExportPage({
       <div className="space-y-5">
         <ExportSection title="Innhold og kolonner">
           <label className="block text-sm font-medium">
+            Eksportspråk
+            <Select
+              className="mt-1"
+              value={draft.language}
+              items={[
+                { value: "nb", label: "Norsk" },
+                { value: "en", label: "English" },
+              ]}
+              onValueChange={(value) =>
+                update(
+                  (current) => ({
+                    ...current,
+                    language: value as ReportSettings["language"],
+                    title:
+                      current.title === "Kontaktlogg" && value === "en"
+                        ? "Contact log"
+                        : current.title === "Contact log" && value === "nb"
+                          ? "Kontaktlogg"
+                          : current.title,
+                  }),
+                  true,
+                )
+              }
+            />
+          </label>
+          <label className="block text-sm font-medium">
             Tittel
             <Input
               className="mt-1"

@@ -8,6 +8,8 @@ Keep the existing portrait Typst contact cards and add a landscape grid option. 
 
 Reviewed landscape refinement (2026-10-15): place Kort beskrivelse beneath Kontaktperson instead of giving it a separate column, narrow Selskap, Status, and Kontaktinfo, and give Sammendrag substantially more width. Show the grid number at 14 pt without bold or a `K-` prefix. Make landscape section titles prominent and register them as level-two headings beneath the contact-log appendix so they appear in the appendix contents.
 
+Reviewed export-language refinement (2026-10-15): save Norwegian or English as a team export setting, defaulting existing settings to Norwegian. Translate generated column labels, status and relevance values, automatic section headings, and Typst messages consistently in preview and exported formats. Preserve user-written contact content and custom labels. Switch the untouched default report title with the language.
+
 ## Shared content and readiness
 
 Sammendrag and Key takeaways remain single shared fields on each contact. New contacts begin with `export_status = not_ready`. Changes to name, organization, description, Sammendrag, Key takeaways, company name, or conversation evidence reset readiness to `not_ready`. New or changed activities and changed activity links count as evidence changes. Workflow status, assignee, email address, phone number, relevance, and internal research notes do not reset readiness. The three states are `not_ready`, `ready`, and `needs_review`. An uncertain agent sets `needs_review` with a reason; a human can review and mark the contact ready on the Export page. Changing a contact during review must invalidate a stale completion.

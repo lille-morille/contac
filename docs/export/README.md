@@ -4,6 +4,8 @@ The team's **Eksport** page saves contact inclusion, section grouping, sort mode
 
 Typst offers portrait contact cards and a landscape grid. **Vis forhåndsvisning** compiles the saved Typst source as a PDF with the actual page breaks. Every contact has a shared export readiness state: Ikke klar, Trenger gjennomgang, or Klar. The Export page filters these states and lets a teammate mark a reviewed contact ready. Download and copy warn when included contacts are not ready, while allowing the user to continue. The `contac-export-review` skill and MCP prompt provide a shared writing guide; MCP tools coordinate a durable review backlog across independent agents.
 
+The saved export language can be Norwegian (`nb`, the default) or English (`en`). It controls generated column labels, contact statuses, relevance labels, automatic section headings, and Typst source messages across the PDF preview, Typst, LaTeX, CSV, and copied HTML table. User-written contact content and custom titles/section names remain unchanged. Switching language translates the untouched default report title; the English and Norwegian report template ZIPs remain separate choices.
+
 Download or copy the generated `kontaktlogg.typ` and replace the report's contact-log include with it. The file is self-contained. Include it where the contact log should appear, and import its citation helper in report sections:
 
 ```typst

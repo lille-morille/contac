@@ -30,6 +30,24 @@ export const reportColumnLabels: Record<ReportColumnId, string> = {
   domains: "Domener",
   stikkord: "Key takeaways",
 };
+export const reportLanguages = ["nb", "en"] as const;
+export type ReportLanguage = (typeof reportLanguages)[number];
+export const reportColumnLabelsEn: Record<ReportColumnId, string> = {
+  number: "No.",
+  assignee: "Owner",
+  organization: "Company",
+  name: "Contact",
+  contactInfo: "Contact details",
+  status: "Status",
+  relevance: "Relevance",
+  description: "Short description",
+  sammendrag: "Summary",
+  personTags: "Contact tags",
+  domains: "Domains",
+  stikkord: "Key takeaways",
+};
+export const reportLabels = (language: ReportLanguage) =>
+  language === "en" ? reportColumnLabelsEn : reportColumnLabels;
 export const contactRelevanceValues = ["low", "medium", "high"] as const;
 export type ContactRelevance = (typeof contactRelevanceValues)[number];
 export const reportSectionModes = [
@@ -46,6 +64,7 @@ export type ReportFormat = (typeof reportFormats)[number];
 export const defaultReportSettings = {
   format: "typst",
   layout: "cards",
+  language: "nb",
   title: "Kontaktlogg",
   subtitle: "",
   columns: [
@@ -68,6 +87,7 @@ export const defaultReportSettings = {
 } as const satisfies {
   format: ReportFormat;
   layout: (typeof reportLayouts)[number];
+  language: ReportLanguage;
   title: string;
   subtitle: string;
   columns: readonly ReportColumnId[];
@@ -84,6 +104,7 @@ export const reportSettingsSchema = z
   .object({
     format: z.enum(reportFormats),
     layout: z.enum(reportLayouts).default("cards"),
+    language: z.enum(reportLanguages).default("nb"),
     title: z.string().trim().min(1).max(160),
     subtitle: z.string().max(300),
     columns: z
@@ -179,6 +200,15 @@ const statusLabels: Record<string, string> = {
   ikke_kontaktet: "Ikke kontaktet",
   ikke_kontakt_igjen: "Ikke kontakt igjen",
 };
+const statusLabelsEn: Record<string, string> = {
+  kan_kontaktes_igjen: "Can be contacted again",
+  avsluttet: "Closed",
+  follow_up: "Follow up / Call again",
+  venter_pa_svar: "Awaiting reply",
+  skal_ringe: "To call",
+  ikke_kontaktet: "Not contacted",
+  ikke_kontakt_igjen: "Do not contact again",
+};
 const companyStatusLabels: Record<string, string> = {
   ingen: "Ingen selskapsstatus",
   kunde: "Kunde",
@@ -186,6 +216,16 @@ const companyStatusLabels: Record<string, string> = {
   samarbeidspartner: "Samarbeidspartner",
   ekspert: "Ekspert",
 };
+const companyStatusLabelsEn: Record<string, string> = {
+  ingen: "No company status",
+  kunde: "Customer",
+  konkurrent: "Competitor",
+  samarbeidspartner: "Partner",
+  ekspert: "Expert",
+};
+export function reportStatusLabel(status: string, language: ReportLanguage) {
+  return (language === "en" ? statusLabelsEn : statusLabels)[status] ?? status;
+}
 const companyStatusOrder = ["kunde", "ekspert", "samarbeidspartner", "konkurrent", "ingen"];
 const relevanceRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
@@ -196,19 +236,29 @@ export function reportSectionForContact(
 ): { id: string; title: string; rank: number } {
   if (settings.sectionMode === "activity")
     return hasActivity
-      ? { id: "activity", title: "Kontakter med aktivitet", rank: 0 }
-      : { id: "no-activity", title: "Uten aktivitet", rank: 1 };
+      ? {
+          id: "activity",
+          title: settings.language === "en" ? "Contacts with activity" : "Kontakter med aktivitet",
+          rank: 0,
+        }
+      : {
+          id: "no-activity",
+          title: settings.language === "en" ? "No activity" : "Uten aktivitet",
+          rank: 1,
+        };
   if (settings.sectionMode === "contact_status")
     return {
       id: `status:${contact.status}`,
-      title: statusLabels[contact.status] ?? contact.status,
+      title: reportStatusLabel(contact.status, settings.language),
       rank: statusRank[contact.status] ?? 99,
     };
   if (settings.sectionMode === "company_status") {
     const status = contact.companyStatus ?? "ingen";
     return {
       id: `company:${status}`,
-      title: companyStatusLabels[status] ?? status,
+      title:
+        (settings.language === "en" ? companyStatusLabelsEn : companyStatusLabels)[status] ??
+        status,
       rank: companyStatusOrder.indexOf(status) < 0 ? 99 : companyStatusOrder.indexOf(status),
     };
   }
@@ -217,7 +267,7 @@ export function reportSectionForContact(
   return index < 0
     ? {
         id: "unassigned",
-        title: "Uten seksjon",
+        title: settings.language === "en" ? "Unassigned" : "Uten seksjon",
         rank: settings.customSections.length,
       }
     : { id: id!, title: settings.customSections[index]!.title, rank: index };

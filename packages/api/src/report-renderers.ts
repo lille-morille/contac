@@ -1,20 +1,12 @@
 import {
-  reportColumnLabels,
+  reportLabels,
+  reportStatusLabel,
   type ReportColumnId,
   type ReportData,
   type ReportEntry,
   type ReportRow,
 } from "@contac/core";
 
-const statusLabels: Record<string, string> = {
-  ikke_kontaktet: "Ikke kontaktet",
-  avsluttet: "Avsluttet",
-  kan_kontaktes_igjen: "Kan kontaktes igjen",
-  skal_ringe: "Skal ringe",
-  venter_pa_svar: "Venter på svar",
-  follow_up: "Follow up / Ring igjen",
-  ikke_kontakt_igjen: "Ikke kontakt igjen",
-};
 const kindLabels = {
   phone: "Telefonsamtale",
   missed_phone: "Ubesvart anrop",
@@ -83,7 +75,11 @@ function entryText(entry: ReportEntry): string {
   return `${heading}\n${body}`;
 }
 
-export function reportCell(row: ReportRow, column: ReportColumnId): string {
+export function reportCell(
+  row: ReportRow,
+  column: ReportColumnId,
+  language: "nb" | "en" = "nb",
+): string {
   const person = row.contact;
   switch (column) {
     case "number":
@@ -97,15 +93,23 @@ export function reportCell(row: ReportRow, column: ReportColumnId): string {
     case "contactInfo":
       return [person.email, person.phone].filter(Boolean).join("\n");
     case "status":
-      return statusLabels[person.status] ?? person.status;
+      return reportStatusLabel(person.status, language);
     case "relevance":
-      return person.relevance === "high"
-        ? "Høy"
-        : person.relevance === "medium"
-          ? "Middels"
-          : person.relevance === "low"
-            ? "Lav"
-            : "Ikke vurdert";
+      return language === "en"
+        ? person.relevance === "high"
+          ? "High"
+          : person.relevance === "medium"
+            ? "Medium"
+            : person.relevance === "low"
+              ? "Low"
+              : "Not rated"
+        : person.relevance === "high"
+          ? "Høy"
+          : person.relevance === "medium"
+            ? "Middels"
+            : person.relevance === "low"
+              ? "Lav"
+              : "Ikke vurdert";
     case "description":
       return person.description ?? "";
     case "sammendrag":
@@ -133,15 +137,17 @@ export function renderReportCsv(report: ReportData): string {
   const includeSection = report.settings.sectionMode !== "activity";
   const lines = [
     [
-      ...columns.map((column) => csvCell(reportColumnLabels[column])),
-      ...(includeSection ? [csvCell("Seksjon")] : []),
+      ...columns.map((column) => csvCell(reportLabels(report.settings.language)[column])),
+      ...(includeSection
+        ? [csvCell(report.settings.language === "en" ? "Section" : "Seksjon")]
+        : []),
     ].join(","),
   ];
   for (const section of report.sections)
     for (const row of section.rows)
       lines.push(
         [
-          ...columns.map((column) => csvCell(reportCell(row, column))),
+          ...columns.map((column) => csvCell(reportCell(row, column, report.settings.language))),
           ...(includeSection ? [csvCell(section.title)] : []),
         ].join(","),
       );
@@ -156,21 +162,26 @@ function htmlEscape(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+function reportTitle(report: ReportData) {
+  return report.settings.language === "en" && report.settings.title === "Kontaktlogg"
+    ? "Contact log"
+    : report.settings.title;
+}
 
 export function renderReportHtml(report: ReportData): string {
   const table = (rows: ReportRow[], columns: ReportColumnId[]) =>
     `<table style="border-collapse:collapse;width:100%"><thead><tr>${columns
       .map(
         (column) =>
-          `<th style="border:1px solid #cbd5dc;background:#16384c;color:#fff;padding:5px;text-align:left">${htmlEscape(reportColumnLabels[column])}</th>`,
+          `<th style="border:1px solid #cbd5dc;background:#16384c;color:#fff;padding:5px;text-align:left">${htmlEscape(reportLabels(report.settings.language)[column])}</th>`,
       )
       .join("")}</tr></thead><tbody>${rows
       .map(
         (row) =>
-          `<tr>${columns.map((column) => `<td style="border:1px solid #cbd5dc;padding:5px;vertical-align:top;white-space:pre-wrap">${htmlEscape(reportCell(row, column))}</td>`).join("")}</tr>`,
+          `<tr>${columns.map((column) => `<td style="border:1px solid #cbd5dc;padding:5px;vertical-align:top;white-space:pre-wrap">${htmlEscape(reportCell(row, column, report.settings.language))}</td>`).join("")}</tr>`,
       )
       .join("")}</tbody></table>`;
-  return `<div><h1>${htmlEscape(report.settings.title)}</h1>${
+  return `<div><h1>${htmlEscape(reportTitle(report))}</h1>${
     report.settings.subtitle ? `<p>${htmlEscape(report.settings.subtitle)}</p>` : ""
   }${report.sections.map((section) => `<h2>${htmlEscape(section.title)}</h2>${table(section.rows, report.settings.columns)}`).join("")}</div>`;
 }
@@ -190,7 +201,7 @@ function typstString(value: string): string {
   return result + '"';
 }
 
-function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
+function typstRows(rows: ReportRow[], columns: ReportColumnId[], language: "nb" | "en") {
   return rows.map((row) => ({
     number: row.contact.contactNumber,
     exportNumber: row.exportNumber,
@@ -199,8 +210,8 @@ function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
       columns.map((column) => [
         column,
         column === "contactInfo"
-          ? reportCell(row, column).replaceAll(/([@._-])/gu, "$1\u200b")
-          : reportCell(row, column),
+          ? reportCell(row, column, language).replaceAll(/([@._-])/gu, "$1\u200b")
+          : reportCell(row, column, language),
       ]),
     ),
   }));
@@ -229,7 +240,7 @@ const fallbackSectionColors = [
 
 export function renderReportTypst(report: ReportData): string {
   const payload = {
-    labels: reportColumnLabels,
+    labels: reportLabels(report.settings.language),
     sections: report.sections.map((section, index) => {
       const [accent, tint] =
         sectionColors[section.id] ?? fallbackSectionColors[index % fallbackSectionColors.length]!;
@@ -237,16 +248,19 @@ export function renderReportTypst(report: ReportData): string {
         title: section.title,
         accent,
         tint,
-        rows: typstRows(section.rows, report.settings.columns),
+        rows: typstRows(section.rows, report.settings.columns, report.settings.language),
       };
     }),
   };
   return (
-    `// Generert av Contac. Disse innstillingene kan redigeres etter eksport.\n` +
+    (report.settings.language === "en"
+      ? `// Generated by Contac. You can edit these settings after export.\n`
+      : `// Generert av Contac. Disse innstillingene kan redigeres etter eksport.\n`) +
     `#let settings = (\n` +
-    `  title: ${typstString(report.settings.title)},\n` +
+    `  title: ${typstString(reportTitle(report))},\n` +
     `  subtitle: ${typstString(report.settings.subtitle)},\n` +
     `  layout: ${typstString(report.settings.layout)},\n` +
+    `  language: ${typstString(report.settings.language)},\n` +
     `  columns: (${report.settings.columns.map(typstString).join(", ")},),\n` +
     `)\n` +
     `#let report-data = json(bytes(${typstString(JSON.stringify(payload))}))\n` +
@@ -262,11 +276,11 @@ export function renderReportTypst(report: ReportData): string {
 #let contact-anchor(number) = [#metadata(number)#contact-target(number)]
 #let cite-contact(..args) = {
   let numbers = args.pos()
-  assert(numbers.len() > 0, message: "Oppgi minst ett kontaktnummer.")
+  assert(numbers.len() > 0, message: if settings.language == "en" { "Provide at least one contact number." } else { "Oppgi minst ett kontaktnummer." })
   let links = numbers.map(number => {
-    assert(type(number) == int, message: "Bruk permanent kontaktnummer, for eksempel #cite-contact(12).")
+    assert(type(number) == int, message: if settings.language == "en" { "Use a permanent contact number, for example #cite-contact(12)." } else { "Bruk permanent kontaktnummer, for eksempel #cite-contact(12)." })
     let person = contact-index.at(str(number), default: none)
-    assert(person != none, message: "K-" + str(number) + " er ikke med i den eksporterte kontaktloggen.")
+    assert(person != none, message: if settings.language == "en" { "K-" + str(number) + " is not in the exported contact log." } else { "K-" + str(number) + " er ikke med i den eksporterte kontaktloggen." })
     link(contact-target(number), "K-" + str(person.exportNumber) + if numbers.len() == 1 { ": " + person.values.at("name") } else { "" })
   })
   [(#links.join([; ]))]
@@ -388,7 +402,7 @@ export function renderReportTypst(report: ReportData): string {
 #let render-contact-log(data, settings) = [
   #pagebreak(weak: true)
   #set page(paper: "a4", flipped: settings.layout == "grid", margin: (x: 12mm, y: 12mm))
-  #set text(size: if settings.layout == "grid" { 8pt } else { 9pt }, lang: "nb", fill: ink)
+  #set text(size: if settings.layout == "grid" { 8pt } else { 9pt }, lang: settings.language, fill: ink)
   #set par(leading: 0.32em)
   #text(size: 16pt, weight: "bold", fill: ink, settings.title)
   #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
@@ -442,7 +456,7 @@ export function renderReportLatex(report: ReportData): string {
     };
     for (const column of columns) {
       fields.push(
-        `\\item[${latexEscape(reportColumnLabels[column])}] ${latexParagraphs(reportCell(row, column))}`,
+        `\\item[${latexEscape(reportLabels(report.settings.language)[column])}] ${latexParagraphs(reportCell(row, column, report.settings.language))}`,
       );
     }
     flushFields();
@@ -462,7 +476,7 @@ export function renderReportLatex(report: ReportData): string {
     `\\documentclass[a4paper,landscape]{article}\n` +
     `\\usepackage[T1]{fontenc}\n\\usepackage[utf8]{inputenc}\n` +
     `\\usepackage[margin=12mm]{geometry}\n\\usepackage{hyperref}\n` +
-    `\\begin{document}\n\\small\n\\section*{${latexEscape(report.settings.title)}}\n` +
+    `\\begin{document}\n\\small\n\\section*{${latexEscape(reportTitle(report))}}\n` +
     (report.settings.subtitle ? `${latexEscape(report.settings.subtitle)}\\par\n` : "") +
     `${sections}\n\\end{document}\n`
   );
