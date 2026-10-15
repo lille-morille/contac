@@ -246,6 +246,7 @@ export function renderReportTypst(report: ReportData): string {
     `#let settings = (\n` +
     `  title: ${typstString(report.settings.title)},\n` +
     `  subtitle: ${typstString(report.settings.subtitle)},\n` +
+    `  layout: ${typstString(report.settings.layout)},\n` +
     `  columns: (${report.settings.columns.map(typstString).join(", ")},),\n` +
     `)\n` +
     `#let report-data = json(bytes(${typstString(JSON.stringify(payload))}))\n` +
@@ -341,16 +342,39 @@ export function renderReportTypst(report: ReportData): string {
     }
   ]
 }
+#let grid-table(section, columns) = {
+  let headings = columns.map(column => [#text(size: 8pt, weight: "bold", fill: white, report-data.labels.at(column))])
+  let cells = section.rows.map(row => columns.map(column => {
+    let value = row.values.at(column, default: "")
+    if column == "number" {
+      [#contact-anchor(row.number)#text(weight: "bold", "K-" + str(row.exportNumber))]
+    } else {
+      [#log-lines(value)]
+    }
+  })).flatten()
+  table(
+    columns: columns.len(),
+    inset: 5pt,
+    stroke: 0.4pt + rule,
+    fill: (x, y) => if y == 0 { rgb(section.accent) } else if calc.odd(y) { rgb(section.tint) } else { white },
+    table.header(..headings),
+    ..cells,
+  )
+}
 #let render-contact-log(data, settings) = [
   #pagebreak(weak: true)
-  #set page(paper: "a4", flipped: false, margin: (x: 16mm, y: 15mm))
-  #set text(size: 9pt, lang: "nb", fill: ink)
+  #set page(paper: "a4", flipped: settings.layout == "grid", margin: (x: 12mm, y: 12mm))
+  #set text(size: if settings.layout == "grid" { 8pt } else { 9pt }, lang: "nb", fill: ink)
   #set par(leading: 0.32em)
   #text(size: 16pt, weight: "bold", fill: ink, settings.title)
   #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
   #for section in data.sections {
     section-heading(section.title, rgb(section.accent), rgb(section.tint))
-    for row in section.rows { contact-card(row, settings.columns, rgb(section.accent)) }
+    if settings.layout == "grid" {
+      grid-table(section, settings.columns)
+    } else {
+      for row in section.rows { contact-card(row, settings.columns, rgb(section.accent)) }
+    }
   }
   #pagebreak(weak: true)
 ]

@@ -40,10 +40,12 @@ export const reportSectionModes = [
 ] as const;
 export const reportSortModes = ["relevance", "status", "alphabetical"] as const;
 export const reportFormats = ["typst", "latex", "csv"] as const;
+export const reportLayouts = ["cards", "grid"] as const;
 export type ReportFormat = (typeof reportFormats)[number];
 
 export const defaultReportSettings = {
   format: "typst",
+  layout: "cards",
   title: "Kontaktlogg",
   subtitle: "",
   columns: [
@@ -65,6 +67,7 @@ export const defaultReportSettings = {
   customAssignments: {},
 } as const satisfies {
   format: ReportFormat;
+  layout: (typeof reportLayouts)[number];
   title: string;
   subtitle: string;
   columns: readonly ReportColumnId[];
@@ -80,6 +83,7 @@ export const defaultReportSettings = {
 export const reportSettingsSchema = z
   .object({
     format: z.enum(reportFormats),
+    layout: z.enum(reportLayouts).default("cards"),
     title: z.string().trim().min(1).max(160),
     subtitle: z.string().max(300),
     columns: z
@@ -130,6 +134,9 @@ export type ReportContact = ExportContact & {
   sammendrag: string | null;
   stikkord: string | null;
   relevance?: ContactRelevance | null;
+  exportStatus?: "not_ready" | "ready" | "needs_review";
+  exportReviewReason?: string | null;
+  exportContentRevision?: number;
   companyStatus?: string;
   assigneeName: string | null;
 };

@@ -64,8 +64,8 @@ describe("report source generation", () => {
     expect(source).toContain("#let cite-contact(..args)");
     expect(source).toContain("kontaktlogg-k-");
     expect(source).toContain('"K-" + str(person.exportNumber)');
-    expect(source).toContain('#contact-anchor(row.number)');
-    expect(source).toContain('paper: "a4", flipped: false');
+    expect(source).toContain("#contact-anchor(row.number)");
+    expect(source).toContain('paper: "a4", flipped: settings.layout == "grid"');
     expect(source).toContain("#let contact-card(row, columns, accent)");
     expect(source).toContain("block(width: 100%, breakable: true");
     expect(source).toContain("for section in data.sections");
@@ -105,50 +105,56 @@ describe("report source generation", () => {
   });
 
   it.skipIf(
-    spawnSync("typst", ["--version"]).status !== 0 ||
-      spawnSync("pdftotext", ["-v"]).status !== 0,
-  )("compiles a permanent-number citation to its export number and rejects omitted contacts", () => {
-    const directory = mkdtempSync(join(tmpdir(), "contac-citations-"));
-    try {
-      const includedReport = sample();
-      const omittedContact = {
-        ...includedReport.rows[0]!.contact,
-        id: id(13),
-        contactNumber: 13,
-        name: "Utelatt kontakt",
-      };
-      includedReport.settings.excludedContactIds = [id(13)];
-      const report = buildReportData({
-        settings: includedReport.settings,
-        contacts: [includedReport.rows[0]!.contact, omittedContact],
-        activities: [includedReport.rows[0]!.entries[0]!.activity],
-      });
-      writeFileSync(join(directory, "kontaktlogg.typ"), renderReportTypst(report));
-      const compile = (number: number) => {
-        writeFileSync(
-          join(directory, "main.typ"),
-          `#import "kontaktlogg.typ": cite-contact\n#cite-contact(${number})\n#include "kontaktlogg.typ"\n`,
-        );
-        return spawnSync("typst", ["compile", join(directory, "main.typ"), join(directory, "out.pdf")], {
+    spawnSync("typst", ["--version"]).status !== 0 || spawnSync("pdftotext", ["-v"]).status !== 0,
+  )(
+    "compiles a permanent-number citation to its export number and rejects omitted contacts",
+    () => {
+      const directory = mkdtempSync(join(tmpdir(), "contac-citations-"));
+      try {
+        const includedReport = sample();
+        const omittedContact = {
+          ...includedReport.rows[0]!.contact,
+          id: id(13),
+          contactNumber: 13,
+          name: "Utelatt kontakt",
+        };
+        includedReport.settings.excludedContactIds = [id(13)];
+        const report = buildReportData({
+          settings: includedReport.settings,
+          contacts: [includedReport.rows[0]!.contact, omittedContact],
+          activities: [includedReport.rows[0]!.entries[0]!.activity],
+        });
+        writeFileSync(join(directory, "kontaktlogg.typ"), renderReportTypst(report));
+        const compile = (number: number) => {
+          writeFileSync(
+            join(directory, "main.typ"),
+            `#import "kontaktlogg.typ": cite-contact\n#cite-contact(${number})\n#include "kontaktlogg.typ"\n`,
+          );
+          return spawnSync(
+            "typst",
+            ["compile", join(directory, "main.typ"), join(directory, "out.pdf")],
+            {
+              encoding: "utf8",
+            },
+          );
+        };
+        const included = compile(12);
+        expect(included.status, included.stderr).toBe(0);
+        const pdfText = spawnSync("pdftotext", [join(directory, "out.pdf"), "-"], {
           encoding: "utf8",
         });
-      };
-      const included = compile(12);
-      expect(included.status, included.stderr).toBe(0);
-      const pdfText = spawnSync("pdftotext", [join(directory, "out.pdf"), "-"], {
-        encoding: "utf8",
-      });
-      expect(pdfText.status, pdfText.stderr).toBe(0);
-      expect(pdfText.stdout).toContain("K-1: Ola");
-      expect(pdfText.stdout).not.toContain("K-12");
+        expect(pdfText.status, pdfText.stderr).toBe(0);
+        expect(pdfText.stdout).toContain("K-1: Ola");
+        expect(pdfText.stdout).not.toContain("K-12");
 
-      const omitted = compile(13);
-      expect(omitted.status).not.toBe(0);
-      expect(omitted.stderr).toContain("K-13 er ikke med i den eksporterte kontaktloggen.");
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
+        const omitted = compile(13);
+        expect(omitted.status).not.toBe(0);
+        expect(omitted.stderr).toContain("K-13 er ikke med i den eksporterte kontaktloggen.");
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("keeps spreadsheet formulas as text in CSV", () => {
     const report = sample();

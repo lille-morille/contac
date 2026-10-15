@@ -12,6 +12,7 @@ import {
   domainTags,
   emailActivities,
   emailDrafts,
+  exportReviewItems,
   libraryItems,
   memberships,
   organizations,
@@ -29,6 +30,7 @@ import { runContactAutomations } from "./ai.ts";
 import { replaceCompanyDomains } from "./domain-management.ts";
 import { emailCaptureAddress } from "./email-capture-address.ts";
 import { registerMcpCalendarTools } from "./mcp-calendar.ts";
+import { registerMcpExportReviewTools } from "./mcp-export-review.ts";
 import { searchTeam } from "./search.ts";
 import {
   authorizeMcpOauth,
@@ -135,6 +137,7 @@ const contactUpdateInput = z
     expectedTeamId: uuid,
     contactId: uuid,
     expectedUpdatedAt: z.iso.datetime(),
+    reviewClaimToken: uuid.optional(),
     name: z.string().trim().min(1).max(200).optional(),
     companyId: uuid.optional(),
     email: z.union([z.email(), z.literal(""), z.null()]).optional(),
@@ -156,7 +159,8 @@ const contactUpdateInput = z
   .refine(
     (input) =>
       Object.keys(input).some(
-        (key) => !["expectedTeamId", "contactId", "expectedUpdatedAt"].includes(key),
+        (key) =>
+          !["expectedTeamId", "contactId", "expectedUpdatedAt", "reviewClaimToken"].includes(key),
       ),
     "Provide at least one contact field to change",
   );
@@ -173,6 +177,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   const server = new McpServer({ name: "contac", version: "1.0.0" });
   const correctTeam = (expectedTeamId: string) => expectedTeamId === orgId;
   registerMcpCalendarTools(server, deps, identity);
+  registerMcpExportReviewTools(server, deps, identity);
 
   server.registerTool(
     "get_team_identity",
@@ -934,6 +939,25 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         return { error: "Active contact not found in this team" };
       if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
         return { error: "Contact changed since it was read. Call get_contact and retry." };
+      const [reviewClaim] = input.reviewClaimToken
+        ? await tx
+            .select()
+            .from(exportReviewItems)
+            .where(
+              and(
+                eq(exportReviewItems.orgId, orgId),
+                eq(exportReviewItems.contactId, input.contactId),
+                eq(exportReviewItems.claimToken, input.reviewClaimToken),
+                eq(exportReviewItems.state, "claimed"),
+              ),
+            )
+            .for("update")
+        : [];
+      if (
+        input.reviewClaimToken &&
+        (!reviewClaim || !reviewClaim.leaseUntil || reviewClaim.leaseUntil < new Date())
+      )
+        return { error: "Export review claim expired. Request a new contact claim." };
       if (input.companyId) {
         const [company] = await tx
           .select({ id: companies.id })
@@ -971,6 +995,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         expectedTeamId: _expectedTeamId,
         contactId,
         expectedUpdatedAt: _expectedUpdatedAt,
+        reviewClaimToken: _reviewClaimToken,
         tagIds: _tags,
         sharedNote,
         internalInformation,
@@ -1001,6 +1026,16 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         })
         .where(and(eq(contacts.orgId, orgId), eq(contacts.id, contactId)))
         .returning();
+      if (reviewClaim)
+        await tx
+          .update(exportReviewItems)
+          .set({ claimedRevision: contact.exportContentRevision })
+          .where(
+            and(
+              eq(exportReviewItems.runId, reviewClaim.runId),
+              eq(exportReviewItems.contactId, contact.id),
+            ),
+          );
       if (tagIds) {
         await tx
           .delete(contactPersonTags)
@@ -1082,7 +1117,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "update_contact",
     {
-      description: `Update editable fields of an active contact in this team, including relevance (how informative the conversation was: low, medium, high, or null to clear). Read get_contact first and pass contact.updatedAt as expectedUpdatedAt; stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance} Status changes from ikke_kontaktet assign the acting user when the contact is unassigned.`,
+      description: `Update editable fields of an active contact, including Sammendrag, Key takeaways (stikkord), and relevance. Read get_contact or next_contact first and pass contact.updatedAt as expectedUpdatedAt. During an export-review run, pass reviewClaimToken from next_contact; then call next_contact with finishClaimToken to mark it ready or needs_review. Stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance}`,
       inputSchema: contactUpdateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),

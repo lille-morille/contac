@@ -4,26 +4,27 @@ import { defaultReportSettings, reportExportNumbers, reportSettingsSchema } from
 import { PreviewCards } from "./export-page.tsx";
 
 it("previews export numbers for included contacts and permanent numbers for excluded contacts", () => {
-  const contacts: Parameters<typeof PreviewCards>[0]["contacts"] = [12, 34, 56].map(
-    (number) => ({
-      id: String(number),
-      contactNumber: number,
-      name: `Kontakt ${number}`,
-      companyName: "Firma",
-      status: "ikke_kontaktet",
-      relevance: null,
-      companyStatus: "ingen",
-      assigneeName: null,
-      email: null,
-      phone: null,
-      description: null,
-      personTags: [],
-      domains: [],
-      stikkord: null,
-      sammendrag: null,
-      activityCount: 0,
-    }),
-  );
+  const contacts: Parameters<typeof PreviewCards>[0]["contacts"] = [12, 34, 56].map((number) => ({
+    id: String(number),
+    contactNumber: number,
+    name: `Kontakt ${number}`,
+    companyName: "Firma",
+    status: "ikke_kontaktet",
+    relevance: null,
+    exportStatus: "not_ready",
+    exportReviewReason: null,
+    exportContentRevision: 0,
+    companyStatus: "ingen",
+    assigneeName: null,
+    email: null,
+    phone: null,
+    description: null,
+    personTags: [],
+    domains: [],
+    stikkord: null,
+    sammendrag: null,
+    activityCount: 0,
+  }));
   const excluded = new Set(["34"]);
   const html = renderToStaticMarkup(
     <PreviewCards
@@ -38,6 +39,7 @@ it("previews export numbers for included contacts and permanent numbers for excl
       onSaveStikkord={async () => {}}
       onSaveSammendrag={async () => {}}
       onRefresh={() => {}}
+      onMarkReady={async () => {}}
       onAssign={() => {}}
     />,
   );

@@ -4,7 +4,7 @@ import {
   orderedReportContacts,
   reportSettingsSchema,
 } from "@contac/core";
-import { contactReportSettings } from "@contac/core/db";
+import { contactReportSettings, contacts } from "@contac/core/db";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
@@ -16,6 +16,8 @@ import {
   renderReportTypst,
 } from "./report-renderers.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
+
+const execFileAsync = promisify(execFile);
 
 async function readSettings(deps: ApiDeps, orgId: string) {
   const [row] = await deps.db
@@ -56,6 +58,9 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
         companyName: contact.companyName,
         status: contact.status,
         relevance: contact.relevance,
+        exportStatus: contact.exportStatus ?? "not_ready",
+        exportReviewReason: contact.exportReviewReason ?? null,
+        exportContentRevision: contact.exportContentRevision ?? 0,
         companyStatus: contact.companyStatus,
         assigneeName: contact.assigneeName,
         email: contact.email,
@@ -104,6 +109,70 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.json({ error: "Eksportoppsettet ble endret av en annen person.", ...current }, 409);
   });
 
+  app.post("/v1/org/export/readiness/:contactId", async (c) => {
+    const body = z
+      .object({
+        expectedRevision: z.number().int().nonnegative(),
+        status: z.enum(["ready", "needs_review"]),
+        reason: z.string().trim().max(1000).nullable().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
+    const contactId = z.uuid().safeParse(c.req.param("contactId"));
+    if (!body.success || !contactId.success)
+      return c.json({ error: "Ugyldig status for eksportgjennomgang." }, 400);
+    if (body.data.status === "needs_review" && !body.data.reason)
+      return c.json({ error: "Oppgi hvorfor kontakten trenger gjennomgang." }, 400);
+    const [updated] = await deps.db
+      .update(contacts)
+      .set({
+        exportStatus: body.data.status,
+        exportReviewReason: body.data.status === "needs_review" ? body.data.reason : null,
+      })
+      .where(
+        and(
+          eq(contacts.orgId, c.get("org").id),
+          eq(contacts.id, contactId.data),
+          eq(contacts.exportContentRevision, body.data.expectedRevision),
+        ),
+      )
+      .returning({
+        exportStatus: contacts.exportStatus,
+        exportContentRevision: contacts.exportContentRevision,
+      });
+    return updated
+      ? c.json(updated)
+      : c.json({ error: "Kontakten ble endret. Oppdater og gjennomgå på nytt." }, 409);
+  });
+
+  app.get("/v1/org/export/preview.pdf", async (c) => {
+    const orgId = c.get("org").id;
+    const [saved, snapshot] = await Promise.all([
+      readSettings(deps, orgId),
+      loadReportSnapshot(deps.db, orgId),
+    ]);
+    if (!snapshot) return c.json({ error: "Teamet finnes ikke." }, 404);
+    const report = buildReportData({
+      contacts: snapshot.reportContacts,
+      activities: snapshot.reportActivities,
+      settings: saved.settings,
+    });
+    if (!report.sections.length) return c.json({ error: "Velg minst én kontakt." }, 400);
+    const directory = await mkdtemp(join(tmpdir(), "contac-export-preview-"));
+    try {
+      const source = join(directory, "kontaktlogg.typ");
+      const output = join(directory, "kontaktlogg.pdf");
+      await writeFile(source, renderReportTypst(report));
+      await execFileAsync("typst", ["compile", "--root", directory, source, output], {
+        timeout: 30_000,
+      });
+      c.header("Content-Type", "application/pdf");
+      c.header("Cache-Control", "no-store");
+      return c.body(new Uint8Array(await readFile(output)));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   app.get("/v1/org/export/file", async (c) => {
     const format = z.enum(["typst", "latex", "csv", "html"]).safeParse(c.req.query("format"));
     if (!format.success) return c.json({ error: "Velg et gyldig eksportformat." }, 400);
@@ -120,6 +189,17 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     });
     if (!report.rows.length && !report.noActivityRows.length)
       return c.json({ error: "Velg minst én kontakt før eksport." }, 400);
+    const unready = report.sections.flatMap((section) =>
+      section.rows
+        .filter((row) => row.contact.exportStatus !== "ready")
+        .map((row) => ({
+          id: row.contact.id,
+          name: row.contact.name,
+          status: row.contact.exportStatus ?? "not_ready",
+        })),
+    );
+    if (unready.length && c.req.query("confirmUnready") !== "true")
+      return c.json({ error: "Noen kontakter er ikke klare for eksport.", unready }, 409);
     const rendered =
       format.data === "typst"
         ? renderReportTypst(report)
@@ -149,3 +229,8 @@ export function registerReportRoutes(app: Hono<ApiEnv>, deps: ApiDeps) {
     return c.body(rendered);
   });
 }
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";

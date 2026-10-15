@@ -51,8 +51,8 @@ export async function downloadOrgFile(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? "Kunne ikke laste ned filen");
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(String(body.error ?? "Kunne ikke laste ned filen"), response.status, body);
   }
   const url = URL.createObjectURL(await response.blob());
   try {
@@ -74,10 +74,33 @@ export async function readOrgText(orgId: string, path: string): Promise<string> 
     },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? "Kunne ikke lese kontaktloggen");
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(
+      String(body.error ?? "Kunne ikke lese kontaktloggen"),
+      response.status,
+      body,
+    );
   }
   return response.text();
+}
+export async function readOrgBlob(orgId: string, path: string): Promise<Blob> {
+  const { data } = await getSupabase().auth.getSession();
+  if (!data.session) throw new Error("Logg inn før forhåndsvisning");
+  const response = await fetch(`${env.apiUrl}/v1${path}`, {
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      "x-org-id": orgId,
+    },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(
+      String(body.error ?? "Kunne ikke vise forhåndsvisning"),
+      response.status,
+      body,
+    );
+  }
+  return response.blob();
 }
 export async function uploadFile(orgId: string, file: File): Promise<{ id: string }> {
   const { data } = await getSupabase().auth.getSession();

@@ -143,6 +143,9 @@ export async function loadReportSnapshot(db: Database, orgId: string) {
     sammendrag: sourceById.get(person.id)?.sammendrag ?? null,
     stikkord: sourceById.get(person.id)?.stikkord ?? null,
     relevance: sourceById.get(person.id)?.relevance ?? null,
+    exportStatus: sourceById.get(person.id)?.exportStatus ?? "not_ready",
+    exportReviewReason: sourceById.get(person.id)?.exportReviewReason ?? null,
+    exportContentRevision: sourceById.get(person.id)?.exportContentRevision ?? 0,
     companyStatus: companiesById.get(person.companyId)?.status ?? "ingen",
     assigneeName: person.assigneeId ? (namesById.get(person.assigneeId) ?? null) : null,
   }));

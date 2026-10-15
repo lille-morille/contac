@@ -21,7 +21,7 @@ import { Input } from "./ui/input.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 import { Select } from "./ui/select.tsx";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./ui/dialog.tsx";
-import { ApiError, downloadOrgFile, readOrgText, request } from "../lib/api.ts";
+import { ApiError, downloadOrgFile, readOrgBlob, readOrgText, request } from "../lib/api.ts";
 import { copyHtmlTable, copyText } from "../lib/clipboard.ts";
 
 type PreviewContact = {
@@ -31,6 +31,9 @@ type PreviewContact = {
   companyName: string;
   status: ContactStatus;
   relevance: "low" | "medium" | "high" | null;
+  exportStatus: "not_ready" | "ready" | "needs_review";
+  exportReviewReason: string | null;
+  exportContentRevision: number;
   companyStatus: string;
   assigneeName: string | null;
   email: string | null;
@@ -276,6 +279,7 @@ export function PreviewCards({
   onSaveStikkord,
   onSaveSammendrag,
   onRefresh,
+  onMarkReady,
   settings,
   onAssign,
 }: {
@@ -289,6 +293,7 @@ export function PreviewCards({
   onSaveStikkord: (id: string, next: string, expected: string | null) => Promise<void>;
   onSaveSammendrag: (id: string, next: string, expected: string | null) => Promise<void>;
   onRefresh: () => void;
+  onMarkReady: (contact: PreviewContact) => Promise<void>;
   settings: ReportSettings;
   onAssign: (id: string, sectionId: string) => void;
 }) {
@@ -310,18 +315,34 @@ export function PreviewCards({
         const details = columns.filter(
           (column) =>
             (column === "description" || column === "sammendrag" || column === "stikkord") &&
-            (column === "sammendrag" || column === "stikkord" || previewCell(contact, column, exportNumber)),
+            (column === "sammendrag" ||
+              column === "stikkord" ||
+              previewCell(contact, column, exportNumber)),
         );
         return (
           <article key={contact.id} className="rounded-xl border border-border bg-card p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
               <span className="text-xs font-semibold text-primary">
-                {exportNumber ? `K-${exportNumber}` : `Ikke med · permanent K-${contact.contactNumber}`}
+                {exportNumber
+                  ? `K-${exportNumber}`
+                  : `Ikke med · permanent K-${contact.contactNumber}`}
               </span>
               <span className="text-xs text-muted-foreground">
                 Relevans: {previewCell(contact, "relevance", exportNumber)}
               </span>
+              <span className="text-xs font-medium">
+                {contact.exportStatus === "ready"
+                  ? "Klar"
+                  : contact.exportStatus === "needs_review"
+                    ? "Trenger gjennomgang"
+                    : "Ikke klar"}
+              </span>
               <div className="flex items-center gap-1">
+                {contact.exportStatus !== "ready" && (
+                  <Button size="sm" variant="outline" onClick={() => void onMarkReady(contact)}>
+                    Merk som klar
+                  </Button>
+                )}
                 {settings.sectionMode === "custom" && (
                   <Select
                     value={settings.customAssignments[contact.id] ?? ""}
@@ -368,6 +389,9 @@ export function PreviewCards({
                 </Button>
               </div>
             </div>
+            {contact.exportStatus === "needs_review" && contact.exportReviewReason && (
+              <p className="mt-2 text-xs text-risk">{contact.exportReviewReason}</p>
+            )}
             <div className="grid gap-x-6 gap-y-3 py-3 sm:grid-cols-2">
               {metadata.map((column) => (
                 <div key={column} className="min-w-0">
@@ -433,6 +457,14 @@ export function ExportPage({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [readinessFilter, setReadinessFilter] = useState<"all" | PreviewContact["exportStatus"]>(
+    "all",
+  );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [unreadyWarning, setUnreadyWarning] = useState<
+    { id: string; name: string; status: string }[] | null
+  >(null);
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [working, setWorking] = useState(false);
   const [tableSelected, setTableSelected] = useState(false);
@@ -443,6 +475,15 @@ export function ExportPage({
   const dirtyRef = useRef(false);
   const inFlightRef = useRef<Promise<boolean> | null>(null);
   const timerRef = useRef<number | null>(null);
+  const pendingExportRef = useRef<(() => Promise<void>) | null>(null);
+  const pendingSuccessRef = useRef("");
+
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl],
+  );
 
   useEffect(() => {
     const incoming = workspace.data;
@@ -541,21 +582,32 @@ export function ExportPage({
     timerRef.current = null;
     if (!(await persist())) throw new Error("Lagre eksportoppsettet før du eksporterer.");
   }
-  async function act(action: () => Promise<void>, success: string) {
+  async function act(action: (confirmUnready: boolean) => Promise<void>, success: string) {
     setWorking(true);
     setError("");
     setMessage("");
     try {
       await flushSave();
-      await action();
+      await action(false);
       setMessage(success);
     } catch (cause) {
+      if (
+        cause instanceof ApiError &&
+        cause.status === 409 &&
+        Array.isArray(cause.details.unready)
+      ) {
+        setUnreadyWarning(cause.details.unready as { id: string; name: string; status: string }[]);
+        pendingExportRef.current = () => action(true);
+        pendingSuccessRef.current = success;
+        return;
+      }
       setError(cause instanceof Error ? cause.message : "Eksporten mislyktes.");
     } finally {
       setWorking(false);
     }
   }
   function update(change: (current: ReportSettings) => ReportSettings, immediate = false) {
+    setPreviewUrl(null);
     if (draftRef.current) scheduleSave(change(draftRef.current), immediate);
   }
   function moveContact(id: string, target: string) {
@@ -597,6 +649,7 @@ export function ExportPage({
   }
 
   async function refreshContactData() {
+    setPreviewUrl(null);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["report-workspace", orgId] }),
       queryClient.invalidateQueries({ queryKey: ["contact-data", orgId] }),
@@ -616,15 +669,47 @@ export function ExportPage({
     });
     await refreshContactData();
   }
+  async function markReady(contact: PreviewContact) {
+    try {
+      await request(`/org/export/readiness/${contact.id}`, orgId, {
+        expectedRevision: contact.exportContentRevision,
+        status: "ready",
+      });
+      await refreshContactData();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke merke kontakten som klar.");
+      await refreshContactData();
+    }
+  }
+  async function loadPreview() {
+    setPreviewLoading(true);
+    setError("");
+    try {
+      await flushSave();
+      const url = URL.createObjectURL(await readOrgBlob(orgId, "/org/export/preview.pdf"));
+      setPreviewUrl(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Kunne ikke vise PDF-forhåndsvisningen.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
   const ordered = draft && workspace.data ? orderContacts(workspace.data.contacts, draft) : [];
   const excluded = new Set(draft?.excludedContactIds ?? []);
   const exportNumbers = reportExportNumbers(ordered, excluded);
   const included = ordered.filter((contact) => !excluded.has(contact.id));
-  const visible = ordered.filter((contact) =>
-    `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.sammendrag ?? ""} ${contact.stikkord ?? ""}`
-      .toLocaleLowerCase("nb")
-      .includes(search.toLocaleLowerCase("nb")),
+  const visible = ordered.filter(
+    (contact) =>
+      (readinessFilter === "all" || contact.exportStatus === readinessFilter) &&
+      `${contact.name} ${contact.companyName} ${contact.contactNumber} ${contact.sammendrag ?? ""} ${contact.stikkord ?? ""}`
+        .toLocaleLowerCase("nb")
+        .includes(search.toLocaleLowerCase("nb")),
   );
+  const readinessCounts = {
+    not_ready: ordered.filter((contact) => contact.exportStatus === "not_ready").length,
+    needs_review: ordered.filter((contact) => contact.exportStatus === "needs_review").length,
+    ready: ordered.filter((contact) => contact.exportStatus === "ready").length,
+  };
   const sectionGroups = new Map<string, { title: string; contacts: PreviewContact[] }>();
   if (draft)
     for (const contact of visible) {
@@ -693,16 +778,30 @@ export function ExportPage({
             <span className="text-xs font-normal opacity-75">Lim inn i Google Docs eller Word</span>
           </Button>
         </div>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Typst-oppsett">
+          <span className="text-sm font-medium">Typst-oppsett</span>
+          {(["cards", "grid"] as const).map((layout) => (
+            <Button
+              key={layout}
+              size="sm"
+              variant={draft.layout === layout ? "default" : "outline"}
+              aria-pressed={draft.layout === layout}
+              onClick={() => update((current) => ({ ...current, layout }), true)}
+            >
+              {layout === "cards" ? "Stående kort" : "Liggende tabell"}
+            </Button>
+          ))}
+        </div>
         <div className="flex flex-wrap gap-2">
           {!tableSelected && (
             <Button
               disabled={working || included.length === 0}
               onClick={() =>
                 void act(
-                  () =>
+                  (confirmUnready) =>
                     downloadOrgFile(
                       orgId,
-                      `/org/export/file?format=${format}`,
+                      `/org/export/file?format=${format}${confirmUnready ? "&confirmUnready=true" : ""}`,
                       `kontaktlogg.${extension}`,
                     ),
                   `Kontaktloggen er lastet ned som .${extension}.`,
@@ -717,16 +816,19 @@ export function ExportPage({
               variant={tableSelected ? "default" : "outline"}
               disabled={working || included.length === 0}
               onClick={() =>
-                void act(async () => {
+                void act(async (confirmUnready) => {
+                  const confirmation = confirmUnready ? "&confirmUnready=true" : "";
                   if (tableSelected) {
                     const [html, csv] = await Promise.all([
-                      readOrgText(orgId, "/org/export/file?format=html"),
-                      readOrgText(orgId, "/org/export/file?format=csv"),
+                      readOrgText(orgId, `/org/export/file?format=html${confirmation}`),
+                      readOrgText(orgId, `/org/export/file?format=csv${confirmation}`),
                     ]);
                     await copyHtmlTable(html, csv);
                     setCopiedFormat("table");
                   } else if (format !== "csv") {
-                    await copyText(await readOrgText(orgId, `/org/export/file?format=${format}`));
+                    await copyText(
+                      await readOrgText(orgId, `/org/export/file?format=${format}${confirmation}`),
+                    );
                     setCopiedFormat(format);
                   }
                 }, "Kontaktloggen er kopiert.")
@@ -736,6 +838,37 @@ export function ExportPage({
             </Button>
           )}
         </div>
+        {format === "typst" && (
+          <div className="space-y-2 rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">PDF-forhåndsvisning</h3>
+                <p className="text-xs text-muted-foreground">
+                  Samme Typst-oppsett som eksportfilen, med faktiske sideskift.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={previewLoading || !included.length}
+                onClick={() => void loadPreview()}
+              >
+                {previewLoading
+                  ? "Lager forhåndsvisning …"
+                  : previewUrl
+                    ? "Oppdater forhåndsvisning"
+                    : "Vis forhåndsvisning"}
+              </Button>
+            </div>
+            {previewUrl && (
+              <iframe
+                title="Kontaktlogg PDF-forhåndsvisning"
+                src={previewUrl}
+                className="h-[70vh] w-full rounded-lg border border-border"
+              />
+            )}
+          </div>
+        )}
         <p role="status" className="text-xs text-muted-foreground">
           {saveState === "saved"
             ? "Alle endringer er lagret"
@@ -1062,6 +1195,26 @@ export function ExportPage({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer på eksportstatus">
+            {(
+              [
+                ["all", `Alle (${ordered.length})`],
+                ["not_ready", `Ikke klare (${readinessCounts.not_ready})`],
+                ["needs_review", `Trenger gjennomgang (${readinessCounts.needs_review})`],
+                ["ready", `Klare (${readinessCounts.ready})`],
+              ] as const
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={readinessFilter === value ? "default" : "outline"}
+                aria-pressed={readinessFilter === value}
+                onClick={() => setReadinessFilter(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
               {included.length} av {ordered.length} kontakter er med
@@ -1121,6 +1274,7 @@ export function ExportPage({
                 onSaveStikkord={saveStikkord}
                 onSaveSammendrag={saveSammendrag}
                 onRefresh={() => void refreshContactData()}
+                onMarkReady={markReady}
                 settings={draft}
                 onAssign={(id, sectionId) =>
                   update((current) => {
@@ -1159,6 +1313,56 @@ export function ExportPage({
               }}
             >
               Tilbakestill rekkefølge
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={unreadyWarning !== null}
+        onOpenChange={(open) => !open && setUnreadyWarning(null)}
+      >
+        <DialogContent>
+          <DialogTitle>Kontakter er ikke klare for eksport</DialogTitle>
+          <DialogDescription>
+            {unreadyWarning?.length ?? 0} inkluderte kontakter er ikke ferdig gjennomgått. Du kan
+            fortsette med eksporten eller gå tilbake og gjennomgå dem.
+          </DialogDescription>
+          <ul className="mt-3 max-h-48 list-disc overflow-y-auto pl-5 text-sm">
+            {unreadyWarning?.map((contact) => (
+              <li key={contact.id}>{contact.name}</li>
+            ))}
+          </ul>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUnreadyWarning(null);
+                setReadinessFilter("not_ready");
+              }}
+            >
+              Gjennomgå kontakter
+            </Button>
+            <Button
+              disabled={working}
+              onClick={() =>
+                void (async () => {
+                  const action = pendingExportRef.current;
+                  if (!action) return;
+                  setWorking(true);
+                  setUnreadyWarning(null);
+                  try {
+                    await action();
+                    setMessage(pendingSuccessRef.current);
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : "Eksporten mislyktes.");
+                  } finally {
+                    pendingExportRef.current = null;
+                    setWorking(false);
+                  }
+                })()
+              }
+            >
+              Fortsett eksport
             </Button>
           </div>
         </DialogContent>

@@ -14,5 +14,6 @@ COPY packages/api/src/embedding.ts packages/api/src/preload-search-model.ts pack
 RUN bun packages/api/src/preload-search-model.ts
 COPY packages/core packages/core
 COPY packages/api packages/api
+COPY skills/contac-export-review skills/contac-export-review
 EXPOSE 8787
 CMD ["bun", "packages/api/src/server.ts"]

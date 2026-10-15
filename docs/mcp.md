@@ -98,6 +98,9 @@ before it queries or writes data.
 | `get_attachment_link` | Short-lived download URL for a team activity attachment |
 | `create_contact` | Create one evidence-based contact with an organization and optional internal plain-text information |
 | `update_contact` | Change an active contact's editable fields, including relevance, tags, or internal information |
+| `get_export_workspace` / `update_export_settings` | Read and revise the shared export setup with a settings revision |
+| `start_export_review` / `next_contact` / `get_export_review_status` | Coordinate a team-wide contact review backlog with expiring claims |
+| `preview_export` / `get_export_review_guide` | Inspect ordered export content and read the shared writing guide |
 | `batch_update_contacts` | Update up to 100 contacts with an updated or error result per input |
 | `batch_create_contacts` | Create up to 100 contacts with a created, duplicate, or error result per input |
 | `add_activity` | Add a phone call, missed call, or meeting linked to existing contacts |

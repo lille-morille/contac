@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   index,
@@ -405,6 +406,14 @@ export const contacts = pgTable(
     relevance: contactRelevance("relevance"),
     relevanceManual: boolean("relevance_manual").notNull().default(false),
     relevanceSourceVersion: text("relevance_source_version"),
+    exportStatus: text("export_status")
+      .$type<"not_ready" | "ready" | "needs_review">()
+      .notNull()
+      .default("not_ready"),
+    exportContentRevision: bigint("export_content_revision", { mode: "number" })
+      .notNull()
+      .default(0),
+    exportReviewReason: text("export_review_reason"),
     status: contactStatus("status").notNull().default("ikke_kontaktet"),
     assigneeId: uuid("assignee_id"),
     allowExternalAi: boolean("allow_external_ai").notNull().default(true),
@@ -420,6 +429,45 @@ export const contacts = pgTable(
     index("contacts_updated_idx").on(table.orgId, table.updatedAt),
     uniqueIndex("contacts_org_contact_number_unique").on(table.orgId, table.contactNumber),
   ],
+);
+export const exportReviewRuns = pgTable(
+  "export_review_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").notNull(),
+    guideVersion: text("guide_version").notNull(),
+    scope: text("scope").$type<"included" | "all_active">().notNull(),
+    status: text("status").$type<"active" | "completed">().notNull().default("active"),
+    createdAt: createdAt(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [index("export_review_runs_org_idx").on(table.orgId, table.createdAt)],
+);
+export const exportReviewItems = pgTable(
+  "export_review_items",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => exportReviewRuns.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    state: text("state").$type<"pending" | "claimed" | "completed">().notNull().default("pending"),
+    claimToken: uuid("claim_token"),
+    claimedRevision: bigint("claimed_revision", { mode: "number" }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    outcome: text("outcome").$type<"ready" | "needs_review">(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.contactId] })],
 );
 export const contactAdditionalInfo = pgTable(
   "contact_additional_info",
