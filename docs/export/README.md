@@ -12,7 +12,7 @@ Et sitat #cite-contact(12).
 #include "dependencies/kontaktlogg.typ"
 ```
 
-The argument to `cite-contact` is the contact's permanent team-scoped number, independent of display order. The exported log displays included contacts as `K-1`, `K-2`, and so on in current report order; the citation helper translates the permanent number to that displayed number and links to the right card. Reordering or changing inclusion changes display numbers, while existing citation arguments remain valid for included contacts. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards with restrained color on section headings. Each contact begins with the person's name and company, followed by compact metadata, Key takeaways, and Sammendrag. Neutral rules and spacing separate contacts. Long summaries can continue across pages. Section headings follow the team's saved grouping and order.
+The argument to `cite-contact` is the contact's permanent team-scoped number, independent of display order. The exported log numbers included contacts in current report order; portrait cards and citations use `K-1`, `K-2`, while the landscape grid shows `1`, `2` in its Nr. column. The citation helper translates the permanent number to the displayed contact and links to it. Reordering or changing inclusion changes display numbers, while existing citation arguments remain valid for included contacts. A cited contact omitted from the export causes a clear Typst compile error. The Typst export uses portrait A4 contact cards or a landscape grid. In the grid, Kort beskrivelse appears beneath Kontaktperson and Sammendrag gets the widest column. Long summaries can continue across pages. Section headings follow the team's saved grouping and order and appear beneath Kontaktlogg in the appendix contents.
 
 ## Fast PDF preview
 
@@ -22,6 +22,7 @@ contacts without a database. The command writes `kontaktlogg.typ`,
 Open the PDF to review the full export or the PNGs to inspect individual pages.
 Use `bun run export:pdf:watch` while editing the Typst renderer or sample fixture;
 it regenerates the preview after source changes. Typst must be installed.
+Use `bun run export:pdf --grid` to inspect the landscape table and its page breaks.
 The sample groups by company status. Use `bun run export:pdf --group custom`,
 `--group contact_status`, or `--group activity` to inspect other groupings.
 Add `--all-columns` to render every available export field in

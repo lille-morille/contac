@@ -199,7 +199,7 @@ function typstRows(rows: ReportRow[], columns: ReportColumnId[]) {
       columns.map((column) => [
         column,
         column === "contactInfo"
-          ? reportCell(row, column).replaceAll("\n", " · ")
+          ? reportCell(row, column).replaceAll(/([@._-])/gu, "$1\u200b")
           : reportCell(row, column),
       ]),
     ),
@@ -283,12 +283,15 @@ export function renderReportTypst(report: ReportData): string {
 #let muted = rgb("#586670")
 #let label = rgb("#77838c")
 #let rule = rgb("#b8c2c8")
-#let section-heading(title, accent, tint) = {
-  block(width: 100%, sticky: true, above: 9mm, below: 3mm, inset: (x: 9pt, y: 6pt),
+#let section-heading(title, accent, tint, layout) = [
+  #show heading: it => block(width: 100%, sticky: true,
+    above: if layout == "grid" { 11mm } else { 9mm }, below: 3mm,
+    inset: (x: 9pt, y: if layout == "grid" { 8pt } else { 6pt }),
     fill: tint, stroke: (left: 3pt + accent))[
-    #text(size: 12pt, weight: "bold", fill: accent, title)
+    #text(size: if layout == "grid" { 18pt } else { 12pt }, weight: "bold", fill: accent, it.body)
   ]
-}
+  #heading(level: 2, numbering: none, outlined: true)[#title]
+]
 #let metadata-field(row, column, accent) = [
   #text(size: 7.5pt, fill: accent, report-data.labels.at(column))
   #linebreak()
@@ -343,17 +346,38 @@ export function renderReportTypst(report: ReportData): string {
   ]
 }
 #let grid-table(section, columns) = {
-  let headings = columns.map(column => [#text(size: 8pt, weight: "bold", fill: white, report-data.labels.at(column))])
-  let cells = section.rows.map(row => columns.map(column => {
+  let visible-columns = if "name" in columns and "description" in columns {
+    columns.filter(column => column != "description")
+  } else { columns }
+  let column-width = column => {
+    if column == "number" { 16mm }
+    else if column == "assignee" { 18mm }
+    else if column == "organization" { 22mm }
+    else if column == "name" { 1.15fr }
+    else if column == "contactInfo" { 24mm }
+    else if column == "status" { 19mm }
+    else if column == "relevance" { 17mm }
+    else if column == "stikkord" { 1.85fr }
+    else if column == "sammendrag" { 3.1fr }
+    else { 1fr }
+  }
+  let headings = visible-columns.map(column => [#text(size: 8pt, weight: "bold", fill: white, report-data.labels.at(column))])
+  let cells = section.rows.map(row => visible-columns.map(column => {
     let value = row.values.at(column, default: "")
     if column == "number" {
-      [#contact-anchor(row.number)#text(weight: "bold", "K-" + str(row.exportNumber))]
+      [#contact-anchor(row.number)#text(size: 14pt, fill: ink, str(row.exportNumber))]
+    } else if column == "name" and "description" in columns {
+      let description = row.values.at("description", default: "")
+      [
+        #text(size: 9pt, weight: "bold", fill: ink, value)
+        #if description != "" { [#linebreak()#text(size: 8pt, fill: muted)[#log-lines(description)]] }
+      ]
     } else {
       [#log-lines(value)]
     }
   })).flatten()
   table(
-    columns: columns.len(),
+    columns: visible-columns.map(column-width),
     inset: 5pt,
     stroke: 0.4pt + rule,
     fill: (x, y) => if y == 0 { rgb(section.accent) } else if calc.odd(y) { rgb(section.tint) } else { white },
@@ -369,7 +393,7 @@ export function renderReportTypst(report: ReportData): string {
   #text(size: 16pt, weight: "bold", fill: ink, settings.title)
   #if settings.subtitle != "" { [#linebreak()#settings.subtitle] }
   #for section in data.sections {
-    section-heading(section.title, rgb(section.accent), rgb(section.tint))
+    section-heading(section.title, rgb(section.accent), rgb(section.tint), settings.layout)
     if settings.layout == "grid" {
       grid-table(section, settings.columns)
     } else {

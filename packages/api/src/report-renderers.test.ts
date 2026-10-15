@@ -156,6 +156,52 @@ describe("report source generation", () => {
     },
   );
 
+  it.skipIf(
+    spawnSync("typst", ["--version"]).status !== 0 || spawnSync("pdftotext", ["-v"]).status !== 0,
+  )("places landscape sections beneath the contact-log appendix in the contents", () => {
+    const directory = mkdtempSync(join(tmpdir(), "contac-grid-outline-"));
+    try {
+      const report = sample();
+      report.settings = reportSettingsSchema.parse({
+        ...report.settings,
+        layout: "grid",
+        columns: [...report.settings.columns, "description"],
+      });
+      report.rows[0]!.contact.description = "Rollebeskrivelse for kontaktpersonen";
+      writeFileSync(join(directory, "kontaktlogg.typ"), renderReportTypst(report));
+      const main = join(directory, "main.typ");
+      const pdf = join(directory, "out.pdf");
+      writeFileSync(
+        main,
+        '#outline(target: heading.where(supplement: [Vedlegg]), title: [Vedlegg])\n#set heading(numbering: "A", supplement: [Vedlegg])\n= Kontaktlogg\n#include "kontaktlogg.typ"\n',
+      );
+      const compiled = spawnSync("typst", ["compile", main, pdf], { encoding: "utf8" });
+      expect(compiled.status, compiled.stderr).toBe(0);
+
+      const queried = spawnSync("typst", ["query", main, "heading"], { encoding: "utf8" });
+      expect(queried.status, queried.stderr).toBe(0);
+      const headings = JSON.parse(queried.stdout) as Array<{
+        level: number;
+        body: { text: string };
+        supplement: { text: string };
+      }>;
+      const subsections = headings.filter((heading) => heading.level === 2);
+      expect(subsections.map((heading) => heading.body.text)).toEqual(
+        report.sections.map((section) => section.title),
+      );
+      expect(subsections.every((heading) => heading.supplement.text === "Vedlegg")).toBe(true);
+
+      const pdfText = spawnSync("pdftotext", [pdf, "-"], { encoding: "utf8" });
+      expect(pdfText.status, pdfText.stderr).toBe(0);
+      expect(pdfText.stdout).not.toContain("K-1");
+      expect(pdfText.stdout).toMatch(/Rollebeskrivelse for\s+kontaktpersonen/u);
+      expect(pdfText.stdout).not.toContain("Kort beskrivelse");
+      for (const section of report.sections) expect(pdfText.stdout).toContain(section.title);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("keeps spreadsheet formulas as text in CSV", () => {
     const report = sample();
     report.rows[0]!.contact.stikkord = '=IMPORTXML("https://example.com","x")';

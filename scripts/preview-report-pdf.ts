@@ -13,6 +13,7 @@ import { loadReportSnapshot } from "../packages/api/src/report-data.ts";
 import { renderReportTypst } from "../packages/api/src/report-renderers.ts";
 
 const allColumns = process.argv.includes("--all-columns");
+const gridLayout = process.argv.includes("--grid");
 const localData = process.argv.includes("--local") || process.argv.includes("--team");
 const outputDir = join(
   import.meta.dirname,
@@ -225,7 +226,7 @@ async function compile(output: string, pages?: string) {
     throw new Error(new TextDecoder().decode(result.stderr) || "Typst-kjøringen feilet.");
 }
 
-const args = process.argv.slice(2).filter((arg) => arg !== "--all-columns");
+const args = process.argv.slice(2).filter((arg) => arg !== "--all-columns" && arg !== "--grid");
 const groupModes = ["activity", "company_status", "contact_status", "custom"] as const;
 const group =
   args[0] === "--group" && groupModes.includes(args[1] as (typeof groupModes)[number])
@@ -238,12 +239,14 @@ if (
   !(args.length === 2 && group)
 )
   throw new Error(
-    "Bruk: bun run export:pdf [--group activity|company_status|contact_status|custom | --local | --team <lokal-team-id>] [--all-columns]",
+    "Bruk: bun run export:pdf [--group activity|company_status|contact_status|custom | --local | --team <lokal-team-id>] [--all-columns] [--grid]",
   );
 const report =
   args[0] === "--local" || args[0] === "--team"
     ? await localReport(args[0] === "--team" ? args[1] : undefined)
     : fixture(group ?? undefined);
+if (gridLayout)
+  report.settings = reportSettingsSchema.parse({ ...report.settings, layout: "grid" });
 if (allColumns)
   report.settings = reportSettingsSchema.parse({
     ...report.settings,
