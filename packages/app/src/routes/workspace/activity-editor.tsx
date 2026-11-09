@@ -17,7 +17,9 @@ import {
 import { Input } from "../../components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover.tsx";
 import { Textarea } from "../../components/ui/textarea.tsx";
+import { DiscardDraftDialog } from "../../components/discard-draft-dialog.tsx";
 import { copyText } from "../../lib/clipboard.ts";
+import { clearDraft, draftKey, readDraft, writeDraft } from "../../lib/drafts.ts";
 import { useOrg } from "../../lib/org.tsx";
 import { CallTimer, ConversationParticipantsPicker, detailFieldClass } from "./contact-list.tsx";
 import {
@@ -31,6 +33,41 @@ import {
 } from "./model.tsx";
 import { BrowserNotificationPrompt, ReminderTimeField } from "./shell-parts.tsx";
 import { CalendarEventForm } from "./calendar.tsx";
+type ActivityMode = "phone" | "meeting" | "email";
+type ActivityDraft = {
+  mode: ActivityMode;
+  startedAt: string;
+  outcome: MissedOutcome | null;
+  summary: string;
+  transcript: string;
+  extraIds: string[];
+  nextStatus: Status | null;
+  reminderEnabled: boolean;
+  reminderAt: string;
+  reminderMessage: string;
+};
+function restoreActivityDraft(key: string): ActivityDraft | null {
+  const saved = readDraft<ActivityDraft>(key);
+  if (!saved || !["phone", "meeting", "email"].includes(String(saved.mode))) return null;
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  return {
+    mode: saved.mode as ActivityMode,
+    startedAt: text(saved.startedAt) || new Date().toISOString(),
+    outcome:
+      typeof saved.outcome === "string" && saved.outcome in missedOutcomeLabels
+        ? saved.outcome
+        : null,
+    summary: text(saved.summary),
+    transcript: text(saved.transcript),
+    extraIds: Array.isArray(saved.extraIds)
+      ? saved.extraIds.filter((id): id is string => typeof id === "string")
+      : [],
+    nextStatus: typeof saved.nextStatus === "string" ? saved.nextStatus : null,
+    reminderEnabled: saved.reminderEnabled === true,
+    reminderAt: text(saved.reminderAt) || nextReminderTime(),
+    reminderMessage: text(saved.reminderMessage),
+  };
+}
 export function ActivityComposer({
   contact,
   related,
@@ -51,17 +88,58 @@ export function ActivityComposer({
   shortcutRequest?: number;
 }) {
   const { user } = useOrg();
-  const [mode, setMode] = useState<"phone" | "meeting" | "email" | null>(null);
+  const storageKey = draftKey("activity", user?.id, contact.id);
+  const [draft] = useState(() => restoreActivityDraft(storageKey));
+  const [mode, setMode] = useState<ActivityMode | null>(draft?.mode ?? null);
   const [takeoverOpen, setTakeoverOpen] = useState(false);
-  const [startedAt, setStartedAt] = useState("");
-  const [outcome, setOutcome] = useState<MissedOutcome | null>(null);
-  const [summary, setSummary] = useState("");
-  const [transcript, setTranscript] = useState("");
-  const [extraIds, setExtraIds] = useState<string[]>([]);
-  const [nextStatus, setNextStatus] = useState<Status | null>(null);
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderAt, setReminderAt] = useState(nextReminderTime);
-  const [reminderMessage, setReminderMessage] = useState("");
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [startedAt, setStartedAt] = useState(draft?.startedAt ?? "");
+  const [outcome, setOutcome] = useState<MissedOutcome | null>(draft?.outcome ?? null);
+  const [summary, setSummary] = useState(draft?.summary ?? "");
+  const [transcript, setTranscript] = useState(draft?.transcript ?? "");
+  const [extraIds, setExtraIds] = useState<string[]>(draft?.extraIds ?? []);
+  const [nextStatus, setNextStatus] = useState<Status | null>(draft?.nextStatus ?? null);
+  const [reminderEnabled, setReminderEnabled] = useState(draft?.reminderEnabled ?? false);
+  const [reminderAt, setReminderAt] = useState(() => draft?.reminderAt ?? nextReminderTime());
+  const [reminderMessage, setReminderMessage] = useState(draft?.reminderMessage ?? "");
+  const hasContent = Boolean(
+    summary.trim() ||
+    transcript.trim() ||
+    extraIds.length ||
+    nextStatus ||
+    outcome ||
+    reminderMessage.trim(),
+  );
+  useEffect(() => {
+    if (!mode) {
+      clearDraft(storageKey);
+      return;
+    }
+    writeDraft(storageKey, {
+      mode,
+      startedAt,
+      outcome,
+      summary,
+      transcript,
+      extraIds,
+      nextStatus,
+      reminderEnabled,
+      reminderAt,
+      reminderMessage,
+    } satisfies ActivityDraft);
+  }, [
+    storageKey,
+    mode,
+    startedAt,
+    outcome,
+    summary,
+    transcript,
+    extraIds,
+    nextStatus,
+    reminderEnabled,
+    reminderAt,
+    reminderMessage,
+  ]);
   const [phoneCopyMessage, setPhoneCopyMessage] = useState("");
   const [fileError, setFileError] = useState("");
   const callComposerRef = useRef<HTMLDivElement>(null);
@@ -82,7 +160,8 @@ export function ActivityComposer({
     setFileError("");
   }
   useEffect(() => {
-    if (shortcutRequest) start("phone");
+    // A shortcut must not overwrite a call, meeting, or email that is already being written.
+    if (shortcutRequest && (!mode || (mode !== "email" && !hasContent))) start("phone");
   }, [shortcutRequest]);
   const scrollToCallComposer = useCallback(() => {
     if (!shortcutRequest || mode !== "phone" || scrolledShortcut.current === shortcutRequest)
@@ -186,6 +265,7 @@ export function ActivityComposer({
             contactEmail={contact.email}
             busy={busy}
             mutate={mutate}
+            draftKey={draftKey("email-activity", user?.id, contact.id)}
             onClose={() => setMode(null)}
           />
         ) : (
@@ -207,10 +287,16 @@ export function ActivityComposer({
                   {mode === "phone" ? <PhoneCall size={16} /> : <Users size={16} />}
                   {mode === "phone" ? "Telefonsamtale startet" : "Nytt møte"}
                 </p>
-                <p className="text-xs text-muted-foreground">Startet {dateTimeLabel(startedAt)}</p>
+                <p className="text-xs text-muted-foreground">
+                  Startet {dateTimeLabel(startedAt)} · Utkastet lagres på denne enheten
+                </p>
                 {mode === "phone" && !outcome && <CallTimer startedAt={startedAt} />}
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setMode(null)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => (hasContent ? setDiscardOpen(true) : setMode(null))}
+              >
                 Avbryt
               </Button>
             </div>
@@ -454,6 +540,11 @@ export function ActivityComposer({
           </motion.div>
         )}
       </AnimatePresence>
+      <DiscardDraftDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        onDiscard={() => setMode(null)}
+      />
       <Dialog open={takeoverOpen} onOpenChange={setTakeoverOpen}>
         <DialogContent>
           <DialogTitle>Ta over som ansvarlig?</DialogTitle>

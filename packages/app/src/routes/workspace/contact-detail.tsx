@@ -590,6 +590,7 @@ export function ContactDetail({
             <h2 className="font-semibold">Aktivitet</h2>
             {c.status !== "duplicate" && (
               <ActivityComposer
+                key={c.id}
                 contact={c}
                 shortcutRequest={
                   composerShortcut?.kind === "phone" ? composerShortcut.nonce : undefined
