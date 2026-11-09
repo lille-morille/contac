@@ -20,6 +20,7 @@ import {
   mcpUserConnections,
   profiles,
   workspaceFiles,
+  type Database,
 } from "@contac/core/db";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
@@ -85,6 +86,11 @@ const domainReplacement = z.object({
 });
 const internalInformationGuidance =
   "Internal information (plain text, not Markdown): context for the team and AI, excluded from the contact log and exports. Use readable paragraphs without Markdown headings, links, or list syntax. Include evidence-backed relevance and useful follow-up questions; separate facts from hypotheses.";
+const selfAssignee = z
+  .literal("me")
+  .describe(
+    'Use "me" to assign the contact to the authenticated user. Resolved server-side to their team-member ID; rejected if they are not a member of this team.',
+  );
 const contactCreateFields = z.object({
   name: z.string().trim().min(1).max(200),
   companyId: uuid.optional(),
@@ -121,17 +127,21 @@ const contactCreateFields = z.object({
       "ID of a member of this team. If omitted with a nondefault status, the connected user becomes the assignee.",
     )
     .optional(),
+  assignee: selfAssignee.optional(),
   tagIds: z.array(uuid).max(30).optional(),
 });
 const hasOrganization = (input: { companyId?: string; companyName?: string }) =>
   !!(input.companyId || input.companyName);
+const singleAssignee = (input: { assignee?: "me"; assigneeId?: string | null }) =>
+  input.assignee === undefined || input.assigneeId === undefined;
+const singleAssigneeMessage = "Use either assignee or assigneeId, not both";
 const contactCreateInput = contactCreateFields
   .extend({ expectedTeamId: uuid })
-  .refine(hasOrganization, "Company ID or name is required");
-const batchContactInput = contactCreateFields.refine(
-  hasOrganization,
-  "Company ID or name is required",
-);
+  .refine(hasOrganization, "Company ID or name is required")
+  .refine(singleAssignee, singleAssigneeMessage);
+const batchContactInput = contactCreateFields
+  .refine(hasOrganization, "Company ID or name is required")
+  .refine(singleAssignee, singleAssigneeMessage);
 const contactUpdateInput = z
   .object({
     expectedTeamId: uuid,
@@ -150,7 +160,11 @@ const contactUpdateInput = z
       .optional(),
     sammendrag: z.string().max(20000).nullable().optional(),
     status: contactStatus.optional(),
-    assigneeId: uuid.nullable().optional(),
+    assigneeId: uuid
+      .nullable()
+      .describe("ID of a member of this team, or null to unassign")
+      .optional(),
+    assignee: selfAssignee.optional(),
     allowExternalAi: z.boolean().optional(),
     tagIds: z.array(uuid).max(30).optional(),
     sharedNote: z.string().max(200000).optional(),
@@ -163,7 +177,8 @@ const contactUpdateInput = z
           !["expectedTeamId", "contactId", "expectedUpdatedAt", "reviewClaimToken"].includes(key),
       ),
     "Provide at least one contact field to change",
-  );
+  )
+  .refine(singleAssignee, singleAssigneeMessage);
 const result = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
 });
@@ -171,6 +186,18 @@ const failed = (message: string) => ({
   isError: true,
   content: [{ type: "text" as const, text: message }],
 });
+const displayName = (profile: { fullName: string | null; email: string | null } | null) =>
+  profile?.fullName?.trim() || profile?.email || null;
+
+/** Describes an assignee for tool responses; null when the contact is unassigned. */
+async function describeAssignee(db: Pick<Database, "select">, assigneeId: string | null) {
+  if (!assigneeId) return null;
+  const [profile] = await db
+    .select({ fullName: profiles.fullName, email: profiles.email })
+    .from(profiles)
+    .where(eq(profiles.id, assigneeId));
+  return { id: assigneeId, displayName: displayName(profile ?? null) };
+}
 
 export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   const { orgId, createdBy } = identity;
@@ -183,19 +210,72 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "get_team_identity",
     {
       description:
-        "Verify which Contac team this authenticated connection currently uses. Call before any other Contac tool in each new conversation and compare the returned immutable team ID with your expected team ID. Stop if it differs or verification fails.",
+        'Verify which Contac team this authenticated connection currently uses and who the authenticated user is. Call before any other Contac tool in each new conversation and compare the returned immutable team ID with your expected team ID. Stop if it differs or verification fails. user.id is the authenticated user\'s team-member ID; user.isTeamMember confirms they belong to the returned team, which assignee "me" requires.',
       inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
     },
     async () => {
-      const [team] = await deps.db
-        .select({ id: organizations.id, name: organizations.name })
-        .from(organizations)
-        .where(eq(organizations.id, orgId));
-      return team ? result({ teamId: team.id, teamName: team.name }) : failed("Team not found");
+      const [[team], member, [profile]] = await Promise.all([
+        deps.db
+          .select({ id: organizations.id, name: organizations.name })
+          .from(organizations)
+          .where(eq(organizations.id, orgId)),
+        teamMember(deps.db, createdBy),
+        deps.db
+          .select({ fullName: profiles.fullName, email: profiles.email })
+          .from(profiles)
+          .where(eq(profiles.id, createdBy)),
+      ]);
+      if (!team) return failed("Team not found");
+      return result({
+        teamId: team.id,
+        teamName: team.name,
+        user: {
+          id: createdBy,
+          displayName: member?.displayName ?? displayName(profile ?? null),
+          isTeamMember: !!member,
+          teamId: team.id,
+        },
+      });
     },
   );
+
+  /** Returns the user's identity if they are an actual member of the connected team. */
+  async function teamMember(db: Pick<Database, "select">, userId: string) {
+    const [member] = await db
+      .select({ id: memberships.userId, fullName: profiles.fullName, email: profiles.email })
+      .from(memberships)
+      .leftJoin(profiles, eq(profiles.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.orgId, orgId),
+          eq(memberships.userId, userId),
+          eq(memberships.isActualMember, true),
+        ),
+      );
+    return member ? { id: member.id, displayName: displayName(member) } : null;
+  }
+
+  /**
+   * Resolves an explicit assignee to a team-member ID. `assignee: "me"` maps to
+   * the authenticated user and fails rather than falling back to anyone else.
+   */
+  async function resolveAssignee(
+    db: Pick<Database, "select">,
+    input: { assignee?: "me"; assigneeId?: string | null },
+  ): Promise<{ assigneeId?: string | null } | { error: string }> {
+    if (input.assignee === "me")
+      return (await teamMember(db, createdBy))
+        ? { assigneeId: createdBy }
+        : {
+            error:
+              'Assignee "me" could not be resolved: the authenticated user is not a member of this team',
+          };
+    if (input.assigneeId && !(await teamMember(db, input.assigneeId)))
+      return { error: "Assignee must be a team member" };
+    return { assigneeId: input.assigneeId };
+  }
 
   async function createOne(input: z.infer<typeof contactCreateInput>) {
     return deps.db.transaction(async (tx) => {
@@ -216,19 +296,8 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         if (valid.length !== tagIds.length)
           return { status: "error" as const, error: "A tag does not belong to this team" };
       }
-      if (input.assigneeId) {
-        const [member] = await tx
-          .select({ id: memberships.id })
-          .from(memberships)
-          .where(
-            and(
-              eq(memberships.orgId, orgId),
-              eq(memberships.userId, input.assigneeId),
-              eq(memberships.isActualMember, true),
-            ),
-          );
-        if (!member) return { status: "error" as const, error: "Assignee must be a team member" };
-      }
+      const assignment = await resolveAssignee(tx, input);
+      if ("error" in assignment) return { status: "error" as const, error: assignment.error };
       let companyId = input.companyId;
       if (!companyId && input.companyName) {
         const [existing] = await tx
@@ -318,7 +387,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           sharedNoteSavedAt: input.internalInformation || input.additionalInfo ? new Date() : null,
           status: input.status ?? "ikke_kontaktet",
           assigneeId:
-            input.assigneeId ??
+            assignment.assigneeId ??
             (input.status && input.status !== "ikke_kontaktet" ? createdBy : null),
           createdBy,
           allowExternalAi: true,
@@ -328,7 +397,11 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         await tx
           .insert(contactPersonTags)
           .values(tagIds.map((tagId) => ({ orgId, contactId: contact.id, tagId })));
-      return { status: "created" as const, contact };
+      return {
+        status: "created" as const,
+        contact,
+        assignee: await describeAssignee(tx, contact.assigneeId),
+      };
     });
   }
 
@@ -398,7 +471,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "get_contact",
     {
       description:
-        "Get a contact with its organization, tags, internal information, linked activities, transcripts, email details, and attachment metadata.",
+        "Get a contact with its assignee (id and displayName), organization, tags, internal information, linked activities, transcripts, email details, and attachment metadata.",
       inputSchema: z.object({ expectedTeamId: uuid, contactId: uuid }),
       annotations: { readOnlyHint: true },
       _meta: mcpOauthToolMeta(),
@@ -418,7 +491,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           ),
         );
       if (!contact) return failed("Contact not found in this team");
-      const [[company], tags, activityRows] = await Promise.all([
+      const [[company], tags, activityRows, assignee] = await Promise.all([
         deps.db
           .select()
           .from(companies)
@@ -445,6 +518,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           )
           .where(and(eq(activityContacts.orgId, orgId), eq(activityContacts.contactId, contactId)))
           .orderBy(desc(contactActivities.occurredAt)),
+        describeAssignee(deps.db, contact.assigneeId),
       ]);
       const ids = activityRows.map((row) => row.activity.id);
       const [emails, files, participants] = ids.length
@@ -482,6 +556,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         : [[], [], []];
       return result({
         contact,
+        assignee,
         internalInformation: contact.sharedNote,
         company,
         tags,
@@ -909,7 +984,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "create_contact",
     {
-      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context. ${internalInformationGuidance} Optional status and assigneeId set the initial workflow state and team member. Does not modify existing contacts.`,
+      description: `Create a contact in this team. Search for existing people first. Supply an existing companyId or a companyName to create or reuse its organization. Keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters about the person's role or relevant context. ${internalInformationGuidance} Optional status and assigneeId set the initial workflow state and team member; use assignee "me" instead of assigneeId to assign the authenticated user. The response includes assignee { id, displayName }. Does not modify existing contacts.`,
       inputSchema: contactCreateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -924,7 +999,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         queueMicrotask(() => {
           void runContactAutomations(deps, orgId, [outcome.contact.id], ["hierarchy"]);
         });
-      return result(outcome.contact);
+      return result({ ...outcome.contact, assignee: outcome.assignee });
     },
   );
 
@@ -965,19 +1040,8 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           .where(and(eq(companies.orgId, orgId), eq(companies.id, input.companyId)));
         if (!company) return { error: "Organization not found in this team" };
       }
-      if (input.assigneeId) {
-        const [member] = await tx
-          .select({ id: memberships.id })
-          .from(memberships)
-          .where(
-            and(
-              eq(memberships.orgId, orgId),
-              eq(memberships.userId, input.assigneeId),
-              eq(memberships.isActualMember, true),
-            ),
-          );
-        if (!member) return { error: "Assignee must be a team member" };
-      }
+      const assignment = await resolveAssignee(tx, input);
+      if ("error" in assignment) return { error: assignment.error };
       const tagIds = input.tagIds && [...new Set(input.tagIds)];
       if (tagIds?.length) {
         const valid = await tx
@@ -987,7 +1051,9 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         if (valid.length !== tagIds.length) return { error: "A tag does not belong to this team" };
       }
       const nextStatus = input.status ?? current.status;
+      // An explicit assignee always wins over the implicit first-move assignment.
       const firstAssignment =
+        assignment.assigneeId === undefined &&
         current.status === "ikke_kontaktet" &&
         nextStatus !== "ikke_kontaktet" &&
         !current.assigneeId;
@@ -997,6 +1063,8 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
         expectedUpdatedAt: _expectedUpdatedAt,
         reviewClaimToken: _reviewClaimToken,
         tagIds: _tags,
+        assignee: _assignee,
+        assigneeId: _assigneeId,
         sharedNote,
         internalInformation,
         ...changes
@@ -1018,6 +1086,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           ...(changes.relevance !== undefined
             ? { relevanceManual: changes.relevance !== null, relevanceSourceVersion: null }
             : {}),
+          ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId } : {}),
           ...(firstAssignment ? { assigneeId: createdBy } : {}),
           ...(sharedNote !== undefined || internalInformation !== undefined
             ? { sharedNote: internalInformation ?? sharedNote, sharedNoteSavedAt: now }
@@ -1089,7 +1158,11 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
           after: { allowExternalAi: contact.allowExternalAi },
           appliedBy: createdBy,
         });
-      return { contact, previousAllowExternalAi: current.allowExternalAi };
+      return {
+        contact,
+        assignee: await describeAssignee(tx, contact.assigneeId),
+        previousAllowExternalAi: current.allowExternalAi,
+      };
     });
     if (!outcome.contact) return { error: outcome.error ?? "Could not update contact" };
     if (input.allowExternalAi === true && !outcome.previousAllowExternalAi)
@@ -1111,13 +1184,13 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
       queueMicrotask(
         () => void runContactAutomations(deps, orgId, [input.contactId], ["hierarchy"]),
       );
-    return { contact: outcome.contact };
+    return { contact: outcome.contact, assignee: outcome.assignee };
   }
 
   server.registerTool(
     "update_contact",
     {
-      description: `Update editable fields of an active contact, including Sammendrag, Key takeaways (stikkord), and relevance. Read get_contact or next_contact first and pass contact.updatedAt as expectedUpdatedAt. During an export-review run, pass reviewClaimToken from next_contact; then call next_contact with finishClaimToken to mark it ready or needs_review. Stale edits are rejected. Omitted fields remain unchanged. ${internalInformationGuidance}`,
+      description: `Update editable fields of an active contact, including Sammendrag, Key takeaways (stikkord), and relevance. Read get_contact or next_contact first and pass contact.updatedAt as expectedUpdatedAt. During an export-review run, pass reviewClaimToken from next_contact; then call next_contact with finishClaimToken to mark it ready or needs_review. Stale edits are rejected. Omitted fields remain unchanged. Set assignee to "me" to assign the authenticated user, or assigneeId to another team member (null unassigns). The response includes assignee { id, displayName }. ${internalInformationGuidance}`,
       inputSchema: contactUpdateInput,
       annotations: { readOnlyHint: false, destructiveHint: false },
       _meta: mcpOauthToolMeta(),
@@ -1126,7 +1199,9 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
       if (!correctTeam(input.expectedTeamId))
         return failed("Contac team ID does not match the expected team. Stop using Contac.");
       const outcome = await updateOne(input);
-      return outcome.contact ? result(outcome.contact) : failed(outcome.error);
+      return outcome.contact
+        ? result({ ...outcome.contact, assignee: outcome.assignee })
+        : failed(outcome.error);
     },
   );
 
@@ -1134,7 +1209,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
     "batch_update_contacts",
     {
       description:
-        "Update up to 100 active contacts in this team. Each item takes contactId, expectedUpdatedAt from get_contact or list_contacts, and one or more update_contact fields, including relevance (low, medium, high, or null to clear). Omitted fields remain unchanged. Stale or invalid items return individual errors without stopping other updates.",
+        'Update up to 100 active contacts in this team. Each item takes contactId, expectedUpdatedAt from get_contact or list_contacts, and one or more update_contact fields, including relevance (low, medium, high, or null to clear) and assignee "me". Updated results include contactStatus and assignee { id, displayName }. Omitted fields remain unchanged. Stale or invalid items return individual errors without stopping other updates.',
       inputSchema: z.object({
         expectedTeamId: uuid,
         contacts: z.array(z.unknown()).min(1).max(100),
@@ -1169,6 +1244,8 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
                   status: "updated" as const,
                   updatedAt: outcome.contact.updatedAt,
                   relevance: outcome.contact.relevance,
+                  contactStatus: outcome.contact.status,
+                  assignee: outcome.assignee,
                 }
               : {
                   index,
@@ -1193,7 +1270,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
   server.registerTool(
     "batch_create_contacts",
     {
-      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters. ${internalInformationGuidance} Optional status and assigneeId set each contact's initial workflow state and team member. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
+      description: `Create up to 100 evidence-based contacts in this team. Search for existing people first. Each item accepts the create_contact fields: keep description (Kort beskrivelse) to a concise, evidence-based Norwegian phrase of at most ${CONTACT_DESCRIPTION_MAX_LENGTH} characters. ${internalInformationGuidance} Optional status and assigneeId set each contact's initial workflow state and team member; use assignee "me" instead of assigneeId to assign the authenticated user. Created results include assignee { id, displayName }. Duplicates are flagged for review and never created. Returns one result per input item; invalid or failed items do not stop the others.`,
       inputSchema: z.object({
         expectedTeamId: uuid,
         contacts: z.array(z.unknown()).min(1).max(100),
@@ -1225,6 +1302,7 @@ export function makeServer(deps: ApiDeps, identity: McpIdentity) {
               status: "created",
               contactId: outcome.contact.id,
               contactNumber: outcome.contact.contactNumber,
+              assignee: outcome.assignee,
             });
           } else if (outcome.status === "duplicate") {
             results.push({ index, status: "duplicate", candidates: outcome.candidates });

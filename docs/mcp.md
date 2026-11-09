@@ -79,14 +79,17 @@ workspace team name derived from the authenticated connection. If the ID does
 not match the ID in its copied instructions, or verification fails, the agent
 must tell the user and stop using Contac. A rename changes the name only, not
 the ID. Every other tool requires `expectedTeamId` and rejects a mismatch
-before it queries or writes data.
+before it queries or writes data. The response also includes `user`: the
+authenticated user's team-member `id`, `displayName`, the `teamId` it was
+checked against, and `isTeamMember`. A class admin who can open a team without
+being a member gets `isTeamMember: false` and cannot use `assignee: "me"` there.
 
 | Tool | Access |
 | --- | --- |
-| `get_team_identity` | Verify the connected team ID and workspace name |
+| `get_team_identity` | Verify the connected team ID, workspace name, and authenticated user |
 | `search_contacts` | Find team contacts and matching contact, activity, or internal-information passages by meaning and keywords |
 | `list_contacts` | Paginated active contacts and their fields |
-| `get_contact` | Contact, organization, tags, internal information, contact summary, key takeaways, activities, email records, transcripts, participants, and attachment metadata |
+| `get_contact` | Contact, assignee (`id` and `displayName`), organization, tags, internal information, contact summary, key takeaways, activities, email records, transcripts, participants, and attachment metadata |
 | `create_email_draft` | Save an unsent draft using a contact number, subject, and raw content |
 | `list_team_reference` | Organizations (with `domainsRevision`), domains (with `revision`), links, and person tags |
 | `create_domain` | Create or reuse a normalized-name domain in the connected team |
@@ -199,6 +202,18 @@ confirmed duplicate flow. The first change from `ikke_kontaktet` assigns an
 unassigned contact to the acting user, as in the workspace. Organization,
 assignee, and tag IDs must belong to the connected team. Shared-note changes
 also reset the live collaborative note so open editors receive the new text.
+
+To assign a contact to yourself, pass `assignee: "me"` to `create_contact`,
+`batch_create_contacts`, `update_contact`, or a `batch_update_contacts` item
+instead of an `assigneeId`. The server resolves it to the authenticated user's
+team-member ID. If that user is not an actual member of the connected team, the
+write is rejected; it never falls back to another member. Passing both
+`assignee` and `assigneeId` is rejected. An explicit assignee also takes
+precedence over the automatic first-move assignment. Write responses include
+`assignee` with `id` and `displayName` (or `null` when unassigned); batch
+update results also include `contactStatus`. For example, one
+`update_contact` call with `status: "skal_ringe"` and `assignee: "me"` moves
+the contact to *Skal ringe* and returns the caller as its assignee.
 
 For both creation tools, `description` (`Kort beskrivelse`) is a concise,
 evidence-based Norwegian phrase about the person's role or relevant context,

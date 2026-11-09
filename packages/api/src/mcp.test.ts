@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { contacts, organizations } from "@contac/core/db";
+import { contacts, memberships, organizations, profiles } from "@contac/core/db";
 import { makeServer, registerMcpRoutes } from "./mcp.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 import { searchTeam } from "./search.ts";
@@ -11,20 +11,49 @@ vi.mock("./search.ts", () => ({ searchTeam: vi.fn() }));
 const teamId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const userId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function fakeDeps() {
+const otherMemberId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const agentProfile = { fullName: "Kari Agent", email: "kari@example.test" };
+
+/** A awaitable query result that also supports `.for("update")` and `.limit()`. */
+function rows(values: unknown[]) {
+  return {
+    for: async () => values,
+    limit: async () => values,
+    then: (resolve: (value: unknown[]) => unknown, reject?: (error: unknown) => unknown) =>
+      Promise.resolve(values).then(resolve, reject),
+  };
+}
+
+/** Membership and profile lookups; `members` lists the team's actual members. */
+function memberLookup(table: unknown, members: string[] = [userId]) {
+  if (table === memberships)
+    return members.includes(userId) ? [{ id: userId, ...agentProfile }] : [];
+  if (table === profiles) return [agentProfile];
+  return null;
+}
+
+function fakeDeps(options: { members?: string[] } = {}) {
   const tables: unknown[] = [];
   const db = {
     select: () => ({
       from: (table: unknown) => {
         tables.push(table);
-        return {
-          where: () =>
-            Promise.resolve(table === organizations ? [{ id: teamId, name: "Team Alfa" }] : []),
-        };
+        const where = () =>
+          rows(
+            table === organizations
+              ? [{ id: teamId, name: "Team Alfa" }]
+              : (memberLookup(table, options.members) ?? []),
+          );
+        return { where, leftJoin: () => ({ where }) };
       },
     }),
   };
   return { deps: { db, supabase: {} } as unknown as ApiDeps, tables };
+}
+
+function toolResult(body: string) {
+  const message = JSON.parse(body.match(/^data: (.*)$/m)?.[1] ?? body);
+  return message.result as { isError?: boolean; content: Array<{ text: string }> };
 }
 
 async function toolRequest(deps: ApiDeps, name: string, args: object = {}) {
@@ -61,9 +90,23 @@ describe("personal MCP team boundary", () => {
     const response = await toolRequest(deps, "get_team_identity");
     expect(response.status).toBe(200);
     const body = await response.text();
-    expect(body).toContain(teamId);
-    expect(body).toContain("Team Alfa");
-    expect(tables).toEqual([organizations]);
+    expect(JSON.parse(toolResult(body).content[0]!.text)).toEqual({
+      teamId,
+      teamName: "Team Alfa",
+      user: { id: userId, displayName: "Kari Agent", isTeamMember: true, teamId },
+    });
+    expect(tables).toEqual([organizations, memberships, profiles]);
+  });
+
+  it("reports when the authenticated user is not an actual team member", async () => {
+    const { deps } = fakeDeps({ members: [] });
+    const body = await (await toolRequest(deps, "get_team_identity")).text();
+    expect(JSON.parse(toolResult(body).content[0]!.text).user).toEqual({
+      id: userId,
+      displayName: "Kari Agent",
+      isTeamMember: false,
+      teamId,
+    });
   });
 
   it("rejects a wrong expected team before any contact query", async () => {
@@ -234,9 +277,10 @@ describe("personal MCP team boundary", () => {
     let writes = 0;
     const mockTx = {
       select: () => ({
-        from: (table: unknown) => ({
-          where: () => ({ for: async () => (table === contacts ? [original] : []) }),
-        }),
+        from: (table: unknown) => {
+          const where = () => rows(table === contacts ? [original] : (memberLookup(table) ?? []));
+          return { where, leftJoin: () => ({ where }) };
+        },
       }),
       update: () => ({
         set: (changes: Record<string, unknown>) => ({
@@ -260,7 +304,12 @@ describe("personal MCP team boundary", () => {
       status: "skal_ringe",
     };
     const response = await toolRequest(deps, "update_contact", input);
-    expect(await response.text()).toContain("skal_ringe");
+    const updated = JSON.parse(toolResult(await response.text()).content[0]!.text);
+    expect(updated).toMatchObject({
+      status: "skal_ringe",
+      assigneeId: userId,
+      assignee: { id: userId, displayName: "Kari Agent" },
+    });
     expect(saved).toMatchObject({ status: "skal_ringe", assigneeId: userId });
     expect(writes).toBe(1);
     const stale = await toolRequest(deps, "update_contact", {
@@ -364,5 +413,135 @@ describe("personal MCP team boundary", () => {
     });
     expect(await wrongTeam.text()).toContain("team ID does not match");
     expect(saved).toHaveLength(2);
+  });
+  it("assigns the authenticated user with assignee me in the same status write", async () => {
+    const contactId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const original = {
+      id: contactId,
+      orgId: teamId,
+      status: "ikke_kontaktet",
+      assigneeId: otherMemberId,
+      updatedAt: new Date("2026-10-06T10:00:00.000Z"),
+      allowExternalAi: false,
+      deletedAt: null,
+    };
+    const run = async (members: string[], extra: object) => {
+      const saved: Record<string, unknown>[] = [];
+      const { deps } = fakeDeps({ members });
+      const mockTx = {
+        select: () => ({
+          from: (table: unknown) => {
+            const where = () =>
+              rows(table === contacts ? [original] : (memberLookup(table, members) ?? []));
+            return { where, leftJoin: () => ({ where }) };
+          },
+        }),
+        update: () => ({
+          set: (changes: Record<string, unknown>) => ({
+            where: () => ({
+              returning: async () => {
+                saved.push(changes);
+                return [{ ...original, ...changes }];
+              },
+            }),
+          }),
+        }),
+      };
+      Object.assign(deps.db, {
+        transaction: async (fn: (transaction: typeof mockTx) => unknown) => fn(mockTx),
+      });
+      const body = await (
+        await toolRequest(deps, "update_contact", {
+          expectedTeamId: teamId,
+          contactId,
+          expectedUpdatedAt: original.updatedAt.toISOString(),
+          status: "skal_ringe",
+          ...extra,
+        })
+      ).text();
+      return { result: toolResult(body), saved };
+    };
+
+    const self = await run([userId], { assignee: "me" });
+    expect(JSON.parse(self.result.content[0]!.text)).toMatchObject({
+      status: "skal_ringe",
+      assigneeId: userId,
+      assignee: { id: userId, displayName: "Kari Agent" },
+    });
+    expect(self.saved).toHaveLength(1);
+    expect(self.saved[0]).toMatchObject({ status: "skal_ringe", assigneeId: userId });
+    expect(self.saved[0]).not.toHaveProperty("assignee");
+
+    const nonMember = await run([], { assignee: "me" });
+    expect(nonMember.result.isError).toBe(true);
+    expect(nonMember.result.content[0]!.text).toContain('Assignee "me" could not be resolved');
+    expect(nonMember.saved).toHaveLength(0);
+
+    const both = await run([userId], { assignee: "me", assigneeId: otherMemberId });
+    expect(both.result.content[0]!.text).toContain("Use either assignee or assigneeId");
+    expect(both.saved).toHaveLength(0);
+
+    const unknown = await run([userId], { assignee: "someone" });
+    expect(unknown.result.isError).toBe(true);
+    expect(unknown.saved).toHaveLength(0);
+  });
+
+  it("keeps an explicit assignee on the first status change", async () => {
+    const contactId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const original = {
+      id: contactId,
+      orgId: teamId,
+      status: "ikke_kontaktet",
+      assigneeId: null,
+      updatedAt: new Date("2026-10-06T10:00:00.000Z"),
+      allowExternalAi: false,
+      deletedAt: null,
+    };
+    const saved: Record<string, unknown>[] = [];
+    const { deps } = fakeDeps();
+    const mockTx = {
+      select: () => ({
+        from: (table: unknown) => {
+          const where = () =>
+            rows(
+              table === contacts
+                ? [original]
+                : table === memberships
+                  ? [{ id: otherMemberId, fullName: "Ola Medlem", email: "ola@example.test" }]
+                  : table === profiles
+                    ? [{ fullName: "Ola Medlem", email: "ola@example.test" }]
+                    : [],
+            );
+          return { where, leftJoin: () => ({ where }) };
+        },
+      }),
+      update: () => ({
+        set: (changes: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              saved.push(changes);
+              return [{ ...original, ...changes }];
+            },
+          }),
+        }),
+      }),
+    };
+    Object.assign(deps.db, {
+      transaction: async (fn: (transaction: typeof mockTx) => unknown) => fn(mockTx),
+    });
+    const body = await (
+      await toolRequest(deps, "update_contact", {
+        expectedTeamId: teamId,
+        contactId,
+        expectedUpdatedAt: original.updatedAt.toISOString(),
+        status: "skal_ringe",
+        assigneeId: otherMemberId,
+      })
+    ).text();
+    expect(JSON.parse(toolResult(body).content[0]!.text).assignee).toEqual({
+      id: otherMemberId,
+      displayName: "Ola Medlem",
+    });
+    expect(saved[0]).toMatchObject({ assigneeId: otherMemberId });
   });
 });
