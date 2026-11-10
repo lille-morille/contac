@@ -10,7 +10,7 @@ The UI label is `Samtaleguide` (plural `Samtaleguider`). Preserve the Anvinn-der
 
 | Unit | Contents | Dependencies | Done |
 | --- | --- | --- | --- |
-| A | Team feature flag, call guide table, API, change signals | None | Done in code; migration not applied to any Supabase database |
+| A | Team feature flag, call guide table, API, change signals | None | Done in code; migration applied to the hosted database and flag enabled for Syretest 5 Gruppe 5 on 2026-11-10 |
 | B | `Samtaleguider` page with list and rich text editor | A | Done in code; browser acceptance against a live API pending |
 | C | Call guide panel in the live conversation composer | A | Done in code; browser acceptance pending |
 
