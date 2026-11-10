@@ -42,7 +42,9 @@ the unsaved edit. Normal connected Yjs updates continue to merge. A socket
 update does not replace text while a local write is still being sent.
 
 Scalar contact, activity, organization, tag relationship, and LOI
-edits use server-enforced expected values or a revision. A stale write receives
+edits use server-enforced expected values or a revision. Call guide title and
+Markdown body writes also use a revision (ADR 0001); their `call_guides` change
+signal invalidates the team's call guide queries. A stale write receives
 409 and the latest committed value. The workspace discards its pending value
 and shows that server value without a conflict dialog. Server commit order,
 not browser timestamps, determines which value is current. Valid edits to

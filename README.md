@@ -31,6 +31,18 @@ Use one production Supabase project and deploy the app and API images in `docker
 
 The database has read-only RLS policies for authenticated clients. All writes go through the API. Team invitations are one-use, seven-day secret links returned to an admin for sharing. The class admin can access every team. External AI features are individually configurable and off by default. Cross-team log access requires approval unless the owning team enables automatic sharing. The API image includes the Typst CLI and Liberation Sans font for LOI PDFs. Each team may edit its LOI Typst source, while new LOIs start from the supplied business-neutral template and can fork the team's latest sent LOI. See [the export and LOI specification](docs/spec/05-export-and-loi.md).
 
+## Team feature flags
+
+Staged-rollout features are enabled per team by a row in `team_feature_flags`. There is no settings UI. Known flags are listed in `packages/core/src/feature-flags.ts`; `call_guides` gates [call guides](docs/spec/10-call-guides.md). Find the team ID in `organizations.id`, then run against the database in `DATABASE_URL`:
+
+```sh
+bun --env-file=.env scripts/team-feature-flag.ts <team-id>                  # show the team's flags
+bun --env-file=.env scripts/team-feature-flag.ts <team-id> call_guides on   # enable
+bun --env-file=.env scripts/team-feature-flag.ts <team-id> call_guides off  # disable
+```
+
+Members see the change after reloading the workspace. The API answers 404 on a gated feature's routes for a team without its flag. To roll a feature out to every team, remove its gate and its name from the flag list.
+
 ## Deliberately not carried over
 
 Anvinn's tender and notice domain, scraper, source integrations, credits and payment logic, admin analytics dashboard, Norwegian copy, demo users, historic migrations, hardcoded domains, and deployment setup. The visual tokens and generic UI components were copied; branding can be changed through `packages/app/src/styles.css`.

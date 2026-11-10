@@ -26,6 +26,7 @@ import {
   Check,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
   Settings2,
   Star,
@@ -58,10 +59,12 @@ import { MultiSelect } from "../../components/ui/multi-select.tsx";
 import { Select } from "../../components/ui/select.tsx";
 import { profileAvatarUrl, request } from "../../lib/api.ts";
 import { useAuth } from "../../lib/auth.tsx";
-import { useOrg } from "../../lib/org.tsx";
+import { callGuidePage } from "../../lib/call-guide-url.ts";
+import { hasTeamFeature, useOrg } from "../../lib/org.tsx";
 import { useTeamRealtime } from "../../lib/team-realtime.tsx";
 import { useTheme } from "../../lib/theme.ts";
 import { ActivityFeed } from "./activity-feed.tsx";
+import { CallGuidesPage } from "./call-guides.tsx";
 import { TeamCalendar } from "./calendar.tsx";
 import { ContactBoard } from "./board.tsx";
 import { ContactDetail } from "./contact-detail.tsx";
@@ -105,6 +108,8 @@ export function Home() {
   const qc = useQueryClient();
   const { setContact } = useTeamRealtime();
   const [page, setPage] = useState<Page>(initialLocation.page);
+  const [guideId, setGuideId] = useState<string | null>(initialLocation.guide);
+  const restoringUrl = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(initialLocation.contact);
   const [createdHighlightId, setCreatedHighlightId] = useState<string | null>(null);
   const [createdNotice, setCreatedNotice] = useState<{ id: string; hidden: boolean } | null>(null);
@@ -356,11 +361,64 @@ export function Home() {
     if (page === "class_settings" && state.user?.onboarded && state.classSpace?.role !== "admin")
       setPage("profile");
   }, [page, state.user?.onboarded, state.classSpace?.role]);
+  const callGuidesEnabled = hasTeamFeature(org, "call_guides");
+  // Without the team flag a call guide link falls back to the default view.
   useEffect(() => {
-    setContact(
-      selectedId && data.contacts.some((item) => item.id === selectedId) ? selectedId : null,
-    );
-  }, [selectedId, org?.id, data.contacts, setContact]);
+    if (page !== "call_guides" || !org || callGuidesEnabled) return;
+    restoringUrl.current = true;
+    setPage("contacts");
+    setGuideId(null);
+  }, [page, org, callGuidesEnabled]);
+  const selectCallGuide = useCallback(
+    (id: string | null, replace?: boolean) => {
+      setGuideId((current) => {
+        if (current !== id && replace) restoringUrl.current = true;
+        return id;
+      });
+    },
+    [],
+  );
+  // Links made with callGuideHref (for example `Rediger` in the call panel)
+  // open the page in place, so the open activity draft and other state stay.
+  useEffect(() => {
+    if (!callGuidesEnabled) return;
+    const onClick = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      const anchor = (event.target as Element | null)?.closest?.("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || (anchor.target && anchor.target !== "_self"))
+        return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== "/") return;
+      const linked = readWorkspaceLocation(url.search);
+      if (linked.page !== callGuidePage) return;
+      event.preventDefault();
+      setComposerShortcut(null);
+      setInboxOpen(false);
+      setSelectedId(null);
+      setFocusedActivityId(null);
+      setFocusedPassage(null);
+      setFocusedQuery(null);
+      setPage("call_guides");
+      setGuideId(linked.guide);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [callGuidesEnabled]);
+  const presenceContactId =
+    selectedId && data.contacts.some((item) => item.id === selectedId) ? selectedId : null;
+  // Only on an actual change: setContact clears the editor in Presence, which
+  // would hide a member who has a call guide open whenever contacts refetch.
+  useEffect(() => {
+    setContact(presenceContactId);
+  }, [presenceContactId, org?.id, setContact]);
   const inboxQuery = useQuery({
     queryKey: ["inbox", org?.id],
     queryFn: () => request<InboxData>("/org/inbox", org!.id),
@@ -397,7 +455,6 @@ export function Home() {
   }, [viewScope, draftScope, drafts]);
   const viewSettings = drafts.home ?? defaultViewSettings;
   const { layout, filters, sortKey } = viewSettings;
-  const restoringUrl = useRef(false);
   const lastWorkspaceUrl = useRef<string | null>(null);
   const pendingTeamRestore = useRef<string | null>(null);
   const [urlSyncNonce, setUrlSyncNonce] = useState(0);
@@ -406,6 +463,7 @@ export function Home() {
       const location = readWorkspaceLocation(window.location.search);
       restoringUrl.current = true;
       setPage(location.page);
+      setGuideId(location.guide);
       setSelectedId(location.contact);
       setFocusedActivityId(location.activity);
       setFocusedPassage(location.passage);
@@ -454,6 +512,7 @@ export function Home() {
     const next = workspaceSearch({
       team: org.id,
       page,
+      guide: page === "call_guides" ? guideId : null,
       contact: selectedId,
       activity: selectedId ? focusedActivityId : null,
       passage: selectedId ? focusedPassage : null,
@@ -475,6 +534,7 @@ export function Home() {
     viewScope,
     draftScope,
     page,
+    guideId,
     selectedId,
     focusedActivityId,
     focusedPassage,
@@ -785,6 +845,9 @@ export function Home() {
   ];
   const overviewNav: [Page, string, typeof LayoutGrid][] = [
     ["library", "Sitater", BookOpen],
+    ...(callGuidesEnabled
+      ? ([["call_guides", "Samtaleguider", ScrollText]] as [Page, string, typeof LayoutGrid][])
+      : []),
     ["organizations", "Organisasjoner", Building2],
     ["export", "Eksport", FileText],
   ];
@@ -1502,6 +1565,15 @@ export function Home() {
             busy={busy}
             onOpen={setSelectedId}
             onRestore={(id) => void mutate(`/contacts/${id}/restore`, {})}
+          />
+        ) : page === "call_guides" && callGuidesEnabled ? (
+          <CallGuidesPage
+            key={org.id}
+            teamId={org.id}
+            members={data.members}
+            currentUserId={state.user?.id ?? null}
+            selectedId={guideId}
+            onSelect={selectCallGuide}
           />
         ) : page === "export" ? (
           <ExportPage key={org.id} orgId={org.id} onOpenContact={setSelectedId} />

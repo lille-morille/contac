@@ -15,6 +15,7 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 import type { ForwardedEmail } from "../../forwarded-email.ts";
+import { CALL_GUIDE_DEFAULT_TITLE } from "../../call-guides.ts";
 
 export const membershipRole = pgEnum("membership_role", ["owner", "admin", "member"]);
 export const runStatus = pgEnum("agent_run_status", ["queued", "running", "completed", "failed"]);
@@ -102,6 +103,17 @@ export const contactReportSettings = pgTable("contact_report_settings", {
   revision: integer("revision").notNull().default(1),
   updatedAt: updatedAt(),
 });
+export const teamFeatureFlags = pgTable(
+  "team_feature_flags",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    flag: text("flag").notNull(),
+    enabledAt: timestamp("enabled_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.orgId, table.flag] })],
+);
 export const memberships = pgTable(
   "memberships",
   {
@@ -863,4 +875,24 @@ export const savedContactViews = pgTable(
     updatedAt: updatedAt(),
   },
   (table) => [uniqueIndex("saved_views_org_name_unique").on(table.orgId, table.name)],
+);
+// (org_id, position) is also a deferrable unique constraint in the migration so a
+// whole-team reorder can be written in one statement.
+export const callGuides = pgTable(
+  "call_guides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(CALL_GUIDE_DEFAULT_TITLE),
+    body: text("body").notNull().default(""),
+    position: integer("position").notNull(),
+    revision: integer("revision").notNull().default(1),
+    createdBy: uuid("created_by").notNull(),
+    updatedBy: uuid("updated_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [uniqueIndex("call_guides_org_position_unique").on(table.orgId, table.position)],
 );

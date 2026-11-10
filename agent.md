@@ -20,6 +20,9 @@ It was reviewed and assigned on 2026-10-07. Migration 0049 was applied to Contac
 The grid export and shared review workflow is in `docs/spec/09-export-review-and-grid.md`.
 It was reviewed and assigned on 2026-10-14. Its migrations were applied to Contac Production on 2026-10-15.
 
+Call guides are specified in `docs/spec/10-call-guides.md`, reviewed and assigned on 2026-11-10.
+They are a staged rollout behind a per-team feature flag. Terms are in `GLOSSARY.md`.
+
 The Økter workflow from chunk 02 has since been retired by spec 06. The team workspace also has multiplayer change signals, collaborative text,
 Presence, and scalar conflict handling. See [docs/multiplayer.md](docs/multiplayer.md)
 for the event contract, authorization, recovery behavior, and verification steps.

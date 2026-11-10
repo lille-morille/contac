@@ -61,6 +61,12 @@ describe("team change invalidation", () => {
   ])("routes %s to the %s workspace slice", (entity, slice) => {
     expect(keysForTeamChange(change(entity), team)).toContainEqual(["contact-data", team, slice]);
   });
+  it("refreshes every call guide query on a call guide change", () => {
+    for (const operation of ["insert", "update", "delete"] as const)
+      expect(keysForTeamChange(change("call_guides", operation), team)).toEqual([
+        ["call-guides", team],
+      ]);
+  });
   it("routes shared documents and drafts to their visible panels", () => {
     expect(keysForTeamChange(change("email_drafts"), team)).toContainEqual(["email-drafts", team]);
     expect(keysForTeamChange(change("loi_versions"), team)).toContainEqual(["lois", team]);

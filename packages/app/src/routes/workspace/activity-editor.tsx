@@ -18,9 +18,10 @@ import { Input } from "../../components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../../components/ui/popover.tsx";
 import { Textarea } from "../../components/ui/textarea.tsx";
 import { DiscardDraftDialog } from "../../components/discard-draft-dialog.tsx";
+import { CallGuideComposerLayout } from "../../components/call-guide-panel.tsx";
 import { copyText } from "../../lib/clipboard.ts";
 import { clearDraft, draftKey, readDraft, writeDraft } from "../../lib/drafts.ts";
-import { useOrg } from "../../lib/org.tsx";
+import { useOrg, useTeamFeature } from "../../lib/org.tsx";
 import { CallTimer, ConversationParticipantsPicker, detailFieldClass } from "./contact-list.tsx";
 import {
   dateTimeLabel,
@@ -34,6 +35,7 @@ import {
 import { BrowserNotificationPrompt, ReminderTimeField } from "./shell-parts.tsx";
 import { CalendarEventForm } from "./calendar.tsx";
 type ActivityMode = "phone" | "meeting" | "email";
+const liveComposerClass = "space-y-4 rounded-xl bg-muted/50 p-4";
 type ActivityDraft = {
   mode: ActivityMode;
   startedAt: string;
@@ -87,7 +89,8 @@ export function ActivityComposer({
   onEnableNotifications: () => void;
   shortcutRequest?: number;
 }) {
-  const { user } = useOrg();
+  const { user, org } = useOrg();
+  const callGuidesEnabled = useTeamFeature("call_guides");
   const storageKey = draftKey("activity", user?.id, contact.id);
   const [draft] = useState(() => restoreActivityDraft(storageKey));
   const [mode, setMode] = useState<ActivityMode | null>(draft?.mode ?? null);
@@ -279,264 +282,275 @@ export function ActivityComposer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ layout: { type: "spring", stiffness: 280, damping: 34 } }}
-            className="mt-4 scroll-mt-6 space-y-4 rounded-xl bg-muted/50 p-4"
+            className={
+              callGuidesEnabled
+                ? "@container mt-4 scroll-mt-6"
+                : `mt-4 scroll-mt-6 ${liveComposerClass}`
+            }
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="flex items-center gap-2 text-sm font-semibold">
-                  {mode === "phone" ? <PhoneCall size={16} /> : <Users size={16} />}
-                  {mode === "phone" ? "Telefonsamtale startet" : "Nytt møte"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Startet {dateTimeLabel(startedAt)} · Utkastet lagres på denne enheten
-                </p>
-                {mode === "phone" && !outcome && <CallTimer startedAt={startedAt} />}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => (hasContent ? setDiscardOpen(true) : setMode(null))}
-              >
-                Avbryt
-              </Button>
-            </div>
-            {mode === "phone" && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-soft p-4">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-muted-foreground">Telefonnummer</p>
-                  <p className="break-all text-xl font-semibold tabular-nums">
-                    {contact.phone?.trim() || "Telefonnummer mangler"}
+            <CallGuideComposerLayout
+              enabled={callGuidesEnabled}
+              teamId={org?.id}
+              userId={user?.id}
+              composerClassName={liveComposerClass}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    {mode === "phone" ? <PhoneCall size={16} /> : <Users size={16} />}
+                    {mode === "phone" ? "Telefonsamtale startet" : "Nytt møte"}
                   </p>
-                  {phoneCopyMessage && (
-                    <p role="status" className="mt-1 text-xs text-muted-foreground">
-                      {phoneCopyMessage}
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Startet {dateTimeLabel(startedAt)} · Utkastet lagres på denne enheten
+                  </p>
+                  {mode === "phone" && !outcome && <CallTimer startedAt={startedAt} />}
                 </div>
-                {contact.phone?.trim() && (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        void copyText(contact.phone!.trim()).then(
-                          () => setPhoneCopyMessage("Nummer kopiert"),
-                          () => setPhoneCopyMessage("Kunne ikke kopiere nummeret"),
-                        )
-                      }
-                    >
-                      <Copy size={15} /> Kopier nummer
-                    </Button>
-                    <a
-                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                      href={`tel:${contact.phone.trim().replace(/[^\d+#*]/g, "")}`}
-                      aria-label={`Ring ${contact.name}`}
-                    >
-                      <PhoneCall size={15} /> Ring
-                    </a>
-                  </div>
-                )}
-              </div>
-            )}
-            {mode === "phone" && (
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted-foreground">
-                  Fikk du ikke snakket med personen?
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {outcome && (
-                    <Button variant="outline" size="sm" onClick={() => setOutcome(null)}>
-                      Samtale gjennomført
-                    </Button>
-                  )}
-                  {(Object.entries(missedOutcomeLabels) as [MissedOutcome, string][]).map(
-                    ([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        aria-pressed={outcome === value}
-                        className={`rounded-xl border px-3 py-1.5 text-sm transition-colors ${outcome === value ? "border-primary bg-primary-soft font-medium text-primary" : "border-border bg-card hover:border-primary/30"}`}
-                        onClick={() => {
-                          setOutcome(value);
-                          setReminderEnabled(false);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </div>
-            )}
-            <label className="block text-sm font-medium">
-              {completed ? "Notater og sammendrag" : "Notat (valgfritt)"}
-              {completed && (
-                <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                  Dette havner i loggen på kontaktlogg-eksport
-                </span>
-              )}
-              <Textarea
-                className="mt-2 min-h-32 bg-card"
-                placeholder={
-                  completed
-                    ? "Skriv notater under samtalen eller oppsummer det viktigste …"
-                    : "Hva skjedde?"
-                }
-                value={summary}
-                onChange={(event) => setSummary(event.target.value)}
-                maxLength={20_000}
-              />
-            </label>
-            <AnimatePresence mode="wait" initial={false}>
-              {completed ? (
-                <motion.div
-                  key="conversation-fields"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="space-y-4"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => (hasContent ? setDiscardOpen(true) : setMode(null))}
                 >
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <label className="text-sm font-medium" htmlFor="activity-transcript">
-                        Transkripsjon (valgfritt)
-                      </label>
-                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs hover:border-primary/30">
-                        <Upload size={14} /> Last opp tekstfil
-                        <input
-                          type="file"
-                          accept=".txt,.md,.srt,.vtt,text/plain,text/markdown"
-                          className="sr-only"
-                          onChange={(event) => {
-                            void importTranscript(event.target.files?.[0]);
-                            event.target.value = "";
-                          }}
-                        />
-                      </label>
-                    </div>
-                    <Textarea
-                      id="activity-transcript"
-                      className="mt-2 min-h-28 bg-card"
-                      placeholder="Lim inn transkripsjon, eller last opp TXT, MD, SRT eller VTT …"
-                      value={transcript}
-                      onChange={(event) => setTranscript(event.target.value)}
-                      maxLength={200_000}
-                    />
-                    {fileError && (
-                      <p role="alert" className="mt-1 text-xs text-risk">
-                        {fileError}
+                  Avbryt
+                </Button>
+              </div>
+              {mode === "phone" && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-soft p-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground">Telefonnummer</p>
+                    <p className="break-all text-xl font-semibold tabular-nums">
+                      {contact.phone?.trim() || "Telefonnummer mangler"}
+                    </p>
+                    {phoneCopyMessage && (
+                      <p role="status" className="mt-1 text-xs text-muted-foreground">
+                        {phoneCopyMessage}
                       </p>
                     )}
                   </div>
-                  <ConversationParticipantsPicker
-                    people={related}
-                    selectedIds={extraIds}
-                    onChange={setExtraIds}
-                  />
-                  <div>
-                    <p className="mb-2 text-sm font-medium">
-                      Hva skal statusen være etter samtalen?
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-3">
-                      {statusChoices.map((choice) => (
-                        <button
-                          key={choice.value}
-                          type="button"
-                          aria-pressed={nextStatus === choice.value}
-                          className={`rounded-xl border p-3 text-left transition-colors ${nextStatus === choice.value ? "border-primary bg-primary-soft" : "border-border bg-card hover:border-primary/30"}`}
-                          onClick={() => setNextStatus(choice.value)}
-                        >
-                          <span className="flex items-center gap-2 text-sm font-medium">
-                            <ContactStatusIcon status={choice.value} size={16} /> {choice.title}
-                          </span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {choice.explanation}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="missed-call-fields"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="rounded-xl border border-border bg-card p-3"
-                >
-                  <p className="text-sm font-medium">Vil du bli påminnet om å prøve igjen?</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button
-                      variant={reminderEnabled ? "secondary" : "outline"}
-                      size="sm"
-                      onClick={() => setReminderEnabled((enabled) => !enabled)}
-                      aria-pressed={reminderEnabled}
-                    >
-                      {reminderEnabled ? "Fjern påminnelse" : "Legg til påminnelse"}
-                    </Button>
-                  </div>
-                  <AnimatePresence initial={false}>
-                    {reminderEnabled && (
-                      <motion.div
-                        key="reminder-fields"
-                        initial={{ opacity: 0, height: 0, y: -6 }}
-                        animate={{ opacity: 1, height: "auto", y: 0 }}
-                        exit={{ opacity: 0, height: 0, y: -6 }}
-                        transition={{ duration: 0.2, ease: "easeOut" }}
-                        className="overflow-hidden"
+                  {contact.phone?.trim() && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          void copyText(contact.phone!.trim()).then(
+                            () => setPhoneCopyMessage("Nummer kopiert"),
+                            () => setPhoneCopyMessage("Kunne ikke kopiere nummeret"),
+                          )
+                        }
                       >
-                        <div className="space-y-2 pt-3">
-                          <ReminderTimeField value={reminderAt} onChange={setReminderAt} />
-                          <Input
-                            value={reminderMessage}
-                            onChange={(event) => setReminderMessage(event.target.value)}
-                            maxLength={2000}
-                            placeholder="Ring opp igjen (valgfritt)"
-                            aria-label="Påminnelsesmelding"
-                          />
-                          <BrowserNotificationPrompt
-                            permission={notificationPermission}
-                            onEnable={onEnableNotifications}
-                          />
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
+                        <Copy size={15} /> Kopier nummer
+                      </Button>
+                      <a
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                        href={`tel:${contact.phone.trim().replace(/[^\d+#*]/g, "")}`}
+                        aria-label={`Ring ${contact.name}`}
+                      >
+                        <PhoneCall size={15} /> Ring
+                      </a>
+                    </div>
+                  )}
+                </div>
               )}
-            </AnimatePresence>
-            <div className="grid gap-2 border-t border-border pt-3 md:grid-cols-2">
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-xl border border-primary bg-primary-soft p-3 text-left text-sm font-medium text-primary transition-colors hover:bg-primary-soft/70 disabled:opacity-50"
-                onClick={() =>
-                  void saveActivity(completed ? (nextStatus ?? undefined) : "follow_up")
-                }
-              >
-                <span className="flex items-center gap-2">
-                  {chosenStatus && <ContactStatusIcon status={chosenStatus.value} size={16} />}
-                  {completed
-                    ? chosenStatus
-                      ? `Legg til aktivitet og flytt til ${chosenStatus.title}`
-                      : "Legg til aktivitet"
-                    : "Flytt til Follow up / Ring igjen og legg til aktivitet"}
-                </span>
-              </button>
-              {(outcome || nextStatus) && (
+              {mode === "phone" && (
+                <div>
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    Fikk du ikke snakket med personen?
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {outcome && (
+                      <Button variant="outline" size="sm" onClick={() => setOutcome(null)}>
+                        Samtale gjennomført
+                      </Button>
+                    )}
+                    {(Object.entries(missedOutcomeLabels) as [MissedOutcome, string][]).map(
+                      ([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={outcome === value}
+                          className={`rounded-xl border px-3 py-1.5 text-sm transition-colors ${outcome === value ? "border-primary bg-primary-soft font-medium text-primary" : "border-border bg-card hover:border-primary/30"}`}
+                          onClick={() => {
+                            setOutcome(value);
+                            setReminderEnabled(false);
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
+              <label className="block text-sm font-medium">
+                {completed ? "Notater og sammendrag" : "Notat (valgfritt)"}
+                {completed && (
+                  <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                    Dette havner i loggen på kontaktlogg-eksport
+                  </span>
+                )}
+                <Textarea
+                  className="mt-2 min-h-32 bg-card"
+                  placeholder={
+                    completed
+                      ? "Skriv notater under samtalen eller oppsummer det viktigste …"
+                      : "Hva skjedde?"
+                  }
+                  value={summary}
+                  onChange={(event) => setSummary(event.target.value)}
+                  maxLength={20_000}
+                />
+              </label>
+              <AnimatePresence mode="wait" initial={false}>
+                {completed ? (
+                  <motion.div
+                    key="conversation-fields"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="space-y-4"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-sm font-medium" htmlFor="activity-transcript">
+                          Transkripsjon (valgfritt)
+                        </label>
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs hover:border-primary/30">
+                          <Upload size={14} /> Last opp tekstfil
+                          <input
+                            type="file"
+                            accept=".txt,.md,.srt,.vtt,text/plain,text/markdown"
+                            className="sr-only"
+                            onChange={(event) => {
+                              void importTranscript(event.target.files?.[0]);
+                              event.target.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <Textarea
+                        id="activity-transcript"
+                        className="mt-2 min-h-28 bg-card"
+                        placeholder="Lim inn transkripsjon, eller last opp TXT, MD, SRT eller VTT …"
+                        value={transcript}
+                        onChange={(event) => setTranscript(event.target.value)}
+                        maxLength={200_000}
+                      />
+                      {fileError && (
+                        <p role="alert" className="mt-1 text-xs text-risk">
+                          {fileError}
+                        </p>
+                      )}
+                    </div>
+                    <ConversationParticipantsPicker
+                      people={related}
+                      selectedIds={extraIds}
+                      onChange={setExtraIds}
+                    />
+                    <div>
+                      <p className="mb-2 text-sm font-medium">
+                        Hva skal statusen være etter samtalen?
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        {statusChoices.map((choice) => (
+                          <button
+                            key={choice.value}
+                            type="button"
+                            aria-pressed={nextStatus === choice.value}
+                            className={`rounded-xl border p-3 text-left transition-colors ${nextStatus === choice.value ? "border-primary bg-primary-soft" : "border-border bg-card hover:border-primary/30"}`}
+                            onClick={() => setNextStatus(choice.value)}
+                          >
+                            <span className="flex items-center gap-2 text-sm font-medium">
+                              <ContactStatusIcon status={choice.value} size={16} /> {choice.title}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {choice.explanation}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="missed-call-fields"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                    className="rounded-xl border border-border bg-card p-3"
+                  >
+                    <p className="text-sm font-medium">Vil du bli påminnet om å prøve igjen?</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        variant={reminderEnabled ? "secondary" : "outline"}
+                        size="sm"
+                        onClick={() => setReminderEnabled((enabled) => !enabled)}
+                        aria-pressed={reminderEnabled}
+                      >
+                        {reminderEnabled ? "Fjern påminnelse" : "Legg til påminnelse"}
+                      </Button>
+                    </div>
+                    <AnimatePresence initial={false}>
+                      {reminderEnabled && (
+                        <motion.div
+                          key="reminder-fields"
+                          initial={{ opacity: 0, height: 0, y: -6 }}
+                          animate={{ opacity: 1, height: "auto", y: 0 }}
+                          exit={{ opacity: 0, height: 0, y: -6 }}
+                          transition={{ duration: 0.2, ease: "easeOut" }}
+                          className="overflow-hidden"
+                        >
+                          <div className="space-y-2 pt-3">
+                            <ReminderTimeField value={reminderAt} onChange={setReminderAt} />
+                            <Input
+                              value={reminderMessage}
+                              onChange={(event) => setReminderMessage(event.target.value)}
+                              maxLength={2000}
+                              placeholder="Ring opp igjen (valgfritt)"
+                              aria-label="Påminnelsesmelding"
+                            />
+                            <BrowserNotificationPrompt
+                              permission={notificationPermission}
+                              onEnable={onEnableNotifications}
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <div className="grid gap-2 border-t border-border pt-3 md:grid-cols-2">
                 <button
                   type="button"
                   disabled={busy}
-                  className="rounded-xl border border-border bg-card p-3 text-left text-sm font-medium transition-colors hover:border-primary/30 disabled:opacity-50"
-                  onClick={() => void saveActivity()}
+                  className="rounded-xl border border-primary bg-primary-soft p-3 text-left text-sm font-medium text-primary transition-colors hover:bg-primary-soft/70 disabled:opacity-50"
+                  onClick={() =>
+                    void saveActivity(completed ? (nextStatus ?? undefined) : "follow_up")
+                  }
                 >
-                  Legg til aktivitet uten statusendring
+                  <span className="flex items-center gap-2">
+                    {chosenStatus && <ContactStatusIcon status={chosenStatus.value} size={16} />}
+                    {completed
+                      ? chosenStatus
+                        ? `Legg til aktivitet og flytt til ${chosenStatus.title}`
+                        : "Legg til aktivitet"
+                      : "Flytt til Follow up / Ring igjen og legg til aktivitet"}
+                  </span>
                 </button>
-              )}
-            </div>
+                {(outcome || nextStatus) && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="rounded-xl border border-border bg-card p-3 text-left text-sm font-medium transition-colors hover:border-primary/30 disabled:opacity-50"
+                    onClick={() => void saveActivity()}
+                  >
+                    Legg til aktivitet uten statusendring
+                  </button>
+                )}
+              </div>
+            </CallGuideComposerLayout>
           </motion.div>
         )}
       </AnimatePresence>

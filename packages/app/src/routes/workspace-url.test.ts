@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { callGuideHref } from "../lib/call-guide-url.ts";
 import { readWorkspaceLocation, workspaceSearch } from "./workspace/model.tsx";
 
 describe("workspace links", () => {
@@ -41,5 +42,17 @@ describe("workspace links", () => {
     );
     expect(location.mapFocus).toEqual({ kind: "all", id: null });
     expect(workspaceSearch(location)).not.toContain("mapDomain");
+  });
+
+  it("links to the call guide page with the selected guide", () => {
+    const id = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const linked = readWorkspaceLocation(new URL(callGuideHref(id), "https://x.no").search);
+    expect(linked.page).toBe("call_guides");
+    expect(linked.guide).toBe(id);
+    expect(readWorkspaceLocation(workspaceSearch(linked)).guide).toBe(id);
+    const page = readWorkspaceLocation(new URL(callGuideHref(), "https://x.no").search);
+    expect(page.page).toBe("call_guides");
+    expect(page.guide).toBeNull();
+    expect(readWorkspaceLocation(`?page=contacts&guide=${id}`).guide).toBeNull();
   });
 });

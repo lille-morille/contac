@@ -1,0 +1,27 @@
+/* Editor-only styling for the Samtaleguider editor. Guide typography lives in
+ * `.call-guide-prose` (styles.css), shared with the read-only call guide panel. */
+.call-guide-editor .ProseMirror {
+  min-height: 16rem;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.call-guide-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-foreground);
+}
+
+.call-guide-editor .ProseMirror .call-guide-slash {
+  border-radius: 0.375rem;
+  background: var(--primary-soft);
+  padding: 0 0.125rem;
+}
+
+.call-guide-editor .ProseMirror hr.ProseMirror-selectednode {
+  outline: 2px solid color-mix(in oklab, var(--ring) 50%, transparent);
+  outline-offset: 2px;
+}

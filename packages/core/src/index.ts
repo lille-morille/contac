@@ -1,6 +1,13 @@
 export type { Database } from "./db/client.ts";
 export { CONTACT_DESCRIPTION_MAX_LENGTH } from "./contact-description.ts";
 export { isActivityAiEligible } from "./checkin.ts";
+export { TEAM_FEATURE_FLAGS, isTeamFeatureFlag } from "./feature-flags.ts";
+export type { TeamFeatureFlag } from "./feature-flags.ts";
+export {
+  CALL_GUIDE_BODY_MAX_LENGTH,
+  CALL_GUIDE_DEFAULT_TITLE,
+  CALL_GUIDE_TITLE_MAX_LENGTH,
+} from "./call-guides.ts";
 export { parseInlineForward } from "./forwarded-email.ts";
 export type { ForwardedEmail } from "./forwarded-email.ts";
 export {

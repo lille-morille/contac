@@ -22,6 +22,8 @@ import { requireAuth } from "./middleware/auth.ts";
 import { requireOrg } from "./middleware/org.ts";
 import { registerContactRoutes } from "./contacts.ts";
 import { registerCalendarRoutes } from "./calendar.ts";
+import { registerCallGuideRoutes } from "./call-guides.ts";
+import { featureFlagsByTeam } from "./feature-flags.ts";
 import { registerActivityFeatureRoutes } from "./activity-features.ts";
 import { registerEmailCrossTeamRoutes, registerInboundEmailRoute } from "./email-cross-team.ts";
 import { registerSearchRoutes } from "./search.ts";
@@ -219,6 +221,10 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
             .innerJoin(organizations, eq(memberships.orgId, organizations.id))
             .where(and(eq(memberships.userId, user.id), eq(memberships.isActualMember, true)))
             .orderBy(asc(organizations.name));
+    const flags = await featureFlagsByTeam(
+      deps.db,
+      memberRows.map((row) => row.id),
+    );
     const [profile] = await deps.db
       .select({
         name: profiles.fullName,
@@ -239,7 +245,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
         onboarded: !!profile?.onboardedAt,
       },
       class: classRow ?? null,
-      organizations: memberRows,
+      organizations: memberRows.map((row) => ({ ...row, featureFlags: flags.get(row.id) ?? [] })),
       selectedTeamId: profile?.selectedTeamId ?? null,
     });
   });
@@ -463,6 +469,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
   });
   registerContactRoutes(app, deps);
   registerCalendarRoutes(app, deps);
+  registerCallGuideRoutes(app, deps);
   registerActivityFeatureRoutes(app, deps);
   registerSearchRoutes(app, deps);
   registerAiRoutes(app, deps);

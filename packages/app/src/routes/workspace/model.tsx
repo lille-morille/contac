@@ -216,6 +216,8 @@ export type MapFocus = { kind: "all" | "company"; id: string | null };
 export type WorkspaceLocation = {
   team: string | null;
   page: Page;
+  /** Selected call guide on the `call_guides` page. */
+  guide: string | null;
   contact: string | null;
   activity: string | null;
   passage: string | null;
@@ -235,6 +237,7 @@ export const workspacePages: Page[] = [
   "deleted",
   "organizations",
   "library",
+  "call_guides",
   "export",
   "profile",
   "team_settings",
@@ -259,6 +262,7 @@ export function readWorkspaceLocation(search: string): WorkspaceLocation {
   return {
     team: params.get("team"),
     page,
+    guide: page === "call_guides" ? uuid(params.get("guide")) : null,
     contact: uuid(params.get("contact")),
     activity: ["note", "additional_info"].includes(params.get("activity") ?? "")
       ? "note"
@@ -288,6 +292,7 @@ export function workspaceSearch(location: WorkspaceLocation): string {
   const params = new URLSearchParams();
   if (location.team) params.set("team", location.team);
   params.set("page", location.page);
+  if (location.page === "call_guides" && location.guide) params.set("guide", location.guide);
   if (location.contact) params.set("contact", location.contact);
   if (location.activity) params.set("activity", location.activity);
   if (location.passage) params.set("passage", location.passage);
@@ -406,6 +411,7 @@ export type Page =
   | "deleted"
   | "organizations"
   | "library"
+  | "call_guides"
   | "export"
   | "profile"
   | "team_settings"

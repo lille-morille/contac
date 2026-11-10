@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { TeamFeatureFlag } from "@contac/core";
 import { request } from "./api.ts";
 import { useAuth } from "./auth.tsx";
 
@@ -15,6 +16,8 @@ export interface Organization {
   name: string;
   slug: string;
   role: "owner" | "admin" | "member";
+  /** Staged-rollout flags set for this team. Loaded with `/me`; changes need a reload. */
+  featureFlags: TeamFeatureFlag[];
 }
 interface OrgState {
   organizations: Organization[];
@@ -128,6 +131,16 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       {children}
     </Context.Provider>
   );
+}
+export function hasTeamFeature(
+  org: Pick<Organization, "featureFlags"> | null | undefined,
+  flag: TeamFeatureFlag,
+): boolean {
+  return !!org?.featureFlags?.includes(flag);
+}
+/** Whether the selected team has a staged-rollout feature flag. */
+export function useTeamFeature(flag: TeamFeatureFlag): boolean {
+  return hasTeamFeature(useOrg().org, flag);
 }
 export function useOrg() {
   const value = useContext(Context);
