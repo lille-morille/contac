@@ -20,6 +20,7 @@ import { Textarea } from "../../components/ui/textarea.tsx";
 import { DiscardDraftDialog } from "../../components/discard-draft-dialog.tsx";
 import { CallGuideComposerLayout } from "../../components/call-guide-panel.tsx";
 import { copyText } from "../../lib/clipboard.ts";
+import { openExternalProtocol } from "../../lib/external-protocol.ts";
 import { clearDraft, draftKey, readDraft, writeDraft } from "../../lib/drafts.ts";
 import { useOrg, useTeamFeature } from "../../lib/org.tsx";
 import { CallTimer, ConversationParticipantsPicker, detailFieldClass } from "./contact-list.tsx";
@@ -344,6 +345,12 @@ export function ActivityComposer({
                         className={buttonVariants({ variant: "outline", size: "sm" })}
                         href={`tel:${contact.phone.trim().replace(/[^\d+#*]/g, "")}`}
                         aria-label={`Ring ${contact.name}`}
+                        onClick={(event) => {
+                          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+                            return;
+                          event.preventDefault();
+                          openExternalProtocol(event.currentTarget.href);
+                        }}
                       >
                         <PhoneCall size={15} /> Ring
                       </a>
