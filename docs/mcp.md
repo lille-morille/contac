@@ -111,6 +111,18 @@ being a member gets `isTeamMember: false` and cannot use `assignee: "me"` there.
 | `create_calendar_event` / `update_calendar_event` / `delete_calendar_event` | Create, replace, or delete a shared meeting or deadline |
 | `list_calendar_reminders` / `get_calendar_reminder` | Read the connected user's private contact reminders |
 | `create_calendar_reminder` / `update_calendar_reminder` / `dismiss_calendar_reminder` / `delete_calendar_reminder` | Manage the connected user's private reminders |
+| `create_teams` | Class admins only: create teams in the connected team's class, optionally with invite links |
+
+`create_teams` takes `expectedTeamId`, `names` (1–50 team names of 2–100
+characters), and optional `createInviteLinks` (default `false`). It is limited
+to class admins of the class that contains the connected team; anyone else gets
+an error before any write. Each new team gets the default person tags and no
+members. A name matching an existing team in the class after case and spacing
+normalization returns `exists` without creating a second team, so a retry is
+safe. Results keep the input `index` and include the team `id` and `name`, plus
+`inviteUrl` for created teams when requested. Invite links are the same reusable
+links the team settings page creates; members join through them, and the tool
+cannot add people by name.
 
 The agent cannot delete contacts, edit or delete activities, change team settings,
 or read another user's reminders, inbox suggestions, AI credentials, or another team's data. Calendar tools can delete

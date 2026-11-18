@@ -32,6 +32,7 @@ import { replaceCompanyDomains } from "./domain-management.ts";
 import { emailCaptureAddress } from "./email-capture-address.ts";
 import { registerMcpCalendarTools } from "./mcp-calendar.ts";
 import { registerMcpExportReviewTools } from "./mcp-export-review.ts";
+import { registerMcpTeamTools } from "./mcp-teams.ts";
 import { searchTeam } from "./search.ts";
 import {
   authorizeMcpOauth,
@@ -199,12 +200,13 @@ async function describeAssignee(db: Pick<Database, "select">, assigneeId: string
   return { id: assigneeId, displayName: displayName(profile ?? null) };
 }
 
-export function makeServer(deps: ApiDeps, identity: McpIdentity) {
+export function makeServer(deps: ApiDeps, identity: McpIdentity, appOrigin = "") {
   const { orgId, createdBy } = identity;
   const server = new McpServer({ name: "contac", version: "1.0.0" });
   const correctTeam = (expectedTeamId: string) => expectedTeamId === orgId;
   registerMcpCalendarTools(server, deps, identity);
   registerMcpExportReviewTools(server, deps, identity);
+  registerMcpTeamTools(server, deps, identity, appOrigin);
 
   server.registerTool(
     "get_team_identity",
@@ -1407,7 +1409,7 @@ export function registerMcpRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrigin: s
         "WWW-Authenticate": mcpOauthChallenge(appOrigin),
       });
     }
-    const handler = createMcpHandler(() => makeServer(deps, identity));
+    const handler = createMcpHandler(() => makeServer(deps, identity, appOrigin));
     const response = await handler.fetch(c.req.raw);
     if (response.status >= 400)
       console.warn(

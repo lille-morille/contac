@@ -191,6 +191,7 @@ describe("personal MCP team boundary", () => {
       "update_calendar_reminder",
       "dismiss_calendar_reminder",
       "delete_calendar_reminder",
+      "create_teams",
     ]) {
       const response = await toolRequest(deps, name);
       expect(response.status).toBe(200);

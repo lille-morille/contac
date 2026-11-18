@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import {
   agentEvents,
@@ -10,7 +10,6 @@ import {
   memberships,
   messages,
   organizations,
-  personTags,
   profiles,
   workspaceFiles,
 } from "@contac/core/db";
@@ -34,11 +33,12 @@ import { registerLoiRoutes } from "./loi.ts";
 import { registerCollabRoutes } from "./collab.ts";
 import { registerMcpRoutes } from "./mcp.ts";
 import { registerTeamAdminRoutes } from "./team-admin.ts";
+import { createClassTeam, createTeamInviteLink, hashInvitationToken } from "./team-creation.ts";
 import type { ApiDeps, ApiEnv } from "./types.ts";
 
 const uuid = z.uuid();
 const invitationInput = z.object({});
-const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+const hash = hashInvitationToken;
 const accountEmail = (id: string) => `${id}@accounts.contac.invalid`;
 const accountCode = (id: string, password: string) => `cc1.${id}.${password}`;
 const invitationIsActive = (
@@ -364,29 +364,7 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
         .where(and(eq(classMemberships.userId, user.id), eq(classMemberships.role, "admin")))
         .limit(1);
       if (!admin) return c.json({ error: "Class admin access required" }, 403);
-      const name = c.req.valid("json").name;
-      const slug = `${
-        name
-          .toLowerCase()
-          .normalize("NFKD")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "")
-          .slice(0, 40) || "org"
-      }-${randomBytes(3).toString("hex")}`;
-      const org = await deps.db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(organizations)
-          .values({ name, slug, classId: admin.classId })
-          .returning();
-        await tx.insert(personTags).values(
-          ["Portvokter", "Ildsjel", "Bruker", "Beslutningstaker"].map((name) => ({
-            orgId: created.id,
-            name,
-            normalizedName: name.toLocaleLowerCase("nb-NO"),
-          })),
-        );
-        return created;
-      });
+      const org = await createClassTeam(deps.db, admin.classId, c.req.valid("json").name);
       return c.json(org, 201);
     },
   );
@@ -457,15 +435,8 @@ export function createApp(deps: ApiDeps, appOrigin: string) {
   });
   app.post("/v1/org/invitations", zValidator("json", invitationInput), async (c) => {
     const org = c.get("org");
-    const token = randomBytes(32).toString("base64url");
-    await deps.db.insert(invitations).values({
-      orgId: org.id,
-      email: null,
-      role: "admin",
-      tokenHash: hash(token),
-      invitedBy: c.get("user").id,
-    });
-    return c.json({ inviteUrl: `${appOrigin}/invite?token=${encodeURIComponent(token)}` }, 201);
+    const inviteUrl = await createTeamInviteLink(deps.db, appOrigin, org.id, c.get("user").id);
+    return c.json({ inviteUrl }, 201);
   });
   registerContactRoutes(app, deps);
   registerCalendarRoutes(app, deps);
