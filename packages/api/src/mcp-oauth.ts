@@ -5,6 +5,7 @@ import {
   organizations,
   profiles,
 } from "@contac/core/db";
+import { checkOAuthRedirect } from "@contac/core";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -150,18 +151,7 @@ export async function authorizeMcpOauth(
   }
 }
 
-function safeRedirect(value: unknown): string {
-  if (typeof value !== "string") throw new Error("OAuth response has no redirect URL");
-  const url = new URL(value);
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (
-    url.username ||
-    url.password ||
-    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
-  )
-    throw new Error("OAuth response has an unsafe redirect URL");
-  return url.toString();
-}
+const safeRedirect = checkOAuthRedirect;
 
 async function supabaseOAuthRequest(path: string, accessToken: string, body?: unknown) {
   const url = process.env.SUPABASE_URL?.replace(/\/+$/, "");
@@ -177,7 +167,14 @@ async function supabaseOAuthRequest(path: string, accessToken: string, body?: un
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!response.ok || !data) throw new Error("Supabase rejected the OAuth request");
+  if (!response.ok || !data) {
+    const detail = [data?.error_code, data?.msg ?? data?.error_description ?? data?.error]
+      .filter((part) => typeof part === "string" && part)
+      .join(": ");
+    throw new Error(
+      `Supabase rejected the OAuth request (${response.status}${detail ? `, ${detail}` : ""})`,
+    );
+  }
   return data;
 }
 
@@ -229,8 +226,10 @@ export function registerMcpOauthRoutes(app: Hono<ApiEnv>, deps: ApiDeps, appOrig
         { action: "approve" },
       );
       return c.json({ redirectUrl: safeRedirect(approved.redirect_url) });
-    } catch {
-      return c.json({ error: "Kunne ikke fullføre OAuth-godkjenningen" }, 502);
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      console.warn(`[mcp-oauth] approval failed for user ${user.id}: ${reason}`);
+      return c.json({ error: `Kunne ikke fullføre OAuth-godkjenningen: ${reason}` }, 502);
     }
   });
 }

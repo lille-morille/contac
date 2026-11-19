@@ -1,5 +1,6 @@
 export type { Database } from "./db/client.ts";
 export { CONTACT_DESCRIPTION_MAX_LENGTH } from "./contact-description.ts";
+export { checkOAuthRedirect, describeOAuthRedirect } from "./oauth-redirect.ts";
 export { isActivityAiEligible } from "./checkin.ts";
 export { TEAM_FEATURE_FLAGS, isTeamFeatureFlag } from "./feature-flags.ts";
 export type { TeamFeatureFlag } from "./feature-flags.ts";

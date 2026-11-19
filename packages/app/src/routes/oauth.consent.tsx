@@ -1,3 +1,4 @@
+import { checkOAuthRedirect } from "@contac/core";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "../components/ui/button.tsx";
@@ -19,15 +20,7 @@ export const Route = createFileRoute("/oauth/consent")({
 });
 
 function returnToClient(value: string) {
-  const url = new URL(value);
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (
-    url.username ||
-    url.password ||
-    (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
-  )
-    throw new Error("Ugyldig returadresse fra OAuth-tjenesten");
-  window.location.assign(url.toString());
+  window.location.assign(checkOAuthRedirect(value));
 }
 
 function OAuthConsent() {
